@@ -1,93 +1,133 @@
-# grafana-plugin
+# Grafana data source plugin template
 
+This template is a starting point for building a Data Source Plugin for Grafana.
 
+## What are Grafana data source plugins?
+
+Grafana supports a wide range of data sources, including Prometheus, MySQL, and even Datadog. There’s a good chance you can already visualize metrics from the systems you have set up. In some cases, though, you already have an in-house metrics solution that you’d like to add to your Grafana dashboards. Grafana Data Source Plugins enables integrating such solutions with Grafana.
 
 ## Getting started
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+### Backend
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+1. Update [Grafana plugin SDK for Go](https://grafana.com/developers/plugin-tools/key-concepts/backend-plugins/grafana-plugin-sdk-for-go) dependency to the latest minor version:
 
-## Add your files
+   ```bash
+   go get -u github.com/grafana/grafana-plugin-sdk-go
+   go mod tidy
+   ```
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
+2. Build backend plugin binaries for Linux, Windows and Darwin:
 
-```
-cd existing_repo
-git remote add origin https://gitlab.com/hydrolix/grafana-plugin.git
-git branch -M main
-git push -uf origin main
-```
+   ```bash
+   mage -v
+   ```
 
-## Integrate with your tools
+3. List all available Mage targets for additional commands:
 
-- [ ] [Set up project integrations](https://gitlab.com/hydrolix/grafana-plugin/-/settings/integrations)
+   ```bash
+   mage -l
+   ```
 
-## Collaborate with your team
+### Frontend
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+1. Install dependencies
 
-## Test and Deploy
+   ```bash
+   npm install
+   ```
 
-Use the built-in continuous integration in GitLab.
+2. Build plugin in development mode and run in watch mode
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+   ```bash
+   npm run dev
+   ```
 
-***
+3. Build plugin in production mode
 
-# Editing this README
+   ```bash
+   npm run build
+   ```
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+4. Run the tests (using Jest)
 
-## Suggestions for a good README
+   ```bash
+   # Runs the tests and watches for changes, requires git init first
+   npm run test
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+   # Exits after running all the tests
+   npm run test:ci
+   ```
 
-## Name
-Choose a self-explaining name for your project.
+5. Spin up a Grafana instance and run the plugin inside it (using Docker)
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+   ```bash
+   npm run server
+   ```
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+6. Run the E2E tests (using Cypress)
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+   ```bash
+   # Spins up a Grafana instance first that we tests against
+   npm run server
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+   # Starts the tests
+   npm run e2e
+   ```
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+7. Run the linter
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+   ```bash
+   npm run lint
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+   # or
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+   npm run lint:fix
+   ```
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+# Distributing your plugin
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+When distributing a Grafana plugin either within the community or privately the plugin must be signed so the Grafana application can verify its authenticity. This can be done with the `@grafana/sign-plugin` package.
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+_Note: It's not necessary to sign a plugin during development. The docker development environment that is scaffolded with `@grafana/create-plugin` caters for running the plugin without a signature._
 
-## License
-For open source projects, say how it is licensed.
+## Initial steps
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+Before signing a plugin please read the Grafana [plugin publishing and signing criteria](https://grafana.com/legal/plugins/#plugin-publishing-and-signing-criteria) documentation carefully.
+
+`@grafana/create-plugin` has added the necessary commands and workflows to make signing and distributing a plugin via the grafana plugins catalog as straightforward as possible.
+
+Before signing a plugin for the first time please consult the Grafana [plugin signature levels](https://grafana.com/legal/plugins/#what-are-the-different-classifications-of-plugins) documentation to understand the differences between the types of signature level.
+
+1. Create a [Grafana Cloud account](https://grafana.com/signup).
+2. Make sure that the first part of the plugin ID matches the slug of your Grafana Cloud account.
+   - _You can find the plugin ID in the `plugin.json` file inside your plugin directory. For example, if your account slug is `acmecorp`, you need to prefix the plugin ID with `acmecorp-`._
+3. Create a Grafana Cloud API key with the `PluginPublisher` role.
+4. Keep a record of this API key as it will be required for signing a plugin
+
+## Signing a plugin
+
+### Using Github actions release workflow
+
+If the plugin is using the github actions supplied with `@grafana/create-plugin` signing a plugin is included out of the box. The [release workflow](./.github/workflows/release.yml) can prepare everything to make submitting your plugin to Grafana as easy as possible. Before being able to sign the plugin however a secret needs adding to the Github repository.
+
+1. Please navigate to "settings > secrets > actions" within your repo to create secrets.
+2. Click "New repository secret"
+3. Name the secret "GRAFANA_API_KEY"
+4. Paste your Grafana Cloud API key in the Secret field
+5. Click "Add secret"
+
+#### Push a version tag
+
+To trigger the workflow we need to push a version tag to github. This can be achieved with the following steps:
+
+1. Run `npm version <major|minor|patch>`
+2. Run `git push origin main --follow-tags`
+
+## Learn more
+
+Below you can find source code for existing app plugins and other related documentation.
+
+- [Basic data source plugin example](https://github.com/grafana/grafana-plugin-examples/tree/master/examples/datasource-basic#readme)
+- [`plugin.json` documentation](https://grafana.com/developers/plugin-tools/reference/plugin-json)
+- [How to sign a plugin?](https://grafana.com/developers/plugin-tools/publish-a-plugin/sign-a-plugin)
