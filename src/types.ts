@@ -23,7 +23,7 @@ export interface DataSourceResponse {
  * These are options configured for each DataSource instance
  */
 export interface MyDataSourceOptions extends DataSourceJsonData {
-  hostname?: string;
+  host?: string;
   port?: number;
   useDefaultPort?: boolean;
   username?: string;

@@ -23,7 +23,7 @@ export function ConfigEditor(props: Props) {
       ...options,
       jsonData: {
         ...jsonData,
-        hostname: event.target.value,
+        host: event.target.value,
       },
     });
   };
@@ -78,11 +78,11 @@ export function ConfigEditor(props: Props) {
   return (
     <>
       <Legend>Server</Legend>
-      <InlineField label="Host" labelWidth={labelWidth} interactive tooltip={'Server hostname'}>
+      <InlineField label="Host" labelWidth={labelWidth} interactive tooltip={'Server host'}>
         <Input
             id="config-editor-host"
             onChange={onHostChange}
-            value={jsonData.hostname}
+            value={jsonData.host}
             placeholder="https://my.hydrolix.domain.com"
             width={defaultInputWidth}
         />

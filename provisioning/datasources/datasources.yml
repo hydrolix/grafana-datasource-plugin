@@ -2,7 +2,7 @@ apiVersion: 1
 
 datasources:
   - name: 'Hydrolix'
-    type: 'hydrolix-plugin-datasource'
+    type: 'grafana-hydrolix-datasource'
     access: proxy
     isDefault: false
     orgId: 1
@@ -10,7 +10,7 @@ datasources:
     editable: true
     jsonData:
       hostname: 'https://myapp.hydrolix.io'
-      port: 9440
+      port: 8443
       useDefaultPort: true
       username: 'username'
     secureJsonData:
