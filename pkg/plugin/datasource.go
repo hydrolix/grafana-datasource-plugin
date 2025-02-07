@@ -108,9 +108,9 @@ func (d *Datasource) CheckHealth(_ context.Context, req *backend.CheckHealthRequ
 		res.Message = "Password is missing"
 		return res, nil
 	}
-	if config.HostName == "" {
+	if config.Host == "" {
 		res.Status = backend.HealthStatusError
-		res.Message = "Server hostname is missing"
+		res.Message = "Server host is missing"
 		return res, nil
 	}
 	if config.UserName == "" {

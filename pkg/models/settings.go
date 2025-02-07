@@ -8,7 +8,7 @@ import (
 )
 
 type PluginSettings struct {
-	HostName       string                `json:"hostname"`
+	Host           string                `json:"host"`
 	UserName       string                `json:"username"`
 	Port           uint16                `json:"port"`
 	UseDefaultPort bool                  `json:"useDefaultPort"`
