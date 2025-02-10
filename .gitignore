@@ -1,3 +1,7 @@
-node_modules/*
-dist/*
+dist/
+node_modules/
+playwright-report/
+playwright/
+test-results/
 .eslintcache
+package-lock.json
