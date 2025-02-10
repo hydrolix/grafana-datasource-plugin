@@ -1,7 +1,7 @@
 services:
   grafana:
     user: root
-    container_name: 'hydrolix-plugin-datasource'
+    container_name: 'hydrolix-datasource'
 
     build:
       context: .
@@ -19,13 +19,13 @@ services:
     cap_add:
       - SYS_PTRACE
     volumes:
-      - ../dist:/var/lib/grafana/plugins/hydrolix-plugin-datasource
+      - ../dist:/var/lib/grafana/plugins/hydrolix-datasource
       - ../provisioning:/etc/grafana/provisioning
-      - ..:/root/hydrolix-plugin-datasource
+      - ..:/root/hydrolix-datasource
 
     environment:
       NODE_ENV: development
-      GF_LOG_FILTERS: plugin.hydrolix-plugin-datasource:debug
+      GF_LOG_FILTERS: plugin.hydrolix-datasource:debug
       GF_LOG_LEVEL: debug
       GF_DATAPROXY_LOGGING: 1
-      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: hydrolix-plugin-datasource
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: hydrolix-datasource

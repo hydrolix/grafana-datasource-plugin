@@ -1,0 +1,151 @@
+.if-default-branch: &if-default-branch
+  if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_MERGE_REQUEST_IID == null'
+
+.if-release-branch: &if-release-branch
+  if: '$CI_COMMIT_BRANCH =~ /^release[\/\-_].+$/'
+
+.if-merge-request: &if-merge-request
+  if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_EVENT_TYPE != "merge_train"'
+
+.if-merge-request-targeting-develop: &if-merge-request-targeting-develop
+  if: '($CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_EVENT_TYPE != "merge_train") && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
+
+.if-schedule-pipeline: &if-schedule-pipeline
+  if: '$CI_PIPELINE_SOURCE == "schedule"'
+
+.if-force-pipeline: &if-force-pipeline
+  if: '$FORCE_PIPELINE'
+
+.if-build-ci-image: &if-build-ci-image
+  if: '$BUILD_CI_IMAGE'
+
+.npm-cache-patterns: &npm-cache-patterns
+  - ".npm/"
+  - "node_modules/"
+
+.rules:default:
+  rules:
+    - <<: *if-merge-request
+    - <<: *if-force-pipeline
+
+.npm-cache-push:
+  cache:
+    - key: $CI_COMMIT_REF_SLUG
+      paths: *npm-cache-patterns
+      policy: push
+
+.npm-cache-pull:
+  cache:
+    - key: $CI_COMMIT_REF_SLUG
+      paths: *npm-cache-patterns
+      policy: pull
+
+variables:
+  npm_config_cache: "$CI_PROJECT_DIR/.npm"
+  GRAFANA_IMAGE: grafana-enterprise
+  GRAFANA_VERSION: 11.5.1
+  CI_IMAGE: $CI_REGISTRY/hydrolix/grafana-datasource-plugin/ci:latest
+  E2E_IMAGE: $CI_REGISTRY/hydrolix/grafana-datasource-plugin/e2e-$GRAFANA_IMAGE-$GRAFANA_VERSION:$CI_COMMIT_SHA
+
+build-ci-image:
+  tags: [forecast-small]
+  stage: prepare
+  image: ubuntu:22.04
+  rules:
+    - <<: *if-build-ci-image
+  script:
+    - apt-get -q -y update
+    - apt-get -y install docker.io
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker build -f .gitlab/ci.Dockerfile -t $CI_IMAGE .
+    - docker push $CI_IMAGE
+
+build-frontend:
+  extends:
+    - .npm-cache-push
+    - .rules:default
+  stage: build
+  image: $CI_IMAGE
+  tags: [forecast-small]
+  variables:
+    ESLINT_CODE_QUALITY_REPORT: eslint_report.json
+  script:
+    - npm install
+    - npx eslint --cache --format gitlab --ignore-path ./.gitignore --ext .js,.jsx,.ts,.tsx .
+    - npx tsc
+    - npx jest --ci --reporters=default --reporters=jest-junit --collect-coverage --passWithNoTests
+    - npm run build
+  artifacts:
+    paths:
+      - dist/
+    when: on_success
+    expire_in: 1 hour
+    reports:
+      codequality: eslint_report.json
+
+build-backend:
+  extends:
+    - .rules:default
+  stage: build
+  image: $CI_IMAGE
+  tags: [forecast-small]
+  script:
+    - mage
+  artifacts:
+    paths:
+      - dist/
+    when: on_success
+    expire_in: 1 hour
+
+package:
+  extends:
+    - .npm-cache-pull
+    - .rules:default
+  stage: package
+  image: $CI_IMAGE
+  tags: [forecast-small]
+  needs: [build-frontend, build-backend]
+  script:
+    - PACKAGE_NAME=$(npm pkg get name | tr -d '"')
+    - PACKAGE_VERSION=$(npm pkg get version | tr -d '"')
+    - PACKAGE_ZIP_NAME=$PACKAGE_NAME-$PACKAGE_VERSION.zip
+    - mv dist/ $PACKAGE_NAME/
+    - zip $PACKAGE_ZIP_NAME $PACKAGE_NAME -r
+  artifacts:
+    paths:
+      - "*.zip"
+    when: on_success
+    expire_in: 7 days
+
+build-e2e-image:
+  extends:
+    - .npm-cache-pull
+    - .rules:default
+  stage: test
+  image: $CI_IMAGE
+  tags: [forecast-small]
+  script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker build -f .gitlab/e2e.Dockerfile -t $E2E_IMAGE .
+    - docker push $E2E_IMAGE
+
+e2e:
+  extends:
+    - .npm-cache-pull
+    - .rules:default
+  stage: test
+  image: $CI_IMAGE
+  services:
+    - name: $E2E_IMAGE
+      alias: e2e
+  tags: [forecast-small]
+  needs: [build-e2e-image]
+  variables:
+    GRAFANA_URL: http://e2e:3000
+    PLAYWRIGHT_JUNIT_OUTPUT_FILE: junit_report.xml
+  script:
+    - npx playwright install --with-deps
+    - npx playwright test --reporter=junit
+  artifacts:
+    reports:
+      junit: junit_report.xml

@@ -1,13 +1,91 @@
-# You can override the included template(s) by including variable overrides
-# SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
-# Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/pipeline/#customization
-# Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
-# Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
-# Note that environment variables can be set in several places
-# See https://docs.gitlab.com/ee/ci/variables/#cicd-variable-precedence
 stages:
-- test
-sast:
-  stage: test
+  - prepare
+  - build
+  - test
+  - package
+  - security
+
 include:
-- template: Security/SAST.gitlab-ci.yml
+  - local: .gitlab/ci/.gitlab-ci.yml
+  - template: Security/SAST.gitlab-ci.yml
+  - template: Security/Secret-Detection.gitlab-ci.yml
+  - template: Security/Dependency-Scanning.gitlab-ci.yml
+
+sast:
+  variables:
+    SAST_EXCLUDED_PATHS: "e2e"
+    SEARCH_MAX_DEPTH: '5'
+  stage: security
+
+.sast-analyzer:
+  tags: [forecast-small]
+
+semgrep-sast:
+  rules:
+    - if: $SECURITY
+    - if: $BLESSING
+      when: never
+    - if: $SANITY
+      when: never
+    - if: $RELEASE_DEBUG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"
+
+sobelow-sast:
+  rules:
+    - if: $SECURITY
+    - if: $BLESSING
+      when: never
+    - if: $SANITY
+      when: never
+    - if: $RELEASE_DEBUG
+      when: never
+
+.secret-analyzer:
+  tags: [forecast-small]
+
+secret_detection:
+  stage: security
+  rules:
+    - if: $SECURITY
+    - if: $BLESSING
+      when: never
+    - if: $SANITY
+      when: never
+    - if: $RELEASE_DEBUG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"
+
+.ds-analyzer:
+  variables:
+    DS_MAX_DEPTH: -1
+  tags: [forecast-small]
+
+gemnasium-dependency_scanning:
+  stage: security
+  rules:
+    - if: $SECURITY
+    - if: $BLESSING
+      when: never
+    - if: $SANITY
+      when: never
+    - if: $RELEASE_DEBUG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"
+
+gemnasium-maven-dependency_scanning:
+  stage: security
+  rules:
+    - when: never
+
+gemnasium-python-dependency_scanning:
+  stage: security
+  rules:
+    - if: $SECURITY
+    - if: $BLESSING
+      when: never
+    - if: $SANITY
+      when: never
+    - if: $RELEASE_DEBUG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"
