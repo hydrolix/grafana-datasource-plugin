@@ -1,9 +1,10 @@
 stages:
   - prepare
   - build
-  - test
   - package
+  - test
   - security
+  - cleanup
 
 include:
   - local: .gitlab/ci/.gitlab-ci.yml
