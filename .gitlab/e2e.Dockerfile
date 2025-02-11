@@ -1,7 +1,7 @@
-ARG GRAFANA_IMAGE=grafana-enterprise
-ARG GRAFANA_VERSION=latest
+ARG E2E_GRAFANA_NAME=grafana-enterprise
+ARG E2E_GRAFANA_VERSION=latest
 
-FROM grafana/${GRAFANA_IMAGE}:${GRAFANA_VERSION}
+FROM grafana/$E2E_GRAFANA_NAME:$E2E_GRAFANA_VERSION
 
 ARG PLUGIN_NAME=hydrolix-datasource
 
@@ -15,10 +15,8 @@ ENV GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=$PLUGIN_NAME
 USER root
 WORKDIR $GF_PATHS_HOME
 
-COPY dist /var/lib/grafana/plugins/$PLUGIN_NAME
+COPY $PLUGIN_NAME /var/lib/grafana/plugins/$PLUGIN_NAME
 COPY provisioning /etc/grafana/provisioning
-
-RUN sed -i 's|</body>|<script src="http://localhost:35729/livereload.js"></script></body>|g' /usr/share/grafana/public/views/index.html
 
 HEALTHCHECK CMD curl -f http://localhost:3000 || exit 1
 ENTRYPOINT ["/run.sh"]

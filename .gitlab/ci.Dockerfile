@@ -7,7 +7,7 @@ ARG MAGE_VERSION=1.15.0
 ENV PATH=$PATH:/usr/local/go/bin:~/go/bin
 
 RUN apt-get -q -y update  \
-    && apt-get -y install build-essential ca-certificates curl gcc gnupg2 libssl-dev make software-properties-common zip
+    && apt-get -y install build-essential ca-certificates curl gcc gnupg2 jq libssl-dev make software-properties-common zip
 
 RUN mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
