@@ -103,27 +103,21 @@ func (d *Datasource) CheckHealth(_ context.Context, req *backend.CheckHealthRequ
 		return res, nil
 	}
 
-	if config.Secrets.Password == "" {
-		res.Status = backend.HealthStatusError
-		res.Message = "Password is missing"
-		return res, nil
-	}
 	if config.Host == "" {
 		res.Status = backend.HealthStatusError
-		res.Message = "Server host is missing"
+		res.Message = "Server address is missing"
+		return res, nil
+	}
+	if config.Port <= 0 {
+		res.Status = backend.HealthStatusError
+		res.Message = "Server port is missing"
 		return res, nil
 	}
 	if config.UserName == "" {
 		res.Status = backend.HealthStatusError
-		res.Message = "UserName is missing"
+		res.Message = "User name is missing"
 		return res, nil
 	}
-	if !config.UseDefaultPort && config.Port == 0 {
-		res.Status = backend.HealthStatusError
-		res.Message = "Cannot use port 0"
-		return res, nil
-	}
-
 	return &backend.CheckHealthResult{
 		Status:  backend.HealthStatusOk,
 		Message: "Data source is working",
