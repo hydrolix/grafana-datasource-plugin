@@ -27,6 +27,9 @@ export interface MyDataSourceOptions extends DataSourceJsonData {
   port?: number;
   useDefaultPort?: boolean;
   username?: string;
+  protocol?: Protocol;
+  secureConnection?: boolean;
+  skipTlsVerify?: boolean;
 }
 
 /**
@@ -34,4 +37,9 @@ export interface MyDataSourceOptions extends DataSourceJsonData {
  */
 export interface MySecureJsonData {
   password?: string;
+}
+
+export enum Protocol {
+  Native = 'native',
+  Http = 'http',
 }
