@@ -25,7 +25,6 @@ export interface DataSourceResponse {
 export interface MyDataSourceOptions extends DataSourceJsonData {
   host?: string;
   port?: number;
-  useDefaultPort?: boolean;
   username?: string;
   protocol?: Protocol;
   secureConnection?: boolean;

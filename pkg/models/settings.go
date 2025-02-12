@@ -11,7 +11,6 @@ type PluginSettings struct {
 	Host             string                `json:"host"`
 	UserName         string                `json:"username"`
 	Port             uint16                `json:"port"`
-	UseDefaultPort   bool                  `json:"useDefaultPort"`
 	SecureConnection bool                  `json:"secureConnection"`
 	SkipTlsVerify    bool                  `json:"skipTlsVerify"`
 	Protocol         string                `json:"protocol"`

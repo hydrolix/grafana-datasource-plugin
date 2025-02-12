@@ -1,105 +1,66 @@
-import React, {ChangeEvent} from 'react';
-import {InlineField, InlineSwitch, Input, Legend, RadioButtonGroup, SecretInput, Stack} from '@grafana/ui';
-import {DataSourcePluginOptionsEditorProps} from '@grafana/data';
+import React from 'react';
+import {
+    DataSourcePluginOptionsEditorProps,
+    onUpdateDatasourceJsonDataOption,
+    onUpdateDatasourceSecureJsonDataOption
+} from '@grafana/data';
+import {Divider, Field, Input, RadioButtonGroup, SecretInput, Switch} from '@grafana/ui';
+import {ConfigSection, DataSourceDescription} from '@grafana/plugin-ui';
 import {MyDataSourceOptions, MySecureJsonData, Protocol} from '../types';
+import allLabels from 'labels';
 
 export interface Props extends DataSourcePluginOptionsEditorProps<MyDataSourceOptions, MySecureJsonData> {
 }
 
 export function ConfigEditor(props: Props) {
     const {onOptionsChange, options} = props;
-    const {jsonData, secureJsonFields, secureJsonData} = options;
+    const {jsonData, secureJsonFields} = options;
+    const labels = allLabels.components.config.editor;
+    const secureJsonData = (options.secureJsonData || {}) as MySecureJsonData;
     const protocolOptions = [
-        {label: 'Native', value: Protocol.Native},
-        {label: 'HTTP', value: Protocol.Http},
+        {label: "Native", value: Protocol.Native},
+        {label: "HTTP", value: Protocol.Http},
     ];
 
-    const getDefaultPort = (protocol: Protocol, secureConnection: boolean) => {
-        if (protocol === Protocol.Native && secureConnection) {
-            return 9440;
-        } else if (protocol === Protocol.Native && !secureConnection) {
-            return 9000;
-        } else if (protocol === Protocol.Http && secureConnection) {
-            return 8443;
-        } else {
-            return 8123;
-        }
-    }
-
-    const onUserNameChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const onPortChange = (port: string) => {
         onOptionsChange({
             ...options,
             jsonData: {
-                ...jsonData,
-                username: event.target.value,
+                ...options.jsonData,
+                port: +port,
             },
         });
     };
-    const onHostChange = (event: ChangeEvent<HTMLInputElement>) => {
-        onOptionsChange({
-            ...options,
-            jsonData: {
-                ...jsonData,
-                host: event.target.value,
-            },
-        });
-    };
-    const onPortChange = (event: ChangeEvent<HTMLInputElement>) => {
-        onOptionsChange({
-            ...options,
-            jsonData: {
-                ...jsonData,
-                port: +event.target.value,
-            },
-        });
-    };
-
-    const onUseDefaultPortToggle = () => {
-        onOptionsChange({
-            ...options,
-            jsonData: {
-                ...jsonData,
-                port: getDefaultPort(jsonData.protocol!, jsonData.secureConnection!),
-                useDefaultPort: !jsonData.useDefaultPort
-            },
-        });
-    };
-    const onSecureConnectionToggle = () => {
-        onOptionsChange({
-            ...options,
-            jsonData: {
-                ...jsonData,
-                port: jsonData.useDefaultPort ? getDefaultPort(jsonData.protocol!, !jsonData.secureConnection) : jsonData.port,
-                secureConnection: !jsonData.secureConnection
-            },
-        });
-    };    const onSkipVerifyToggle = () => {
-        onOptionsChange({
-            ...options,
-            jsonData: {
-                ...jsonData,
-                skipTlsVerify: !jsonData.skipTlsVerify
-            },
-        });
-    };
-
     const onProtocolToggle = (protocol: Protocol) => {
         onOptionsChange({
             ...options,
             jsonData: {
                 ...options.jsonData,
                 protocol: protocol,
-                port: jsonData.useDefaultPort ? getDefaultPort(protocol, jsonData.secureConnection!) : jsonData.port
             },
         });
     };
-
-    // Secure field (only sent to the backend)
-    const onPasswordChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const onSwitchToggle = (
+        key: keyof Pick<MyDataSourceOptions, "secureConnection">,
+        value: boolean
+    ) => {
         onOptionsChange({
             ...options,
-            secureJsonData: {
-                password: event.target.value,
+            jsonData: {
+                ...options.jsonData,
+                [key]: value,
+            },
+        });
+    }
+    const onTlsSettingsChange = (
+        key: keyof Pick<MyDataSourceOptions, "skipTlsVerify">,
+        value: boolean
+    ) => {
+        onOptionsChange({
+            ...options,
+            jsonData: {
+                ...options.jsonData,
+                [key]: value,
             },
         });
     };
@@ -117,98 +78,124 @@ export function ConfigEditor(props: Props) {
             },
         });
     };
-    const legendStyle = {
-        marginTop: 16,
-        marginBottom:0
-    }
 
-    const labelWidth = 20;
-    const defaultInputWidth = 47;
+    const defaultPort = jsonData.secureConnection ?
+        (jsonData.protocol === Protocol.Native ? labels.port.secureNativePort : labels.port.secureHttpPort) :
+        (jsonData.protocol === Protocol.Native ? labels.port.insecureNativePort : labels.port.insecureHttpPort);
+    const portDescription = `${labels.port.description} (default for ${jsonData.secureConnection ? "secure" : ""} ${jsonData.protocol}: ${defaultPort})`
+
+
     return (
         <>
-            <Legend style={legendStyle}>Server</Legend>
-            <InlineField label="Host" labelWidth={labelWidth} interactive tooltip={'Server host'}>
-                <Input
-                    id="config-editor-host"
-                    onChange={onHostChange}
-                    value={jsonData.host}
-                    placeholder="https://my.hydrolix.domain.com"
-                    width={defaultInputWidth}
-                />
-            </InlineField>
-            <InlineField label="Port" labelWidth={labelWidth} interactive
-                         tooltip={'Server port number'}>
-
-                <Stack direction="row">
-                    <Input
-                        type="number"
-                        id="config-editor-port"
-                        min={1}
-                        max={65535}
-                        onChange={onPortChange}
-                        value={jsonData.port}
-                        placeholder="9440"
-                        disabled={jsonData.useDefaultPort}
-                        width={29}
-                    />
-                    <InlineSwitch
-                        label="Use default"
-                        showLabel={true}
-                        onChange={onUseDefaultPortToggle}
-                        value={jsonData.useDefaultPort}/>
-                </Stack>
-            </InlineField>
-
-            <InlineField label="Protocol" labelWidth={labelWidth} tooltip={'Connection protocol'}>
-                <RadioButtonGroup<Protocol>
-                    fullWidth={true}
-                    options={protocolOptions}
-                    disabledOptions={[]}
-                    value={jsonData.protocol || Protocol.Native}
-                    onChange={(e) => onProtocolToggle(e!)}
-
-                />
-            </InlineField>
-
-            <InlineField label="Secure Connection" labelWidth={labelWidth} tooltip={'Use encrypted connection'}>
-                <Stack direction="row">
-                    <InlineSwitch
-                        width={35}
-                        label="Use TLS"
-                        showLabel={true}
-                        onChange={onSecureConnectionToggle}
-                        value={jsonData.secureConnection}/>
-                    <InlineSwitch
-                        width={35}
-                        label="Skip TLS Check"
-                        showLabel={true}
-                        onChange={onSkipVerifyToggle}
-                        value={jsonData.skipTlsVerify}/>
-                </Stack>
-            </InlineField>
-            <Legend style={legendStyle}>Credentials</Legend>
-            <InlineField label="Username" labelWidth={labelWidth} interactive tooltip={'username to access the system'}>
-                <Input
-                    id="config-editor-username"
-                    onChange={onUserNameChange}
-                    value={jsonData.username}
-                    placeholder="username"
-                    width={defaultInputWidth}
-                />
-            </InlineField>
-
-            <InlineField label="Password" labelWidth={labelWidth} interactive tooltip={'password to access the system'}>
-                <SecretInput
+            <DataSourceDescription
+                dataSourceName="Hydrolix"
+                docsLink="https://hydrolix.io"
+                hasRequiredFields
+            />
+            <Divider/>
+            <ConfigSection title={"Server"}>
+                <Field
                     required
-                    id="config-editor-password"
-                    isConfigured={secureJsonFields.password}
-                    value={secureJsonData?.password}
-                    placeholder="Enter your API key"
-                    width={defaultInputWidth}
-                    onReset={onResetPassword}
-                    onChange={onPasswordChange}
-                />
-            </InlineField>
+                    label={labels.host.label}
+                    description={labels.host.description}
+                    invalid={!jsonData.host}
+                    error={labels.host.error}
+                >
+                    <Input
+                        name="host"
+                        width={80}
+                        value={jsonData.host || ""}
+                        onChange={onUpdateDatasourceJsonDataOption(props, "host")}
+                        label={labels.host.label}
+                        aria-label={labels.host.label}
+                        placeholder={labels.host.placeholder}
+                    />
+                </Field>
+
+                <Field
+                    required
+                    label={labels.port.label}
+                    description={portDescription}
+                    invalid={!jsonData.port}
+                    error={labels.port.error}
+                >
+                    <Input
+                        name="port"
+                        width={40}
+                        type="number"
+                        value={jsonData.port || ''}
+                        onChange={e => onPortChange(e.currentTarget.value)}
+                        label={labels.port.label}
+                        aria-label={labels.port.label}
+                        placeholder={defaultPort}
+                    />
+                </Field>
+
+                <Field label={labels.protocol.label} description={labels.protocol.description}>
+                    <RadioButtonGroup<Protocol>
+                        options={protocolOptions}
+                        disabledOptions={[]}
+                        value={jsonData.protocol || Protocol.Native}
+                        onChange={(e) => onProtocolToggle(e!)}
+                    />
+                </Field>
+
+                <Field label={labels.secure.label} description={labels.secure.description}>
+                    <Switch
+                        id="secure"
+                        className="gf-form"
+                        value={jsonData.secureConnection || false}
+                        onChange={(e) => onSwitchToggle("secureConnection", e.currentTarget.checked)}
+                    />
+                </Field>
+            </ConfigSection>
+
+            <Divider/>
+
+            <ConfigSection title="TLS / SSL Settings">
+                <Field
+                    label={labels.skipTlsVerify.label}
+                    description={labels.skipTlsVerify.description}
+                >
+                    <Switch
+                        className="gf-form"
+                        value={jsonData.skipTlsVerify || false}
+                        onChange={(e) => onTlsSettingsChange("skipTlsVerify", e.currentTarget.checked)}
+                    />
+                </Field>
+            </ConfigSection>
+
+            <Divider/>
+
+            <ConfigSection title="Credentials">
+                <Field
+                    label={labels.username.label}
+                    description={labels.username.tooltip}
+                >
+                    <Input
+                        name="username"
+                        width={40}
+                        value={jsonData.username || ""}
+                        onChange={onUpdateDatasourceJsonDataOption(props, "username")}
+                        label={labels.username.label}
+                        aria-label={labels.username.label}
+                        placeholder={labels.username.description}
+                    />
+                </Field>
+                <Field label={labels.password.label} description={labels.password.description}>
+                    <SecretInput
+                        name="password"
+                        width={40}
+                        label={labels.password.label}
+                        aria-label={labels.password.label}
+                        placeholder={labels.password.placeholder}
+                        value={secureJsonData.password || ''}
+                        isConfigured={(secureJsonFields && secureJsonFields.password) as boolean}
+                        onReset={onResetPassword}
+                        onChange={onUpdateDatasourceSecureJsonDataOption(props, "password")}
+                    />
+                </Field>
+            </ConfigSection>
         </>
     );
 }

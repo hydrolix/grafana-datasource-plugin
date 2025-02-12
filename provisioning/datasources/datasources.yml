@@ -9,11 +9,8 @@ datasources:
     version: 1
     editable: true
     jsonData:
-      hostname: 'https://myapp.hydrolix.io'
-      port: 8443
-      useDefaultPort: true
-      username: 'username'
+      username: 'default'
       secureConnection: true
       protocol: 'native'
     secureJsonData:
-      password: 'password'
+#      password: 'password'
