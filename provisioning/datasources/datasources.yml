@@ -13,5 +13,7 @@ datasources:
       port: 8443
       useDefaultPort: true
       username: 'username'
+      secureConnection: true
+      protocol: 'native'
     secureJsonData:
       password: 'password'
