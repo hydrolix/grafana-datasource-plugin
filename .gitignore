@@ -3,5 +3,7 @@ node_modules/
 playwright-report/
 playwright/
 test-results/
+.vscode/
+.idea/
 .eslintcache
 package-lock.json
