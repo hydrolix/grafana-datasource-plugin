@@ -80,11 +80,11 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		return nil, err
 	}
 
-	dt, err := time.ParseDuration(settings.DialTimeout)
+	dt, err := strconv.Atoi(settings.DialTimeout)
 	if err != nil {
 		return nil, backend.DownstreamError(errors.New(fmt.Sprintf("invalid timeout: %s", settings.DialTimeout)))
 	}
-	qt, err := time.ParseDuration(settings.QueryTimeout)
+	qt, err := strconv.Atoi(settings.QueryTimeout)
 	if err != nil {
 		return nil, backend.DownstreamError(errors.New(fmt.Sprintf("invalid query timeout: %s", settings.QueryTimeout)))
 	}
@@ -99,40 +99,44 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		compression = clickhouse.CompressionGZIP
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, dt)
+	var tlsConfig *tls.Config
+	if settings.Secure {
+		tlsConfig = &tls.Config{
+			InsecureSkipVerify: settings.SkipTlsVerify,
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(dt)*time.Second)
 	defer cancel()
 
 	opts := &clickhouse.Options{
-		ClientInfo: clickhouse.ClientInfo{
-			Products: getClientInfoProducts(ctx),
-		},
 		Addr: []string{fmt.Sprintf("%s:%d", settings.Host, settings.Port)},
 		Auth: clickhouse.Auth{
+			Database: settings.DefaultDatabase,
 			Username: settings.UserName,
 			Password: settings.Password,
-			Database: settings.DefaultDatabase,
+		},
+		ClientInfo: clickhouse.ClientInfo{
+			Products: getClientInfoProducts(ctx),
 		},
 		Compression: &clickhouse.Compression{
 			Method: compression,
 		},
-		DialTimeout: dt,
-		ReadTimeout: qt,
 		Protocol:    protocol,
+		HttpUrlPath: settings.Path,
+		DialTimeout: time.Duration(dt) * time.Second,
+		ReadTimeout: time.Duration(qt) * time.Second,
+		TLS:         tlsConfig,
 	}
 
 	if protocol == clickhouse.HTTP {
 		// https & basic auth
-		if settings.SecureConnection {
-			opts.TLS = &tls.Config{
-				InsecureSkipVerify: settings.SkipTlsVerify,
-			}
-			
-			opts.HttpHeaders = map[string]string{"Authorization": "Basic "+base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", settings.UserName, settings.Password)))}
+		if settings.Secure {
+			opts.HttpHeaders = map[string]string{"Authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", settings.UserName, settings.Password)))}
 		}
-		
+
 		// native format
 		opts.Settings = map[string]any{"hdx_query_output_format": "Native"}
-		opts.HttpUrlPath = "query"
 	}
 
 	db := clickhouse.OpenDB(opts)
@@ -143,10 +147,9 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 	default:
 		err := db.PingContext(ctx)
 		if err != nil {
-			if exception, ok := err.(*clickhouse.Exception); ok {
-				log.DefaultLogger.Error("[%d] %s \n%s\n", exception.Code, exception.Message, exception.StackTrace)
-			} else {
-				log.DefaultLogger.Error(err.Error())
+			var ex *clickhouse.Exception
+			if errors.As(err, &ex) {
+				log.DefaultLogger.Error("[%d] %s \n%s\n", ex.Code, ex.Message, ex.StackTrace)
 			}
 			return db, err
 		}

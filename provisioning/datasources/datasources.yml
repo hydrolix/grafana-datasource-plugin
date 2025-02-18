@@ -10,7 +10,7 @@ datasources:
     editable: true
     jsonData:
       username: 'default'
-      secureConnection: true
       protocol: 'native'
+      secure: true
     secureJsonData:
 #      password: 'password'

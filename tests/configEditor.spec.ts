@@ -1,5 +1,5 @@
 import { test, expect } from '@grafana/plugin-e2e';
-import { MyDataSourceOptions, MySecureJsonData } from '../src/types';
+import { HdxDataSourceOptions, HdxSecureJsonData } from '../src/types';
 import allLabels from '../src/labels';
 
 test('smoke: should render config editor', async ({ createDataSourceConfigPage, readProvisionedDataSource, page }) => {
@@ -25,7 +25,7 @@ test('"Save & test" should fail when configuration is invalid', async ({
   readProvisionedDataSource,
   page,
 }) => {
-  const ds = await readProvisionedDataSource<MyDataSourceOptions, MySecureJsonData>({ fileName: 'datasources.yml' });
+  const ds = await readProvisionedDataSource<HdxDataSourceOptions, HdxSecureJsonData>({ fileName: 'datasources.yml' });
   const configPage = await createDataSourceConfigPage({ type: ds.type });
   await page.getByLabel(allLabels.components.config.editor.host.label).fill("");
   await expect(configPage.saveAndTest()).not.toBeOK();

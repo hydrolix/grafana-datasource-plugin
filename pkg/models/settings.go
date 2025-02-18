@@ -23,17 +23,18 @@ var (
 )
 
 type PluginSettings struct {
-	Host             string         `json:"host"`
-	UserName         string         `json:"username"`
-	Port             uint16         `json:"port"`
-	DefaultDatabase  string         `json:"defaultDatabase"`
-	Protocol         string         `json:"protocol"`
-	Password         string         `json:"-"`
-	DialTimeout      string         `json:"dialTimeout,omitempty"`
-	QueryTimeout     string         `json:"queryTimeout,omitempty"`
-	ProxyOptions     *proxy.Options `json:"-"`
-	SecureConnection bool           `json:"secureConnection"`
-	SkipTlsVerify    bool           `json:"skipTlsVerify"`
+	Host            string         `json:"host"`
+	UserName        string         `json:"username"`
+	Port            uint16         `json:"port"`
+	Protocol        string         `json:"protocol"`
+	Password        string         `json:"-"`
+	Secure          bool           `json:"secure"`
+	Path            string         `json:"path,omitempty"`
+	SkipTlsVerify   bool           `json:"skipTlsVerify,omitempty"`
+	DialTimeout     string         `json:"dialTimeout,omitempty"`
+	QueryTimeout    string         `json:"queryTimeout,omitempty"`
+	DefaultDatabase string         `json:"defaultDatabase,omitempty"`
+	ProxyOptions    *proxy.Options `json:"-"`
 }
 
 func (settings *PluginSettings) isValid() (err error) {
@@ -46,9 +47,7 @@ func (settings *PluginSettings) isValid() (err error) {
 	return nil
 }
 
-func LoadPluginSettings(ctx context.Context, source backend.DataSourceInstanceSettings) (*PluginSettings, error) {
-	settings := &PluginSettings{}
-
+func LoadPluginSettings(ctx context.Context, source backend.DataSourceInstanceSettings) (settings PluginSettings, e error) {
 	var jsonData map[string]interface{}
 	if err := json.Unmarshal(source.JSONData, &jsonData); err != nil {
 		return settings, fmt.Errorf("%s: %w", err.Error(), ErrorMessageInvalidJSON)
@@ -57,13 +56,24 @@ func LoadPluginSettings(ctx context.Context, source backend.DataSourceInstanceSe
 	if jsonData["host"] != nil {
 		settings.Host = jsonData["host"].(string)
 	}
-
 	if jsonData["port"] != nil {
 		settings.Port = uint16(jsonData["port"].(float64))
 	}
-
 	if jsonData["protocol"] != nil {
 		settings.Protocol = jsonData["protocol"].(string)
+	}
+	if jsonData["secure"] != nil {
+		if secure, ok := jsonData["secure"].(string); ok {
+			settings.Secure, e = strconv.ParseBool(secure)
+			if e != nil {
+				return settings, backend.DownstreamError(fmt.Errorf("could not parse secure value: %w", e))
+			}
+		} else {
+			settings.Secure = jsonData["secure"].(bool)
+		}
+	}
+	if jsonData["path"] != nil {
+		settings.Path = jsonData["path"].(string)
 	}
 
 	if jsonData["username"] != nil {
@@ -74,66 +84,31 @@ func LoadPluginSettings(ctx context.Context, source backend.DataSourceInstanceSe
 		settings.DefaultDatabase = jsonData["defaultDatabase"].(string)
 	}
 
-	if jsonData["dialTimeout"] == nil {
-		settings.DialTimeout = "30s"
-	} else {
-		if dt, ok := jsonData["dialTimeout"].(string); ok {
-			if strings.TrimSpace(dt) == "" {
-				dt = "30s"
-			}
-
-			if _, err := time.ParseDuration(dt); err == nil {
-				// duration is valid
-				settings.DialTimeout = dt
-			} else if _, err := time.ParseDuration(dt + "s"); err == nil {
-				// default plain number to seconds
-				settings.DialTimeout = dt + "s"
-			} else {
-				return settings, fmt.Errorf("%s: %w", err.Error(), ErrorMessageInvalidJSON)
-			}
-		} else if val, ok := jsonData["dialTimeout"].(float64); ok {
-			settings.DialTimeout = fmt.Sprintf("%ds", int64(val))
-		}
+	if jsonData["dialTimeout"] != nil {
+		settings.DialTimeout = jsonData["dialTimeout"].(string)
 	}
 
-	if jsonData["queryTimeout"] == nil {
-		settings.QueryTimeout = "60s"
-	} else {
-		if qt, ok := jsonData["queryTimeout"].(string); ok {
-			if strings.TrimSpace(qt) == "" {
-				qt = "60s"
-			}
-
-			if _, err := time.ParseDuration(qt); err == nil {
-				// duration is valid
-				settings.QueryTimeout = qt
-			} else if _, err := time.ParseDuration(qt + "s"); err == nil {
-				// default plain number to seconds
-				settings.QueryTimeout = qt + "s"
-			} else {
-				return settings, fmt.Errorf("%s: %w", err.Error(), ErrorMessageInvalidJSON)
-			}
-		} else if val, ok := jsonData["queryTimeout"].(float64); ok {
-			settings.QueryTimeout = fmt.Sprintf("%ds", int64(val))
-		}
-	}
-
-	if jsonData["secureConnection"] != nil {
-		settings.SecureConnection = jsonData["secureConnection"].(bool)
+	if jsonData["queryTimeout"] != nil {
+		settings.QueryTimeout = jsonData["queryTimeout"].(string)
 	}
 
 	if jsonData["skipTlsVerify"] != nil {
 		settings.SkipTlsVerify = jsonData["skipTlsVerify"].(bool)
 	}
-	
 
 	if password, ok := source.DecryptedSecureJSONData["password"]; ok {
 		settings.Password = password
 	}
 
-	proxyOpts, err := source.ProxyOptionsFromContext(ctx)
+	if strings.TrimSpace(settings.DialTimeout) == "" {
+		settings.DialTimeout = "10"
+	}
+	if strings.TrimSpace(settings.QueryTimeout) == "" {
+		settings.QueryTimeout = "60"
+	}
 
-	if err == nil && proxyOpts != nil {
+	proxyOpts, e := source.ProxyOptionsFromContext(ctx)
+	if e == nil && proxyOpts != nil {
 		// the sdk expects the timeout to not be a string
 		timeout, err := strconv.ParseFloat(settings.DialTimeout, 64)
 		if err == nil {
@@ -144,5 +119,28 @@ func LoadPluginSettings(ctx context.Context, source backend.DataSourceInstanceSe
 	}
 
 	return settings, settings.isValid()
+}
 
+func readDuration(jsonData map[string]interface{}, name string, defaultValue string) (*string, error) {
+	if jsonData[name] == nil {
+		return &defaultValue, nil
+	}
+
+	var value string
+	if stringValue, ok := jsonData[name].(string); ok {
+		if strings.TrimSpace(stringValue) == "" {
+			stringValue = defaultValue
+		}
+		if _, err := time.ParseDuration(stringValue); err == nil {
+			value = stringValue
+		} else if _, err := time.ParseDuration(stringValue + "s"); err == nil {
+			value = stringValue + "s"
+		} else {
+			return nil, fmt.Errorf("%s: %w", err.Error(), ErrorMessageInvalidJSON)
+		}
+	} else if floatValue, ok := jsonData[name].(float64); ok {
+		value = fmt.Sprintf("%ds", int64(floatValue))
+	}
+
+	return &value, nil
 }
