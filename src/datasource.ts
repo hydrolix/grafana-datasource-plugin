@@ -1,26 +1,31 @@
-import { DataSourceInstanceSettings, CoreApp, ScopedVars } from '@grafana/data';
-import { DataSourceWithBackend, getTemplateSrv } from '@grafana/runtime';
+import {DataSourceInstanceSettings, CoreApp, ScopedVars, DataQueryRequest, DataQueryResponse} from '@grafana/data';
+import {DataSourceWithBackend, getTemplateSrv} from '@grafana/runtime';
 
-import { MyQuery, MyDataSourceOptions, DEFAULT_QUERY } from './types';
+import { HdxQuery, HdxDataSourceOptions, DEFAULT_QUERY } from './types';
+import {Observable} from "rxjs";
 
-export class DataSource extends DataSourceWithBackend<MyQuery, MyDataSourceOptions> {
-  constructor(instanceSettings: DataSourceInstanceSettings<MyDataSourceOptions>) {
+export class DataSource extends DataSourceWithBackend<HdxQuery, HdxDataSourceOptions> {
+  constructor(instanceSettings: DataSourceInstanceSettings<HdxDataSourceOptions>) {
     super(instanceSettings);
   }
 
-  getDefaultQuery(_: CoreApp): Partial<MyQuery> {
+  query(request: DataQueryRequest<HdxQuery>): Observable<DataQueryResponse> {
+    return super.query(request);
+  }
+
+  getDefaultQuery(_: CoreApp): Partial<HdxQuery> {
     return DEFAULT_QUERY;
   }
 
-  applyTemplateVariables(query: MyQuery, scopedVars: ScopedVars) {
+  applyTemplateVariables(query: HdxQuery, scopedVars: ScopedVars) {
     return {
       ...query,
-      queryText: getTemplateSrv().replace(query.queryText, scopedVars),
+      rawSql: getTemplateSrv().replace(query.rawSql, scopedVars),
     };
   }
 
-  filterQuery(query: MyQuery): boolean {
+  filterQuery(query: HdxQuery): boolean {
     // if no query has been provided, prevent the query from being executed
-    return !!query.queryText;
+    return !!query.rawSql;
   }
 }

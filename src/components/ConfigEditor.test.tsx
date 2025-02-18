@@ -3,7 +3,7 @@ import {render, screen} from '@testing-library/react';
 import {ConfigEditor, Props} from './ConfigEditor';
 import '@testing-library/jest-dom';
 import fs from "fs";
-import { MyDataSourceOptions } from 'types';
+import { HdxDataSourceOptions } from 'types';
 import allLabels from 'labels';
 
 const pluginJson = JSON.parse(fs.readFileSync('./src/plugin.json', 'utf-8'));
@@ -16,7 +16,7 @@ jest.mock('@grafana/runtime', () => {
     };
 });
 
-function getDefaultProps(overrides: MyDataSourceOptions){
+function getDefaultProps(overrides: HdxDataSourceOptions){
     return {
         ...pluginJson,
         options: {
