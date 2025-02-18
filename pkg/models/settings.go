@@ -118,6 +118,15 @@ func LoadPluginSettings(ctx context.Context, source backend.DataSourceInstanceSe
 		}
 	}
 
+	if jsonData["secureConnection"] != nil {
+		settings.SecureConnection = jsonData["secureConnection"].(bool)
+	}
+
+	if jsonData["skipTlsVerify"] != nil {
+		settings.SkipTlsVerify = jsonData["skipTlsVerify"].(bool)
+	}
+	
+
 	if password, ok := source.DecryptedSecureJSONData["password"]; ok {
 		settings.Password = password
 	}
