@@ -2,7 +2,9 @@ package plugin
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -104,9 +106,6 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		ClientInfo: clickhouse.ClientInfo{
 			Products: getClientInfoProducts(ctx),
 		},
-		// TLS: &tls.Config{
-		// 	InsecureSkipVerify: true,
-		// },
 		Addr: []string{fmt.Sprintf("%s:%d", settings.Host, settings.Port)},
 		Auth: clickhouse.Auth{
 			Username: settings.UserName,
@@ -119,6 +118,21 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		DialTimeout: dt,
 		ReadTimeout: qt,
 		Protocol:    protocol,
+	}
+
+	if protocol == clickhouse.HTTP {
+		// https & basic auth
+		if settings.SecureConnection {
+			opts.TLS = &tls.Config{
+				InsecureSkipVerify: settings.SkipTlsVerify,
+			}
+			
+			opts.HttpHeaders = map[string]string{"Authorization": "Basic "+base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", settings.UserName, settings.Password)))}
+		}
+		
+		// native format
+		opts.Settings = map[string]any{"hdx_query_output_format": "Native"}
+		opts.HttpUrlPath = "query"
 	}
 
 	db := clickhouse.OpenDB(opts)
