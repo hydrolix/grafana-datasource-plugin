@@ -66,7 +66,7 @@ build-frontend:
   tags: [forecast-small]
   variables:
     ESLINT_CODE_QUALITY_REPORT: eslint_report.json
-    JEST_JUNIT_OUTPUT_FILE: junit_report.json
+    JEST_JUNIT_OUTPUT_FILE: junit_report.xml
   script:
     - npm install
     - npx eslint --cache --format gitlab --ignore-path ./.gitignore --ext .js,.jsx,.ts,.tsx .

@@ -42,10 +42,18 @@ export class ErrorMessageBeautifier {
             return undefined
         }
 
-        const parsed = JSON.parse(s.substring(start, end + 1));
+        let parsed: any;
+        try {
+            parsed = JSON.parse(s.substring(start, end + 1));
+        } catch (ex) {
+            return undefined
+        }
+
         if (!parsed || !(parsed?.error)) {
             return undefined
         }
+
+        parsed.error = parsed.error.replace(/\r?\n/g, " ");
 
         let code: number | undefined = Number(parsed.error.match(ErrorMessageBeautifier.CH_CODE_REGEX)?.[1])
         if (Number.isNaN(code)) {
