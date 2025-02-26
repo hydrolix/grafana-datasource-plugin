@@ -34,12 +34,12 @@
     "copy-webpack-plugin": "^11.0.0",
     "css-loader": "^6.7.3",
     "eslint": "^8.0.0",
-    "eslint-formatter-gitlab": "^5.0.0",
     "eslint-config-prettier": "^8.8.0",
+    "eslint-formatter-gitlab": "^5.0.0",
+    "eslint-plugin-deprecation": "^2.0.0",
     "eslint-plugin-jsdoc": "^46.8.0",
     "eslint-plugin-react": "^7.33.0",
     "eslint-plugin-react-hooks": "^4.6.0",
-    "eslint-plugin-deprecation": "^2.0.0",
     "eslint-webpack-plugin": "^4.0.1",
     "fork-ts-checker-webpack-plugin": "^8.0.0",
     "glob": "^10.2.7",
@@ -70,13 +70,15 @@
   "dependencies": {
     "@emotion/css": "11.10.6",
     "@grafana/data": "^11.5.1",
-    "@grafana/runtime": "^11.5.1",
-    "@grafana/ui": "^11.5.1",
-    "@grafana/schema": "^11.5.1",
     "@grafana/plugin-ui": "^0.9.6",
+    "@grafana/runtime": "^11.5.1",
+    "@grafana/schema": "^11.5.1",
+    "@grafana/ui": "^11.5.1",
+    "sql-formatter": "^15.4.11",
+    "monaco-editor": "^0.52.2",
     "react": "18.2.0",
-    "rxjs": "7.8.1",
-    "react-dom": "18.2.0"
+    "react-dom": "18.2.0",
+    "rxjs": "7.8.1"
   },
   "packageManager": "npm@10.9.2"
 }
