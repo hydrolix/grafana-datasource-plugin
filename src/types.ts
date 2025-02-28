@@ -3,6 +3,7 @@ import { DataQuery } from '@grafana/schema';
 
 export interface HdxQuery extends DataQuery {
   rawSql: string;
+  round: string;
 }
 
 export const DEFAULT_QUERY: Partial<HdxQuery> = {

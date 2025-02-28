@@ -20,7 +20,8 @@ const getQueryRunner = (props: QueryEditorProps): (sql: string) => Observable<Da
         scopedVars: {},
         targets: [{
             rawSql: sql,
-            refId: props.query.refId
+            refId: props.query.refId,
+            round: ''
         }],
         timezone: "UTC",
         app: props.app!,
