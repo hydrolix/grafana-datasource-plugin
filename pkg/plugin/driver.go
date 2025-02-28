@@ -190,11 +190,16 @@ func (h *Hydrolix) MutateQuery(ctx context.Context, req backend.DataQuery) (cont
 		Meta struct {
 			TimeZone string `json:"timezone"`
 		} `json:"meta"`
-		Format int `json:"format"`
+		Format int    `json:"format"`
+		Round  string `json:"round"`
 	}
 
 	if err := json.Unmarshal(req.JSON, &dataQuery); err != nil {
 		return ctx, req
+	}
+
+	if dataQuery.Round != "" && dataQuery.Round != "0" {
+		req.TimeRange = roundTimeRange(req.TimeRange, dataQuery.Round)
 	}
 
 	if dataQuery.Meta.TimeZone == "" {
@@ -203,6 +208,18 @@ func (h *Hydrolix) MutateQuery(ctx context.Context, req backend.DataQuery) (cont
 
 	loc, _ := time.LoadLocation(dataQuery.Meta.TimeZone)
 	return clickhouse.Context(ctx, clickhouse.WithUserLocation(loc)), req
+}
+
+func roundTimeRange(timeRange backend.TimeRange, round string) backend.TimeRange {
+	if d, err := time.ParseDuration(round); err != nil {
+		log.DefaultLogger.Warn("invalid round time range, using default: %s", round)
+		return timeRange
+	} else {
+		To := timeRange.To.Round(d)
+		From := timeRange.From.Round(d)
+		return backend.TimeRange{To: To, From: From}
+	}
+
 }
 
 // MutateResponse converts fields of type FieldTypeNullableJSON to string,

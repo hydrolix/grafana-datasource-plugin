@@ -15,7 +15,7 @@ import {FUNCTIONS} from "./functions";
 
 
 export const languageDefinition: (metadataProvider: MetadataProvider)
-    => LanguageDefinition =  (metadataProvider: MetadataProvider) => {
+    => LanguageDefinition = (metadataProvider: MetadataProvider) => {
     return {
         id: 'sql',
         completionProvider: (m: Monaco, language: SQLMonarchLanguage) => {
@@ -43,8 +43,8 @@ export const languageDefinition: (metadataProvider: MetadataProvider)
             return completionProvider;
         },
         formatter: s => format(s, {language: 'mysql'})
-                .replace(/(\$__\w*\s\()/g, (m) => m.replace(/\s/g, ''))
-                .replace("SETTINGS", "\nSETTINGS\n ")
+            .replace(/(\$__\w*\s\()/g, (m) => m.replace(/\s/g, ''))
+            .replace("SETTINGS", "\nSETTINGS\n ")
     };
 }
 
@@ -76,13 +76,14 @@ export const customStatementPlacement: StatementPlacementProvider = () => [
     }
 ];
 
-export const  setKeywords = (metadataProvider: MetadataProvider, m: Monaco, language: SQLMonarchLanguage) => {
-    const languageId = m.languages.getLanguages().map(l => l.id).find(l => l.startsWith('sql-'));
+export const setKeywords = (metadataProvider: MetadataProvider, m: Monaco, language: SQLMonarchLanguage) => {
+    m.languages.getLanguages().map(l => l.id).filter(l => l.startsWith('sql-')).forEach(languageId => {
 
-    m.languages.setMonarchTokensProvider(languageId!, {
-        ...language,
-        keywords: (language.keywords?.length ? language.keywords : []).concat(['SETTINGS']),
-    })
+        m.languages.setMonarchTokensProvider(languageId!, {
+            ...language,
+            keywords: (language.keywords?.length ? language.keywords : []).concat(['SETTINGS']),
+        })
+    });
 
 }
 
