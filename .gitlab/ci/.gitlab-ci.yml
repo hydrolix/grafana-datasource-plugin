@@ -19,6 +19,9 @@
 .if-build-ci-image: &if-build-ci-image
   if: '$BUILD_CI_IMAGE'
 
+.if-build-ch-image: &if-build-ch-image
+  if: '$BUILD_CH_IMAGE'
+
 .npm-cache-patterns: &npm-cache-patterns
   - ".npm/"
   - "node_modules/"
@@ -43,6 +46,7 @@
 variables:
   npm_config_cache: "$CI_PROJECT_DIR/.npm"
   CI_IMAGE: $CI_REGISTRY/hydrolix/grafana-datasource-plugin/ci:latest
+  CH_IMAGE: $CI_REGISTRY/hydrolix/grafana-datasource-plugin/ch:latest
 
 build-ci-image:
   stage: prepare
@@ -56,6 +60,19 @@ build-ci-image:
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
     - docker build -f .gitlab/ci.Dockerfile -t $CI_IMAGE .
     - docker push $CI_IMAGE
+
+build-ch-image:
+  stage: prepare
+  image: ubuntu:22.04
+  tags: [forecast-small]
+  rules:
+    - <<: *if-build-ch-image
+  script:
+    - apt-get -q -y update
+    - apt-get -y install docker.io
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker build -f .gitlab/ch.Dockerfile -t $CH_IMAGE .
+    - docker push $CH_IMAGE
 
 build-frontend:
   extends:
@@ -86,10 +103,19 @@ build-backend:
   extends:
     - .rules:default
   stage: build
+  services:
+    - name: $CH_IMAGE
+      alias: ch
+      variables:
+        CLICKHOUSE_SKIP_USER_SETUP: 1
   image: $CI_IMAGE
   tags: [forecast-small]
+  variables:
+    CLICKHOUSE_HOSTNAME: ch
+    CLICKHOUSE_DISABLE_CONTAINER: 1
   script:
     - mage
+    - mage test
   artifacts:
     paths:
       - dist/
