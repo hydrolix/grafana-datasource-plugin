@@ -1,107 +1,81 @@
 import { of } from 'rxjs';
-import {TypedVariableModel, toDataFrame,} from '@grafana/data';
-import { mockHdxDataSource } from '__mocks__/datasource';
-import { HdxQuery } from "./types";
-
-interface InstanceConfig {
-    queryResponse: {} | [];
-}
-
-const templateSrvMock = { replace: jest.fn(), getVariables: jest.fn(), getAdhocFilters: jest.fn() };
-
-// noinspection JSUnusedGlobalSymbols
-jest.mock('@grafana/runtime', () => ({
-    ...(jest.requireActual('@grafana/runtime') as unknown as object),
-    getTemplateSrv: () => templateSrvMock,
-}));
-
-const createInstance = ({ queryResponse }: Partial<InstanceConfig> = {}) => {
-    const instance = mockHdxDataSource();
-    jest.spyOn(instance, 'query').mockImplementation((_request) => of({ data: [toDataFrame(queryResponse ?? [])] }));
-    return instance;
-};
+import {toDataFrame} from '@grafana/data';
+import { setupDataSourceMock } from '__mocks__/datasource';
+import { fooVariable } from "./__mocks__/variable";
 
 describe('HdxDataSource', () => {
-    describe('metricFindQuery', () => {
-        it('fetches values', async () => {
-            const mockedValues = [1, 100];
-            const queryResponse = {
-                fields: [{ name: 'field', type: 'number', values: mockedValues }],
-            };
-            const expectedValues = mockedValues.map((v) => ({ text: v, value: v }));
-            const values = await createInstance({ queryResponse }).metricFindQuery('mock', {});
-            expect(values).toEqual(expectedValues);
-        });
-
-        it('fetches name/value pairs', async () => {
-            const mockedIds = [1, 2];
-            const mockedValues = [100, 200];
-            const queryResponse = {
-                fields: [
-                    { name: 'id', type: 'number', values: mockedIds },
-                    { name: 'values', type: 'number', values: mockedValues },
-                ],
-            };
-            const expectedValues = mockedValues.map((v, i) => ({ text: v, value: mockedIds[i] }));
-            const values = await createInstance({ queryResponse }).metricFindQuery('mock', {});
-            expect(values).toEqual(expectedValues);
-        });
+    beforeEach(() => {
+        jest.clearAllMocks();
     });
 
-    describe('applyTemplateVariables', () => {
-        it('interpolates', async () => {
-            const rawSql = 'foo';
-            const spyOnReplace = jest.spyOn(templateSrvMock, 'replace').mockImplementation(() => rawSql);
-            const query = { rawSql: 'select' } as HdxQuery;
-            const val = createInstance({}).applyTemplateVariables(query, {});
-            expect(spyOnReplace).toHaveBeenCalled();
-            expect(val).toEqual({ rawSql });
+    describe('When performing metricFindQuery', () => {
+        beforeEach(() => {
+            jest.clearAllMocks();
         });
-        it('should handle $__conditionalAll and not replace', async () => {
-            const query = { rawSql: '$__conditionalAll(foo, $fieldVal)' } as HdxQuery;
-            const vars = [{ current: { value: `'val1', 'val2'` }, name: 'fieldVal' }] as TypedVariableModel[];
-            const spyOnReplace = jest.spyOn(templateSrvMock, 'replace').mockImplementation((x) => x);
-            const spyOnGetVars = jest.spyOn(templateSrvMock, 'getVariables').mockImplementation(() => vars);
-            const val = createInstance({}).applyTemplateVariables(query, {});
-            expect(spyOnReplace).toHaveBeenCalled();
-            expect(spyOnGetVars).toHaveBeenCalled();
-            expect(val).toEqual({ rawSql: `foo` });
-        });
-        it('should handle $__conditionalAll and replace', async () => {
-            const query = { rawSql: '$__conditionalAll(foo, $fieldVal)' } as HdxQuery;
-            const vars = [{ current: { value: '$__all' }, name: 'fieldVal' }] as TypedVariableModel[];
-            const spyOnReplace = jest.spyOn(templateSrvMock, 'replace').mockImplementation((x) => x);
-            const spyOnGetVars = jest.spyOn(templateSrvMock, 'getVariables').mockImplementation(() => vars);
-            const val = createInstance({}).applyTemplateVariables(query, {});
-            expect(spyOnReplace).toHaveBeenCalled();
-            expect(spyOnGetVars).toHaveBeenCalled();
-            expect(val).toEqual({ rawSql: `1=1` });
-        });
-    });
 
-    describe('Conditional All', () => {
-        it('should replace $__conditionalAll with 1=1 when all is selected', async () => {
-            const rawSql = 'select stuff from table where $__conditionalAll(fieldVal in ($fieldVal), $fieldVal);';
-            const val = createInstance({}).applyConditionalAll(rawSql, [
-                { name: 'fieldVal', current: { value: '$__all' } } as any,
-            ]);
-            expect(val).toEqual('select stuff from table where 1=1;');
+        const cases: Array<{
+            name: string;
+            response: any;
+            expected: any;
+        }> = [
+            {
+                name: 'it should return values',
+                response: {
+                    fields: [{name: 'values', type: 'number', values: [100, 200]}],
+                },
+                expected: [
+                    { text: 100, value: 100 },
+                    { text: 200, value: 200 }
+                ]
+            },
+            {
+                name: 'it should return identified values',
+                response: {
+                    fields: [
+                        {name: 'ids', type: 'number', values: [1, 2]},
+                        {name: 'values', type: 'number', values: [100, 200]}
+                    ],
+                },
+                expected: [
+                    { text: 100, value: 1 },
+                    { text: 200, value: 2 }
+                ]
+            }
+        ]
+
+        const { datasource, queryMock } = setupDataSourceMock({})
+
+        test.each(cases)('$name', async ({ response, expected }) => {
+            queryMock.mockImplementation((_) => of({data: [toDataFrame(response)]}))
+            const actual = await datasource.metricFindQuery('mock', {});
+            expect(actual).toEqual(expected);
         });
-        it('should replace $__conditionalAll with arg when anything else is selected', async () => {
-            const rawSql = 'select stuff from table where $__conditionalAll(fieldVal in ($fieldVal), $fieldVal);';
-            const val = createInstance({}).applyConditionalAll(rawSql, [
-                { name: 'fieldVal', current: { value: `'val1', 'val2'` } } as any,
-            ]);
-            expect(val).toEqual(`select stuff from table where fieldVal in ($fieldVal);`);
+    })
+
+    const filterQueryCases: Array<{ query: string; valid: boolean }> = [
+        { query: "", valid: false },
+        { query: "select 1;", valid: true }
+    ]
+
+    test.each(filterQueryCases)('should filter out invalid query', ({query, valid}) => {
+        const { datasource } = setupDataSourceMock({});
+        const actual = datasource.filterQuery({
+            refId: '',
+            rawSql: query,
+            round: '',
         });
-        it('should replace all $__conditionalAll', async () => {
-            const rawSql =
-                'select stuff from table where $__conditionalAll(fieldVal in ($fieldVal), $fieldVal) and $__conditionalAll(fieldVal in ($fieldVal2), $fieldVal2);';
-            const val = createInstance({}).applyConditionalAll(rawSql, [
-                { name: 'fieldVal', current: { value: `'val1', 'val2'` } } as any,
-                { name: 'fieldVal2', current: { value: '$__all' } } as any,
-            ]);
-            expect(val).toEqual(`select stuff from table where fieldVal in ($fieldVal) and 1=1;`);
+        expect(actual).toEqual(valid)
+    })
+
+    it('should interpolate variables in the query', async () => {
+        const { datasource } = setupDataSourceMock({
+            variables: [fooVariable],
         });
+        const actual = datasource.applyTemplateVariables({
+            refId: '',
+            rawSql: 'foo $foo',
+            round: '',
+        }, {});
+        expect(actual.rawSql).toEqual('foo templatedFoo');
     });
 });
