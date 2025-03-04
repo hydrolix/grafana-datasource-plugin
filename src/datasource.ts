@@ -5,20 +5,24 @@ import {
   DataFrame,
   DataQueryRequest,
   DataQueryResponse,
-  DataQueryError,
-  TypedVariableModel
+  DataQueryError
 } from '@grafana/data';
-import {DataSourceWithBackend, getTemplateSrv} from '@grafana/runtime';
+import { DataSourceWithBackend, getTemplateSrv, TemplateSrv } from '@grafana/runtime';
 import { isString } from 'lodash';
 import { HdxQuery, HdxDataSourceOptions, DEFAULT_QUERY } from './types';
 import { Observable } from "rxjs";
 import { map } from 'rxjs/operators'
 import { ErrorMessageBeautifier } from "./errorBeautifier";
+import { ConditionalAllApplier } from "./conditionalAllApplier";
 
 export class DataSource extends DataSourceWithBackend<HdxQuery, HdxDataSourceOptions> {
   private readonly beautifier = new ErrorMessageBeautifier()
+  private readonly conditionalAllApplier = new ConditionalAllApplier()
 
-  constructor(instanceSettings: DataSourceInstanceSettings<HdxDataSourceOptions>) {
+  constructor(
+      instanceSettings: DataSourceInstanceSettings<HdxDataSourceOptions>,
+      readonly templateSrv: TemplateSrv = getTemplateSrv()
+  ) {
     super(instanceSettings);
   }
 
@@ -61,40 +65,11 @@ export class DataSource extends DataSourceWithBackend<HdxQuery, HdxDataSourceOpt
 
   applyTemplateVariables(query: HdxQuery, scoped: ScopedVars): HdxQuery {
     let rawQuery = query.rawSql || '';
-    rawQuery = this.applyConditionalAll(rawQuery, getTemplateSrv().getVariables());
+    rawQuery = this.conditionalAllApplier.apply(rawQuery, this.templateSrv.getVariables());
     return {
       ...query,
       rawSql: this.replace(rawQuery, scoped) || '',
     };
-  }
-
-  applyConditionalAll(rawQuery: string, templateVars: TypedVariableModel[]): string {
-    if (!rawQuery) {
-      return rawQuery;
-    }
-    const macro = '$__conditionalAll(';
-    let macroIndex = rawQuery.lastIndexOf(macro);
-
-    while (macroIndex !== -1) {
-      const params = this.parseMacroArgs(rawQuery, macroIndex + macro.length - 1);
-      if (params.length !== 2) {
-        return rawQuery;
-      }
-      const templateVarParam = params[1].trim();
-      const varRegex = /(?<=\$\{)[\w\d]+(?=\})|(?<=\$)[\w\d]+/;
-      const templateVar = varRegex.exec(templateVarParam);
-      let phrase = params[0];
-      if (templateVar) {
-        const key = templateVars.find((x) => x.name === templateVar[0]) as any;
-        let value = key?.current.value.toString();
-        if (value === '' || value === '$__all') {
-          phrase = '1=1';
-        }
-      }
-      rawQuery = rawQuery.replace(`${macro}${params[0]},${params[1]})`, phrase);
-      macroIndex = rawQuery.lastIndexOf(macro);
-    }
-    return rawQuery;
   }
 
   filterQuery(query: HdxQuery): boolean {
@@ -106,7 +81,7 @@ export class DataSource extends DataSourceWithBackend<HdxQuery, HdxDataSourceOpt
     return new Promise((resolve) => {
       const req = {
         targets: [{ ...request, refId: String(Math.random()) }],
-        range: options ? options.range : (getTemplateSrv() as any).timeRange,
+        range: options ? options.range : (this.templateSrv as any).timeRange,
       } as DataQueryRequest<HdxQuery>;
       this.query(req).subscribe((res: DataQueryResponse) => {
         resolve(res.data[0] || { fields: [] });
@@ -114,35 +89,9 @@ export class DataSource extends DataSourceWithBackend<HdxQuery, HdxDataSourceOpt
     });
   }
 
-  private parseMacroArgs(query: string, argsIndex: number): string[] {
-    const args = [] as string[];
-    const re = /\(|\)|,/g;
-    let bracketCount = 0;
-    let lastArgEndIndex = 1;
-    let regExpArray: RegExpExecArray | null;
-    const argsSubstr = query.substring(argsIndex, query.length);
-    while ((regExpArray = re.exec(argsSubstr)) !== null) {
-      const foundNode = regExpArray[0];
-      if (foundNode === '(') {
-        bracketCount++;
-      } else if (foundNode === ')') {
-        bracketCount--;
-      }
-      if (foundNode === ',' && bracketCount === 1) {
-        args.push(argsSubstr.substring(lastArgEndIndex, re.lastIndex - 1));
-        lastArgEndIndex = re.lastIndex;
-      }
-      if (bracketCount === 0) {
-        args.push(argsSubstr.substring(lastArgEndIndex, re.lastIndex - 1));
-        return args;
-      }
-    }
-    return [];
-  }
-
   private replace(value?: string, scopedVars?: ScopedVars) {
     if (value !== undefined) {
-      return getTemplateSrv().replace(value, scopedVars);
+      return this.templateSrv.replace(value, scopedVars);
     }
     return value;
   }
