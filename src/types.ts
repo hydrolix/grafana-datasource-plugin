@@ -6,6 +6,17 @@ export interface HdxQuery extends DataQuery {
   round: string;
 }
 
+/**
+ * QueryType determines the display/query format.
+ */
+export enum QueryType {
+  Graph = 'graph',
+  Table = 'table',
+  Logs = 'logs',
+  TimeSeries = 'timeseries',
+  Traces = 'traces',
+}
+
 export const DEFAULT_QUERY: Partial<HdxQuery> = {
 };
 
@@ -24,6 +35,7 @@ export interface DataSourceResponse {
 export interface HdxDataSourceOptions extends DataSourceJsonData {
   host?: string;
   port?: number;
+  useDefaultPort?: boolean;
   username?: string;
   protocol?: Protocol;
   secure?: boolean;

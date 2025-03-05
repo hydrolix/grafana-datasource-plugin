@@ -117,5 +117,14 @@ export const MACROS = [
         type: MacroType.Value,
         description:
             'The Query\'s Interval rounded to seconds (>= 1s)',
+    },
+    {
+        id: "$__conditionalAll(condition, $templateVar)",
+        name: "$__conditionalAll(condition, $templateVar)",
+        text: '$__conditionalAll',
+        args: ['condition', '$templateVar'],
+        type: MacroType.Filter,
+        description:
+            'Replaced by the first parameter when the template variable in the second parameter does not select every value. Replaced by the 1=1 when the template variable selects every value.',
     }
 ];

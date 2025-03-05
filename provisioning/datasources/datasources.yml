@@ -11,6 +11,8 @@ datasources:
     jsonData:
       username: 'default'
       protocol: 'native'
+      port: 9440;
+      useDefaultPort: false
       secure: true
     secureJsonData:
 #      password: 'password'
