@@ -4,7 +4,7 @@
  * In order to extend the configuration follow the steps in
  * https://grafana.com/developers/plugin-tools/get-started/set-up-development-environment#extend-the-webpack-config
  */
-
+// @ts-nocheck
 import CopyWebpackPlugin from 'copy-webpack-plugin';
 import ESLintPlugin from 'eslint-webpack-plugin';
 import ForkTsCheckerWebpackPlugin from 'fork-ts-checker-webpack-plugin';

@@ -4,7 +4,17 @@ import {
     onUpdateDatasourceJsonDataOption,
     onUpdateDatasourceSecureJsonDataOption
 } from '@grafana/data';
-import {Divider, Field, Input, RadioButtonGroup, SecretInput, Switch} from '@grafana/ui';
+import {
+    Divider,
+    Field,
+    InlineField,
+    InlineSwitch,
+    Input,
+    RadioButtonGroup,
+    SecretInput,
+    Stack,
+    Switch
+} from '@grafana/ui';
 import {ConfigSection, DataSourceDescription} from '@grafana/plugin-ui';
 import {HdxDataSourceOptions, HdxSecureJsonData, Protocol} from '../types';
 import allLabels from 'labels';
@@ -15,12 +25,22 @@ export interface Props extends DataSourcePluginOptionsEditorProps<HdxDataSourceO
 export function ConfigEditor(props: Props) {
     const {onOptionsChange, options} = props;
     const {jsonData, secureJsonFields} = options;
+
     const labels = allLabels.components.config.editor;
     const secureJsonData = (options.secureJsonData || {}) as HdxSecureJsonData;
     const protocolOptions = [
         {label: "Native", value: Protocol.Native},
         {label: "HTTP", value: Protocol.Http},
     ];
+
+    const getDefaultPort = (protocol: Protocol, secure: boolean) =>
+        secure ?
+            (protocol === Protocol.Native ? labels.port.secureNativePort : labels.port.secureHttpPort) :
+            (protocol === Protocol.Native ? labels.port.insecureNativePort : labels.port.insecureHttpPort);
+
+    const defaultPort = getDefaultPort(jsonData.protocol!, jsonData.secure!);
+    const portDescription = `${labels.port.description} (default for ${jsonData.secure ? "secure" : ""} ${jsonData.protocol}: ${defaultPort})`
+
 
     const onPortChange = (port: string) => {
         onOptionsChange({
@@ -31,36 +51,47 @@ export function ConfigEditor(props: Props) {
             },
         });
     };
+
+    const onUseDefaultPortChange = (useDefault: boolean) => {
+        onOptionsChange({
+            ...options,
+            jsonData: {
+                ...options.jsonData,
+                useDefaultPort: useDefault,
+                port: +defaultPort
+            },
+        });
+    };
     const onProtocolToggle = (protocol: Protocol) => {
         onOptionsChange({
             ...options,
             jsonData: {
                 ...options.jsonData,
                 protocol: protocol,
+                port: jsonData.useDefaultPort ? +getDefaultPort(protocol, jsonData.secure!) : jsonData.port
             },
         });
     };
-    const onSwitchToggle = (
-        key: keyof Pick<HdxDataSourceOptions, "secure">,
+    const onSecureChange = (
         value: boolean
     ) => {
         onOptionsChange({
             ...options,
             jsonData: {
                 ...options.jsonData,
-                [key]: value,
+                secure: value,
+                port: jsonData.useDefaultPort ? +getDefaultPort(jsonData.protocol!, value) : jsonData.port
             },
         });
-    }
+    };
     const onTlsSettingsChange = (
-        key: keyof Pick<HdxDataSourceOptions, "skipTlsVerify">,
         value: boolean
     ) => {
         onOptionsChange({
             ...options,
             jsonData: {
                 ...options.jsonData,
-                [key]: value,
+                skipTlsVerify: value,
             },
         });
     };
@@ -78,11 +109,6 @@ export function ConfigEditor(props: Props) {
             },
         });
     };
-
-    const defaultPort = jsonData.secure ?
-        (jsonData.protocol === Protocol.Native ? labels.port.secureNativePort : labels.port.secureHttpPort) :
-        (jsonData.protocol === Protocol.Native ? labels.port.insecureNativePort : labels.port.insecureHttpPort);
-    const portDescription = `${labels.port.description} (default for ${jsonData.secure ? "secure" : ""} ${jsonData.protocol}: ${defaultPort})`
 
 
     return (
@@ -119,16 +145,25 @@ export function ConfigEditor(props: Props) {
                     invalid={!jsonData.port}
                     error={labels.port.error}
                 >
-                    <Input
-                        name="port"
-                        width={40}
-                        type="number"
-                        value={jsonData.port || ''}
-                        onChange={e => onPortChange(e.currentTarget.value)}
-                        label={labels.port.label}
-                        aria-label={labels.port.label}
-                        placeholder={defaultPort}
-                    />
+                    <Stack direction="row">
+                        <Input
+                            name="port"
+                            width={40}
+                            type="number"
+                            value={jsonData.port || ''}
+                            disabled={jsonData.useDefaultPort}
+                            onChange={e => onPortChange(e.currentTarget.value)}
+                            label={labels.port.label}
+                            aria-label={labels.port.label}
+                        />
+                        <InlineField label={labels.useDefaultPort.label} interactive>
+
+                            <InlineSwitch
+                                onChange={e => onUseDefaultPortChange(e.currentTarget.checked)}
+                                value={jsonData.useDefaultPort}/>
+                        </InlineField>
+                    </Stack>
+
                 </Field>
 
                 <Field label={labels.protocol.label} description={labels.protocol.description}>
@@ -145,11 +180,11 @@ export function ConfigEditor(props: Props) {
                         id="secure"
                         className="gf-form"
                         value={jsonData.secure || false}
-                        onChange={(e) => onSwitchToggle("secure", e.currentTarget.checked)}
+                        onChange={(e) => onSecureChange(e.currentTarget.checked)}
                     />
                 </Field>
 
-                { jsonData.protocol === Protocol.Http &&
+                {jsonData.protocol === Protocol.Http &&
                     <Field label={labels.path.label} description={labels.path.description}>
                         <Input
                             value={jsonData.path || ''}
@@ -164,20 +199,24 @@ export function ConfigEditor(props: Props) {
                 }
             </ConfigSection>
 
-            <Divider/>
 
-            <ConfigSection title="TLS / SSL Settings">
-                <Field
-                    label={labels.skipTlsVerify.label}
-                    description={labels.skipTlsVerify.description}
-                >
-                    <Switch
-                        className="gf-form"
-                        value={jsonData.skipTlsVerify || false}
-                        onChange={(e) => onTlsSettingsChange("skipTlsVerify", e.currentTarget.checked)}
-                    />
-                </Field>
-            </ConfigSection>
+            {jsonData.secure &&
+                <>
+                    <Divider/>
+                    <ConfigSection title="TLS / SSL Settings">
+                        <Field
+                            label={labels.skipTlsVerify.label}
+                            description={labels.skipTlsVerify.description}
+                        >
+                            <Switch
+                                className="gf-form"
+                                value={jsonData.skipTlsVerify || false}
+                                onChange={(e) => onTlsSettingsChange(e.currentTarget.checked)}
+                            />
+                        </Field>
+                    </ConfigSection>
+                </>
+            }
 
             <Divider/>
 
@@ -210,10 +249,8 @@ export function ConfigEditor(props: Props) {
                     />
                 </Field>
             </ConfigSection>
-
             <Divider/>
-
-            <ConfigSection title={"Default Database"}>
+            <ConfigSection title="Additional Settings" isCollapsible isInitiallyOpen={false}>
                 <Field label={labels.defaultDatabase.label} description={labels.defaultDatabase.description}>
                     <Input
                         name={"defaultDatabase"}
@@ -226,11 +263,7 @@ export function ConfigEditor(props: Props) {
                         type="number"
                     />
                 </Field>
-            </ConfigSection>
 
-            <Divider/>
-
-            <ConfigSection title={"Query Settings"}>
                 <Field label={labels.dialTimeout.label} description={labels.dialTimeout.description}>
                     <Input
                         name={"dialTimeout"}

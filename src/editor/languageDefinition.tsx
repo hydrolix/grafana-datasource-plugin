@@ -12,10 +12,11 @@ import {SQLCompletionItemProvider} from "@grafana/plugin-ui/dist/src/components/
 import {format} from 'sql-formatter';
 import {OPERATORS} from "./operators";
 import {FUNCTIONS} from "./functions";
+import {Props} from "../components/QueryEditor";
 
 
-export const languageDefinition: (metadataProvider: MetadataProvider)
-    => LanguageDefinition = (metadataProvider: MetadataProvider) => {
+export const languageDefinition: (metadataProvider: MetadataProvider, props: Props)
+    => LanguageDefinition = (metadataProvider: MetadataProvider, props: Props) => {
     return {
         id: 'sql',
         completionProvider: (m: Monaco, language: SQLMonarchLanguage) => {
@@ -40,6 +41,8 @@ export const languageDefinition: (metadataProvider: MetadataProvider)
             } as SQLCompletionItemProvider;
             setKeywords(metadataProvider, m, language);
 
+            setHotKeys(m, props)
+
             return completionProvider;
         },
         formatter: s => format(s, {language: 'mysql'})
@@ -48,11 +51,11 @@ export const languageDefinition: (metadataProvider: MetadataProvider)
     };
 }
 
-export enum CustomStatementPosition {
+enum CustomStatementPosition {
     AfterQuery = 'afterQuery',
 }
 
-export const customStatementPlacement: StatementPlacementProvider = () => [
+const customStatementPlacement: StatementPlacementProvider = () => [
     {
         id: CustomStatementPosition.AfterQuery,
         resolve: (currentToken, previousKeyword) => {
@@ -76,7 +79,8 @@ export const customStatementPlacement: StatementPlacementProvider = () => [
     }
 ];
 
-export const setKeywords = (metadataProvider: MetadataProvider, m: Monaco, language: SQLMonarchLanguage) => {
+const setKeywords = (metadataProvider: MetadataProvider, m: Monaco, language: SQLMonarchLanguage) => {
+
     m.languages.getLanguages().map(l => l.id).filter(l => l.startsWith('sql-')).forEach(languageId => {
 
         m.languages.setMonarchTokensProvider(languageId!, {
@@ -86,7 +90,14 @@ export const setKeywords = (metadataProvider: MetadataProvider, m: Monaco, langu
     });
 
 }
-
+const setHotKeys = (m: Monaco, props: Props) => {
+    m.editor.addEditorAction({
+        id: "executeCurrentAndAdvance",
+        label: "Execute Block and Advance",
+        keybindings: [m.KeyMod.CtrlCmd | m.KeyCode.Enter, m.KeyMod.WinCtrl | m.KeyCode.Enter],
+        run: props.onRunQuery,
+    });
+};
 
 export const customSuggestionKinds: () => SuggestionKindProvider = () => () => [
     {

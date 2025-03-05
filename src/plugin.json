@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
   "type": "datasource",
-  "name": "Plugin",
+  "name": "Hydrolix",
   "id": "grafana-hydrolix-datasource",
   "metrics": true,
   "backend": true,

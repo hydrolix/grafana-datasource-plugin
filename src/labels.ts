@@ -16,7 +16,11 @@ export default {
                     insecureNativePort: "9000",
                     insecureHttpPort: "8123",
                     secureNativePort: "9440",
-                    secureHttpPort: "8443"
+                    secureHttpPort: "443"
+                },
+                useDefaultPort: {
+                    label: "Use default",
+                    description: "Use default port"
                 },
                 protocol: {
                     label: "Protocol",
