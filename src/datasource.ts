@@ -5,11 +5,14 @@ import {
     DataQueryRequest,
     DataQueryResponse,
     DataSourceInstanceSettings,
-    ScopedVars, TestDataSourceResponse
+    ScopedVars,
+    TestDataSourceResponse,
+    getTimeZone,
+    getTimeZoneInfo
 } from '@grafana/data';
 import {DataSourceWithBackend, getTemplateSrv, TemplateSrv} from '@grafana/runtime';
 import {isString} from 'lodash';
-import {DEFAULT_QUERY, HdxDataSourceOptions, HdxQuery} from './types';
+import { DEFAULT_QUERY, HdxDataSourceOptions, HdxQuery } from './types';
 import {Observable} from "rxjs";
 import {map} from 'rxjs/operators'
 import {ErrorMessageBeautifier} from "./errorBeautifier";
@@ -45,43 +48,37 @@ export class DataSource extends DataSourceWithBackend<HdxQuery, HdxDataSourceOpt
     }
 
     query(request: DataQueryRequest<HdxQuery>): Observable<DataQueryResponse> {
-
-        return super.query(request)
-            .pipe(map((response: DataQueryResponse) => {
-                console.log(response.data)
-                const data = response.data.map(frame => {
-                    const refId = frame.refId
-                    const queryType = request.targets.find(t => t.refId === refId)?.queryType
-                    if (queryType) {
-                        return {
-                            ...frame,
-                            meta: {
-                                ...frame.meta,
-                                preferredVisualisationType: queryType
-                            }
-                        }
-                    } else {
-                        return frame;
-                    }
-                })
-                const errors = response.errors?.map((error: DataQueryError) => {
-                    console.error(error)
-                    if (error.message) {
-                        const message = this.beautifier.beautify(error.message)
-                        if (message) {
-                            return {...error, message: message}
-                        }
-                    }
-                    return error
-                })
-
+        const targets = request.targets
+            .map((t) => {
                 return {
-                    ...response,
-                    data,
-                    errors: errors,
-                    error: undefined
+                    ...t,
+                    meta: {
+                        timezone: this.resolveTimezone(request),
+                    },
                 };
-            }));
+            });
+
+        return super.query({
+            ...request,
+            targets,
+        }).pipe(map((response: DataQueryResponse) => {
+            const errors = response.errors?.map((error: DataQueryError) => {
+                console.error(error)
+                if (error.message) {
+                    const message = this.beautifier.beautify(error.message)
+                    if (message) {
+                        return { ...error, message: message }
+                    }
+                }
+                return error
+            })
+
+            return {
+                ...response,
+                errors: errors,
+                error: undefined
+            };
+        }));
     }
 
     getDefaultQuery(_: CoreApp): Partial<HdxQuery> {
@@ -119,6 +116,16 @@ export class DataSource extends DataSourceWithBackend<HdxQuery, HdxDataSourceOpt
             return this.templateSrv.replace(value, scopedVars);
         }
         return value;
+    }
+
+    private resolveTimezone(request: DataQueryRequest<HdxQuery>): string | undefined {
+        // timezone specified in the time picker
+        if (request.timezone && request.timezone !== 'browser') {
+            return request.timezone;
+        }
+        // fall back to the local timezone
+        const localTimezoneInfo = getTimeZoneInfo(getTimeZone(), Date.now());
+        return localTimezoneInfo?.ianaName;
     }
 
     testDatasource(): Promise<TestDataSourceResponse> {
