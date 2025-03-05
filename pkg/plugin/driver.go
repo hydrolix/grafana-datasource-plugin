@@ -170,14 +170,16 @@ func (h *Hydrolix) Macros() sqlds.Macros {
 
 func (h *Hydrolix) Settings(ctx context.Context, config backend.DataSourceInstanceSettings) sqlds.DriverSettings {
 	settings, err := models.LoadPluginSettings(ctx, config)
-	var qts = "30s"
+	timeout := 60
 	if err == nil {
-		qts = settings.QueryTimeout
+		t, err := strconv.Atoi(settings.QueryTimeout)
+		if err == nil {
+			timeout = t
+		}
 	}
-	qt, _ := time.ParseDuration(qts)
 
 	return sqlds.DriverSettings{
-		Timeout: qt,
+		Timeout: time.Second * time.Duration(timeout),
 		FillMode: &data.FillMissing{
 			Mode: data.FillModeNull,
 		},

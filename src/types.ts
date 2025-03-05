@@ -4,17 +4,17 @@ import { DataQuery } from '@grafana/schema';
 export interface HdxQuery extends DataQuery {
   rawSql: string;
   round: string;
+  format?: number;
 }
 
 /**
  * QueryType determines the display/query format.
  */
 export enum QueryType {
-  Graph = 'graph',
-  Table = 'table',
-  Logs = 'logs',
-  TimeSeries = 'timeseries',
-  Traces = 'traces',
+  Table = 1,
+  TimeSeries = 0,
+  Logs = 2,
+  Traces = 3,
 }
 
 export const DEFAULT_QUERY: Partial<HdxQuery> = {
