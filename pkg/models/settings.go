@@ -57,7 +57,14 @@ func LoadPluginSettings(ctx context.Context, source backend.DataSourceInstanceSe
 		settings.Host = jsonData["host"].(string)
 	}
 	if jsonData["port"] != nil {
-		settings.Port = uint16(jsonData["port"].(float64))
+		if portAsFloat, ok := jsonData["port"].(float64); ok {
+			settings.Port = uint16(portAsFloat)
+		} else if portAsString, ok := jsonData["port"].(string); ok {
+			port, err := strconv.ParseFloat(portAsString, 64)
+			if err != nil {
+				settings.Port = uint16(port)
+			}
+		}
 	}
 	if jsonData["protocol"] != nil {
 		settings.Protocol = jsonData["protocol"].(string)
