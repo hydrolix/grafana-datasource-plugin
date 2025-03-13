@@ -1,8 +1,9 @@
 stages:
   - prepare
   - build
-  - package
   - test
+  - package
+  - e2e
   - security
   - cleanup
 
@@ -19,7 +20,7 @@ sast:
   stage: security
 
 .sast-analyzer:
-  tags: [forecast-small]
+  tags: [lke]
 
 semgrep-sast:
   rules:
@@ -43,7 +44,7 @@ sobelow-sast:
       when: never
 
 .secret-analyzer:
-  tags: [forecast-small]
+  tags: [lke]
 
 secret_detection:
   stage: security
@@ -60,7 +61,7 @@ secret_detection:
 .ds-analyzer:
   variables:
     DS_MAX_DEPTH: -1
-  tags: [forecast-small]
+  tags: [lke]
 
 gemnasium-dependency_scanning:
   stage: security
