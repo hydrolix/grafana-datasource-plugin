@@ -3,6 +3,7 @@ node_modules/
 playwright-report/
 playwright/
 test-results/
+coverage/
 .vscode/
 .idea/
 .eslintcache

@@ -23,8 +23,12 @@
   if: '$BUILD_CH_IMAGE'
 
 .npm-cache-patterns: &npm-cache-patterns
-  - ".npm/"
+  - ".cache/npm/"
   - "node_modules/"
+  - "package-lock.json"
+
+.go-cache-patterns: &go-cache-patterns
+  - ".cache/go-mod/"
 
 .rules:default:
   rules:
@@ -33,103 +37,148 @@
 
 .npm-cache-push:
   cache:
-    - key: $CI_COMMIT_REF_SLUG
+    - key: npm-$CI_COMMIT_REF_SLUG
       paths: *npm-cache-patterns
       policy: push
 
 .npm-cache-pull:
   cache:
-    - key: $CI_COMMIT_REF_SLUG
+    - key: npm-$CI_COMMIT_REF_SLUG
       paths: *npm-cache-patterns
       policy: pull
 
+.go-cache-pull-push:
+  cache:
+    - key: go-$CI_COMMIT_REF_SLUG
+      paths: *go-cache-patterns
+      policy: pull-push
+
 variables:
-  npm_config_cache: "$CI_PROJECT_DIR/.npm"
+  npm_config_cache: "$CI_PROJECT_DIR/.cache/npm"
+  GOCACHE: "$CI_PROJECT_DIR/.cache/go-build"
+  GOMODCACHE: "$CI_PROJECT_DIR/.cache/go-mod"
+  DOCKER_TLS_CERTDIR: "/certs"
   CI_IMAGE: $CI_REGISTRY/hydrolix/grafana-datasource-plugin/ci:latest
   CH_IMAGE: $CI_REGISTRY/hydrolix/grafana-datasource-plugin/ch:latest
+  KUBERNETES_CPU_LIMIT: "12"
+  KUBERNETES_CPU_REQUEST: "12"
+  KUBERNETES_MEMORY_REQUEST: "16Gi"
+  KUBERNETES_MEMORY_LIMIT: "16Gi"
+  KUBERNETES_EPHEMERAL_STORAGE_REQUEST: "16Gi"
+  KUBERNETES_EPHEMERAL_STORAGE_LIMIT: "16Gi"
 
-build-ci-image:
-  stage: prepare
-  image: ubuntu:22.04
-  tags: [forecast-small]
-  rules:
-    - <<: *if-build-ci-image
-  script:
-    - apt-get -q -y update
-    - apt-get -y install docker.io
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - docker build -f .gitlab/ci.Dockerfile -t $CI_IMAGE .
-    - docker push $CI_IMAGE
-
-build-ch-image:
-  stage: prepare
-  image: ubuntu:22.04
-  tags: [forecast-small]
-  rules:
-    - <<: *if-build-ch-image
-  script:
-    - apt-get -q -y update
-    - apt-get -y install docker.io
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - docker build -f .gitlab/ch.Dockerfile -t $CH_IMAGE .
-    - docker push $CH_IMAGE
-
-build-frontend:
+prepare-frontend:
   extends:
     - .npm-cache-push
     - .rules:default
-  stage: build
-  image: $CI_IMAGE
-  tags: [forecast-small]
-  variables:
-    ESLINT_CODE_QUALITY_REPORT: eslint_report.json
-    JEST_JUNIT_OUTPUT_FILE: junit_report.xml
+  stage: prepare
+  image: node:22
+  tags: [gitlab-org]
   script:
     - npm install
-    - npx eslint --cache --format gitlab --ignore-path ./.gitignore --ext .js,.jsx,.ts,.tsx .
+
+build-frontend:
+  extends:
+    - .npm-cache-pull
+    - .rules:default
+  stage: build
+  image: node:22
+  tags: [gitlab-org]
+  script:
     - npx tsc
-    - npx jest --ci --reporters=default --reporters=jest-junit --collect-coverage --passWithNoTests
     - npm run build
   artifacts:
     paths:
       - dist/
     when: on_success
     expire_in: 1 hour
+
+test-frontend:
+  extends:
+    - .npm-cache-pull
+    - .rules:default
+  stage: test
+  image: node:22
+  tags: [gitlab-org]
+  variables:
+    ESLINT_CODE_QUALITY_REPORT: eslint_report.json
+    JEST_JUNIT_OUTPUT_FILE: junit_report.xml
+  script:
+    - npx tsc
+    - npm run lint
+    - npm run test:ci
+  coverage: /^Statements\s*:\s*([^%]+)/
+  artifacts:
     reports:
       codequality: eslint_report.json
       junit: junit_report.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura-coverage.xml
 
 build-backend:
   extends:
+    - .go-cache-pull-push
     - .rules:default
   stage: build
-  services:
-    - name: $CH_IMAGE
-      alias: ch
-      variables:
-        CLICKHOUSE_SKIP_USER_SETUP: 1
-  image: $CI_IMAGE
-  tags: [forecast-small]
-  variables:
-    CLICKHOUSE_HOSTNAME: ch
-    CLICKHOUSE_DISABLE_CONTAINER: 1
+  image: golang:1.23
+  tags: [lke]
+  before_script:
+    - go install github.com/magefile/mage@latest
   script:
     - mage
-    - mage test
   artifacts:
     paths:
       - dist/
     when: on_success
     expire_in: 1 hour
 
+test-backend:
+  extends:
+    - .go-cache-pull-push
+    - .rules:default
+  stage: test
+  image: golang:1.23
+  services:
+    - name: clickhouse/clickhouse-server:latest
+      alias: ch
+      variables:
+        CLICKHOUSE_SKIP_USER_SETUP: 1
+      entrypoint:
+        - /bin/bash
+        - -c
+        - |
+          sed -i 's|<custom_settings_prefixes>SQL_</custom_settings_prefixes>|<custom_settings_prefixes>hdx_</custom_settings_prefixes>|' $CLICKHOUSE_CONFIG
+          exec /entrypoint.sh "$@"
+  tags: [gitlab-org]
+  variables:
+    CLICKHOUSE_HOSTNAME: ch
+    CLICKHOUSE_DISABLE_CONTAINER: 1
+  before_script:
+    - go install gotest.tools/gotestsum@latest
+    - go install github.com/boumenot/gocover-cobertura@latest
+  script:
+    - gotestsum --junitfile junit_report.xml --format testname -- -race -coverprofile=coverage.txt -covermode atomic ./...
+    - gocover-cobertura < coverage.txt > cobertura-coverage.xml
+    - go tool cover -func coverage.txt
+  coverage: /total:\s+\(statements\)\s+\d+.\d+%/
+  artifacts:
+    reports:
+      junit: junit_report.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: cobertura-coverage.xml
+
 zip:
   extends:
     - .npm-cache-pull
     - .rules:default
   stage: package
-  image: $CI_IMAGE
+  image: node:22
   needs: [build-frontend, build-backend]
-  tags: [forecast-small]
+  tags: [gitlab-org]
+  before_script:
+    - apt -qy update && apt -qy install zip
   script:
     - PLUGIN_NAME=$(npm pkg get name | tr -d '"')
     - PLUGIN_VERSION=$(npm pkg get version | tr -d '"')
@@ -143,12 +192,11 @@ zip:
     expire_in: 7 days
 
 .e2e-base:
-  image: $CI_IMAGE
-  tags: [forecast-small]
+  stage: e2e
   parallel:
     matrix:
       - E2E_GRAFANA_NAME: ["grafana-enterprise"]
-        E2E_GRAFANA_VERSION: ["10.4.15", "11.5.1"]
+        E2E_GRAFANA_VERSION: ["10.4.16", "11.5.2"]
   variables:
     E2E_IMAGE_NAME: e2e-$E2E_GRAFANA_NAME-$E2E_GRAFANA_VERSION
     E2E_IMAGE_TAG: $CI_COMMIT_SHA
@@ -157,12 +205,15 @@ zip:
     PLAYWRIGHT_JUNIT_OUTPUT_FILE: junit_report.xml
 
 build-e2e-image:
-  stage: test
-  needs: [zip]
   extends:
     - .e2e-base
     - .npm-cache-pull
     - .rules:default
+  image: docker:28
+  services:
+    - docker:28-dind
+  needs: [zip]
+  tags: [gitlab-org-docker]
   script:
     - unzip "$(ls -1 *.zip | head -n 1)" -d .
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
@@ -174,13 +225,15 @@ e2e:
     - .e2e-base
     - .npm-cache-pull
     - .rules:default
-  stage: test
+  image: mcr.microsoft.com/playwright:v1.50.0-jammy
   services:
     - name: $E2E_IMAGE
       alias: e2e
-  needs: [build-e2e-image]
+  needs: [build-e2e-image, test-frontend, test-backend]
+  tags: [gitlab-org]
+  before_script:
+    - npx playwright install
   script:
-    - npx playwright install --with-deps
     - npx playwright test --reporter=junit
   artifacts:
     reports:
@@ -191,7 +244,9 @@ remove-e2e-image:
     - .e2e-base
     - .npm-cache-pull
     - .rules:default
-  stage: cleanup
+  image: registry.gitlab.com/gitlab-ci-utils/curl-jq:latest
   when: always
+  needs: [e2e]
+  tags: [gitlab-org]
   script:
     - .gitlab/remove-image.sh "$CI_JOB_TOKEN" "$CI_PROJECT_ID" "$E2E_IMAGE_NAME" "$E2E_IMAGE_TAG"
