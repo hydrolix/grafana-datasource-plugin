@@ -5,7 +5,7 @@ stages:
   - package
   - e2e
   - security
-  - cleanup
+  - publish
 
 include:
   - local: .gitlab/ci/.gitlab-ci.yml
