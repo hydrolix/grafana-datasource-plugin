@@ -1,0 +1,7 @@
+{
+  "extends": "./.config/.eslintrc",
+  "rules": {
+    "eol-last": "off",
+    "no-var": "warn"
+  }
+}

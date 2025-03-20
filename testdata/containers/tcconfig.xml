@@ -1,0 +1,9 @@
+<?xml version="1.0" ?>
+<clickhouse>
+    <max_connections>4096</max_connections>
+    <logger>
+        <console>1</console>
+    </logger>
+    <timezone>UTC</timezone>
+    <custom_settings_prefix>hdx_</custom_settings_prefix>
+</clickhouse>
