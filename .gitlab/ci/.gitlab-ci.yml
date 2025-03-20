@@ -7,20 +7,14 @@
 .if-merge-request: &if-merge-request
   if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_EVENT_TYPE != "merge_train"'
 
-.if-merge-request-targeting-develop: &if-merge-request-targeting-develop
-  if: '($CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_EVENT_TYPE != "merge_train") && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
+.if-release-merge-request: &if-release-merge-request
+  if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_EVENT_TYPE != "merge_train" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^release[\/\-_].+$/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
 
 .if-schedule-pipeline: &if-schedule-pipeline
   if: '$CI_PIPELINE_SOURCE == "schedule"'
 
 .if-force-pipeline: &if-force-pipeline
   if: "$FORCE_PIPELINE"
-
-.if-build-ci-image: &if-build-ci-image
-  if: "$BUILD_CI_IMAGE"
-
-.if-build-ch-image: &if-build-ch-image
-  if: "$BUILD_CH_IMAGE"
 
 .npm-cache-patterns: &npm-cache-patterns
   - ".cache/npm/"
@@ -30,10 +24,14 @@
 .go-cache-patterns: &go-cache-patterns
   - ".cache/go-mod/"
 
-.rules:default:
+.rules:build:
   rules:
     - <<: *if-merge-request
     - <<: *if-force-pipeline
+
+.rules:release:
+  rules:
+    - <<: *if-release-merge-request
 
 .npm-cache-push:
   cache:
@@ -58,8 +56,6 @@ variables:
   GOCACHE: "$CI_PROJECT_DIR/.cache/go-build"
   GOMODCACHE: "$CI_PROJECT_DIR/.cache/go-mod"
   DOCKER_TLS_CERTDIR: "/certs"
-  CI_IMAGE: $CI_REGISTRY/hydrolix/grafana-datasource-plugin/ci:latest
-  CH_IMAGE: $CI_REGISTRY/hydrolix/grafana-datasource-plugin/ch:latest
   KUBERNETES_CPU_LIMIT: "12"
   KUBERNETES_CPU_REQUEST: "12"
   KUBERNETES_MEMORY_REQUEST: "16Gi"
@@ -70,7 +66,7 @@ variables:
 prepare-frontend:
   extends:
     - .npm-cache-push
-    - .rules:default
+    - .rules:build
   stage: prepare
   image: node:22
   tags: [gitlab-org]
@@ -80,7 +76,7 @@ prepare-frontend:
 build-frontend:
   extends:
     - .npm-cache-pull
-    - .rules:default
+    - .rules:build
   stage: build
   image: node:22
   tags: [gitlab-org]
@@ -96,7 +92,7 @@ build-frontend:
 test-frontend:
   extends:
     - .npm-cache-pull
-    - .rules:default
+    - .rules:build
   stage: test
   image: node:22
   tags: [gitlab-org]
@@ -119,7 +115,7 @@ test-frontend:
 build-backend:
   extends:
     - .go-cache-pull-push
-    - .rules:default
+    - .rules:build
   stage: build
   image: golang:1.23
   tags: [lke]
@@ -136,7 +132,7 @@ build-backend:
 test-backend:
   extends:
     - .go-cache-pull-push
-    - .rules:default
+    - .rules:build
   stage: test
   image: golang:1.23
   services:
@@ -172,7 +168,7 @@ test-backend:
 zip:
   extends:
     - .npm-cache-pull
-    - .rules:default
+    - .rules:build
   stage: package
   image: node:22
   needs: [build-frontend, build-backend]
@@ -208,7 +204,7 @@ build-e2e-image:
   extends:
     - .e2e-base
     - .npm-cache-pull
-    - .rules:default
+    - .rules:build
   image: docker:28
   services:
     - docker:28-dind
@@ -224,7 +220,7 @@ e2e:
   extends:
     - .e2e-base
     - .npm-cache-pull
-    - .rules:default
+    - .rules:build
   image: mcr.microsoft.com/playwright:v1.50.0-jammy
   services:
     - name: $E2E_IMAGE
@@ -243,10 +239,21 @@ remove-e2e-image:
   extends:
     - .e2e-base
     - .npm-cache-pull
-    - .rules:default
+    - .rules:build
   image: registry.gitlab.com/gitlab-ci-utils/curl-jq:latest
   when: always
   needs: [e2e]
   tags: [gitlab-org]
   script:
     - .gitlab/remove-image.sh "$CI_JOB_TOKEN" "$CI_PROJECT_ID" "$E2E_IMAGE_NAME" "$E2E_IMAGE_TAG"
+
+publish:
+  extends:
+    - .rules:release
+  stage: publish
+  image: registry.gitlab.com/gitlab-ci-utils/curl-jq:latest
+  when: manual
+  needs: [zip, e2e]
+  tags: [gitlab-org]
+  script:
+    - .gitlab/publish.sh
