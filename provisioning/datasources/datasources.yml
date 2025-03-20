@@ -1,18 +1,21 @@
 apiVersion: 1
 
 datasources:
-  - name: 'Hydrolix'
-    type: 'grafana-hydrolix-datasource'
+  - name: "Hydrolix"
+    type: "grafana-hydrolix-datasource"
     access: proxy
     isDefault: false
     orgId: 1
     version: 1
     editable: true
     jsonData:
-      username: 'default'
-      protocol: 'native'
-      port: 9440;
-      useDefaultPort: false
+      username: "default"
+      protocol: "http"
+      port: 443
+      useDefaultPort: true
       secure: true
+      path: "/query"
+      adHocKeyQuery: "DESCRIBE $${table}"
+      adHocValuesQuery: "SELECT $${column}, COUNT($${column}) as count  FROM $${table} WHERE $$__timeFilter($${timeColumn}) AND $$__adHocFilter()  GROUP BY $${column} ORDER BY count DESC LIMIT 100"
     secureJsonData:
 #      password: 'password'

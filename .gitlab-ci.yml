@@ -16,7 +16,7 @@ include:
 sast:
   variables:
     SAST_EXCLUDED_PATHS: "e2e"
-    SEARCH_MAX_DEPTH: '5'
+    SEARCH_MAX_DEPTH: "5"
   stage: security
 
 .sast-analyzer:
