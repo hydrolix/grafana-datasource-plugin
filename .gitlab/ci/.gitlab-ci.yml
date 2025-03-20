@@ -1,5 +1,5 @@
 .if-default-branch: &if-default-branch
-  if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_MERGE_REQUEST_IID == null'
+  if: "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_MERGE_REQUEST_IID == null"
 
 .if-release-branch: &if-release-branch
   if: '$CI_COMMIT_BRANCH =~ /^release[\/\-_].+$/'
@@ -14,13 +14,13 @@
   if: '$CI_PIPELINE_SOURCE == "schedule"'
 
 .if-force-pipeline: &if-force-pipeline
-  if: '$FORCE_PIPELINE'
+  if: "$FORCE_PIPELINE"
 
 .if-build-ci-image: &if-build-ci-image
-  if: '$BUILD_CI_IMAGE'
+  if: "$BUILD_CI_IMAGE"
 
 .if-build-ch-image: &if-build-ch-image
-  if: '$BUILD_CH_IMAGE'
+  if: "$BUILD_CH_IMAGE"
 
 .npm-cache-patterns: &npm-cache-patterns
   - ".cache/npm/"
