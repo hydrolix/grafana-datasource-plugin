@@ -83,14 +83,13 @@ export function QueryEditor(props: Props) {
                   size={"md"}
                 />
               </InlineField>
-
               <InlineField
                 error={"invalid duration"}
                 invalid={invalidDuration.current}
                 label={
                   <InlineLabel
                     width={10}
-                    tooltip="Set rounding for $from and $to timestamps..."
+                    tooltip="Round $from and $to timestamps to the nearest multiple of the specified value (1m rounds to the nearest whole minute). Supports time units: ms, s, m, h"
                   >
                     Round
                   </InlineLabel>

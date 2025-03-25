@@ -64,10 +64,10 @@ export default {
           description: "Used when no specific database is provided in queries",
           placeholder: "sample",
         },
-        defaultTable: {
-          label: "Default table",
-          description: "Used together with the default database as the default source for ad-hoc filter keys and values (if both are unset, keys and values are retrieved for all tables in the dashboard with filtering applied separately)",
-          placeholder: "logs",
+        defaultTimeRange: {
+          label: "Default time range",
+          description:
+            "Used for ad-hoc filter values when dashboard time range is not available",
         },
         adHocKeyQuery: {
           label: "Ad-hoc filter key query",
@@ -76,12 +76,20 @@ export default {
         },
         adHocValuesQuery: {
           label: "Ad-hoc filter value query",
-          description: "Used to retrieve possible values for ad-hoc filter keys",
-          placeholder: "SELECT ${column}, COUNT(${column}) as count  FROM ${table} WHERE $__timeFilter(${timeColumn}) AND $__adHocFilter() GROUP BY ${column} ORDER BY count DESC LIMIT 100",
+          description:
+            "Used to retrieve possible values for ad-hoc filter keys",
+          placeholder:
+            "SELECT ${column}, COUNT(${column}) as count  FROM ${table} WHERE $__timeFilter(${timeColumn}) AND $__adHocFilter() GROUP BY ${column} ORDER BY count DESC LIMIT 100",
         },
         adHocTableVariable: {
           label: "Ad-hoc filter table variable name",
-          description: "Dashboard variable name to specify the table for retrieving ad-hoc filter keys (overrides the default table)",
+          description:
+            "Dashboard variable name to specify the table for retrieving ad-hoc filter keys (overrides the default table)",
+        },
+        adHocTimeFilterVariable: {
+          label: "Ad-hoc filter time filter column variable name",
+          description:
+            "Dashboard variable name to specify the time filter for retrieving ad-hoc filter values (overrides the default time filter)",
         },
       },
     },

@@ -1,4 +1,4 @@
-import { DataSourceJsonData } from "@grafana/data";
+import { DataSourceJsonData, TimeRange } from "@grafana/data";
 import { DataQuery } from "@grafana/schema";
 
 export interface HdxQuery extends DataQuery {
@@ -41,8 +41,9 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   path?: string;
   skipTlsVerify?: boolean;
   defaultDatabase?: string;
-  defaultTable?: string;
+  defaultTimeRange?: TimeRange;
   adHocTableVariable?: string;
+  adHocTimeFilterVariable?: string;
   adHocKeyQuery?: string;
   adHocValuesQuery?: string;
   dialTimeout?: string;
@@ -59,4 +60,10 @@ export interface HdxSecureJsonData {
 export enum Protocol {
   Native = "native",
   Http = "http",
+}
+
+export interface AdHocFilterKeys {
+  text: string;
+  value?: string | number;
+  group: string;
 }
