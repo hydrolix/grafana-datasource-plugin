@@ -25,45 +25,24 @@ const SQL_WITHOUT_VARIABLES =
 
 describe("ast getColumnValuesStatement", () => {
   const TEMPLATE =
-    "SELECT ${column}, COUNT(${column}) as count  FROM ${getTable(sql)} WHERE $__timeFilter(${timeColumn}) AND $__adHocFilter() GROUP BY ${column} ORDER BY count DESC LIMIT 100";
+    "SELECT ${column}, COUNT(${column}) as count  FROM ${table} WHERE $__timeFilter(${timeColumn}) AND $__adHocFilter() GROUP BY ${column} ORDER BY count DESC LIMIT 100";
 
   test("should return statement for statusCode for table with variables", () => {
     let result = getColumnValuesStatement(
       "statusCode",
-      SQL_WITH_VARIABLES,
+      "sample.log",
+      "ts",
       TEMPLATE
     );
     expect(result).toBe(
-      "SELECT statusCode, COUNT(statusCode) as count  FROM ${getTable(sql)} WHERE $__timeFilter(${timefilter}) AND $__adHocFilter() GROUP BY statusCode ORDER BY count DESC LIMIT 100"
+      "SELECT statusCode, COUNT(statusCode) as count  FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter() GROUP BY statusCode ORDER BY count DESC LIMIT 100"
     );
   });
 
   test("should return statement for city for table with variables", () => {
-    let result = getColumnValuesStatement("city", SQL_WITH_VARIABLES, TEMPLATE);
+    let result = getColumnValuesStatement("city", "sample.log", "ts", TEMPLATE);
     expect(result).toBe(
-      "SELECT city, COUNT(city) as count  FROM ${getTable(sql)} WHERE $__timeFilter(${timefilter}) AND $__adHocFilter() GROUP BY city ORDER BY count DESC LIMIT 100"
-    );
-  });
-
-  test("should return statement for statusCode for table without variables", () => {
-    let result = getColumnValuesStatement(
-      "statusCode",
-      SQL_WITHOUT_VARIABLES,
-      TEMPLATE
-    );
-    expect(result).toBe(
-      "SELECT statusCode, COUNT(statusCode) as count  FROM ${getTable(sql)} WHERE $__timeFilter(reqTimeSec) AND $__adHocFilter() GROUP BY statusCode ORDER BY count DESC LIMIT 100"
-    );
-  });
-
-  test("should return statement for city for table without variables", () => {
-    let result = getColumnValuesStatement(
-      "city",
-      SQL_WITHOUT_VARIABLES,
-      TEMPLATE
-    );
-    expect(result).toBe(
-      "SELECT city, COUNT(city) as count  FROM ${getTable(sql)} WHERE $__timeFilter(reqTimeSec) AND $__adHocFilter() GROUP BY city ORDER BY count DESC LIMIT 100"
+      "SELECT city, COUNT(city) as count  FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter() GROUP BY city ORDER BY count DESC LIMIT 100"
     );
   });
 });

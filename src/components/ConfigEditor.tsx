@@ -1,8 +1,10 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   DataSourcePluginOptionsEditorProps,
+  dateTime,
   onUpdateDatasourceJsonDataOption,
   onUpdateDatasourceSecureJsonDataOption,
+  TimeRange,
 } from "@grafana/data";
 import {
   Divider,
@@ -14,6 +16,7 @@ import {
   SecretInput,
   Stack,
   Switch,
+  TimeRangeInput,
 } from "@grafana/ui";
 import { ConfigSection, DataSourceDescription } from "@grafana/plugin-ui";
 import { HdxDataSourceOptions, HdxSecureJsonData, Protocol } from "../types";
@@ -114,6 +117,25 @@ export function ConfigEditor(props: Props) {
       secureJsonData: {
         ...options.secureJsonData,
         password: "",
+      },
+    });
+  };
+  useMemo(() => {
+    if (!props.options.jsonData.defaultTimeRange) {
+      props.options.jsonData.defaultTimeRange = {
+        from: dateTime().subtract("5m"),
+        to: dateTime(),
+        raw: { from: "now-5m", to: "now" },
+      };
+    }
+  }, [props.options.jsonData]);
+
+  const onUpdateTimeRange = (e: TimeRange) => {
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...options.jsonData,
+        defaultTimeRange: e,
       },
     });
   };
@@ -294,18 +316,16 @@ export function ConfigEditor(props: Props) {
           />
         </Field>
         <Field
-          label={labels.defaultTable.label}
-          description={labels.defaultTable.description}
+          label={labels.defaultTimeRange.label}
+          description={labels.defaultTimeRange.description}
         >
-          <Input
-            name={"defaultTable"}
-            width={40}
-            value={jsonData.defaultTable || ""}
-            onChange={onUpdateDatasourceJsonDataOption(props, "defaultTable")}
-            label={labels.defaultTable.label}
-            aria-label={labels.defaultTable.label}
-            placeholder={labels.defaultTable.placeholder}
-          />
+          <div style={{ width: "23em" }}>
+            <TimeRangeInput
+              value={jsonData.defaultTimeRange!}
+              onChange={onUpdateTimeRange}
+              aria-label={labels.defaultTimeRange.label}
+            />
+          </div>
         </Field>
         <Field
           label={labels.adHocTableVariable.label}
@@ -321,6 +341,22 @@ export function ConfigEditor(props: Props) {
             )}
             label={labels.adHocTableVariable.label}
             aria-label={labels.adHocTableVariable.label}
+          />
+        </Field>
+        <Field
+          label={labels.adHocTimeFilterVariable.label}
+          description={labels.adHocTimeFilterVariable.description}
+        >
+          <Input
+            name={"adHocTimeFilterVariable"}
+            width={40}
+            value={jsonData.adHocTimeFilterVariable || ""}
+            onChange={onUpdateDatasourceJsonDataOption(
+              props,
+              "adHocTimeFilterVariable"
+            )}
+            label={labels.adHocTimeFilterVariable.label}
+            aria-label={labels.adHocTimeFilterVariable.label}
           />
         </Field>
         <Field

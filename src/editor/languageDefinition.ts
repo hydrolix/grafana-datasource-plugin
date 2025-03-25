@@ -13,6 +13,7 @@ import { format } from "sql-formatter";
 import { OPERATORS } from "./operators";
 import { FUNCTIONS } from "./functions";
 import { Props } from "../components/QueryEditor";
+import { applyHotKey } from "./hotKeyApplier";
 
 export const languageDefinition: (props: Props) => LanguageDefinition = (
   props: Props
@@ -42,7 +43,7 @@ export const languageDefinition: (props: Props) => LanguageDefinition = (
       } as SQLCompletionItemProvider;
       setKeywords(props.datasource.metadataProvider, m, language);
 
-      setHotKeys(m, props);
+      applyHotKey(m, props);
 
       return completionProvider;
     },
@@ -104,17 +105,6 @@ const setKeywords = (
         ]),
       });
     });
-};
-const setHotKeys = (m: Monaco, props: Props) => {
-  m.editor.addEditorAction({
-    id: "executeQuery",
-    label: "Execute Query",
-    keybindings: [
-      m.KeyMod.CtrlCmd | m.KeyCode.Enter,
-      m.KeyMod.WinCtrl | m.KeyCode.Enter,
-    ],
-    run: props.onRunQuery,
-  });
 };
 
 export const customSuggestionKinds: () => SuggestionKindProvider = () => () =>

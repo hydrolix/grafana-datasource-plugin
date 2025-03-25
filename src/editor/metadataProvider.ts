@@ -1,11 +1,5 @@
 import { firstValueFrom, map, Observable, tap } from "rxjs";
-import {
-  CoreApp,
-  DataQueryResponse,
-  dateTime,
-  MetricFindValue,
-  TimeRange,
-} from "@grafana/data";
+import { CoreApp, DataQueryResponse, dateTime, TimeRange } from "@grafana/data";
 import { v4 } from "uuid";
 import {
   ColumnDefinition,
@@ -14,6 +8,7 @@ import {
 } from "@grafana/plugin-ui";
 import { TableDefinition } from "@grafana/plugin-ui/dist/src/components/SQLEditor/types";
 import { DataSource } from "../datasource";
+import { AdHocFilterKeys } from "../types";
 
 const SCHEMA_SQL =
   "SELECT DISTINCT database as project FROM system.tables WHERE engine = 'TurbineStorage' AND (project != 'sample_project' AND project != 'hdx' AND total_rows > 0)";
@@ -23,16 +18,31 @@ const COLUMNS_SQL =
   "SELECT name FROM system.columns WHERE database='{schema}' AND table ='{table}'";
 const FUNCTIONS_SQL = "SELECT name FROM  system.functions";
 
-const SUPPORTED_TYPES =[
-    'DateTime', 'DateTime64',
-    'String',
-    'Int8', 'Int16', 'Int32', 'Int64', 'Int128', 'Int256',
-    'UInt8', 'UInt16', 'UInt32', 'UInt64', 'UInt128', 'UInt256',
-    'Float32', 'Float64',
-    'Decimal32', 'Decimal64', 'Decimal128', 'Decimal256',
-]
+const SUPPORTED_TYPES = [
+  "DateTime",
+  "DateTime64",
+  "String",
+  "Int8",
+  "Int16",
+  "Int32",
+  "Int64",
+  "Int128",
+  "Int256",
+  "UInt8",
+  "UInt16",
+  "UInt32",
+  "UInt64",
+  "UInt128",
+  "UInt256",
+  "Float32",
+  "Float64",
+  "Decimal32",
+  "Decimal64",
+  "Decimal128",
+  "Decimal256",
+];
 
-const NULLABLE_TYPES = SUPPORTED_TYPES.map(t => `Nullable(${t})`)
+const NULLABLE_TYPES = SUPPORTED_TYPES.map((t) => `Nullable(${t})`);
 
 export const getQueryRunner = (
   ds: DataSource
@@ -73,7 +83,7 @@ export interface MetadataProvider {
   functions: () => Promise<
     Array<{ id: string; name: string; description: string }>
   >;
-  tableKeys: (table: string) => Promise<MetricFindValue[]>;
+  tableKeys: (table: string) => Promise<AdHocFilterKeys[]>;
   executeQuery: (
     query: string,
     timeRange?: TimeRange
@@ -83,7 +93,7 @@ const transformResponse = (r: DataQueryResponse): string[] => {
   return r.data[0]?.fields?.length ? r.data[0].fields[0].values : [];
 };
 
-const transformSchemaResponse = <T,>(r: DataQueryResponse): T[] => {
+const transformSchemaResponse = <T>(r: DataQueryResponse): T[] => {
   return transformResponse(r).map((v: string) => ({ name: v } as T));
 };
 
@@ -102,11 +112,11 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
   let schemas: SchemaDefinition[] | undefined;
   let tables: { [table: string]: TableDefinition[] } = {};
   let columns: { [table: string]: ColumnDefinition[] } = {};
-  let tableKeys: { [table: string]: MetricFindValue[] } = {};
+  let tableKeys: { [table: string]: AdHocFilterKeys[] } = {};
   let functions:
     | Array<{ id: string; name: string; description: string }>
     | undefined;
-  let tableKeysFn: (table: string) => Promise<MetricFindValue[]>;
+  let tableKeysFn: (table: string) => Promise<AdHocFilterKeys[]>;
   if (ds.instanceSettings.jsonData.adHocKeyQuery) {
     tableKeysFn = (table: string) =>
       !tableKeys[table]
@@ -127,11 +137,12 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
                 return columns
                   .filter(
                     (c, i) =>
-                        !c.includes("(") &&
-                        (SUPPORTED_TYPES.includes(types[i]) || NULLABLE_TYPES.includes(types[i])) &&
-                        defaultTypes[i] !== 'ALIAS'
+                      !c.includes("(") &&
+                      (SUPPORTED_TYPES.includes(types[i]) ||
+                        NULLABLE_TYPES.includes(types[i])) &&
+                      defaultTypes[i] !== "ALIAS"
                   )
-                  .map((k) => ({ value: k, group: table } as MetricFindValue));
+                  .map((k) => ({ text: k, value: k } as AdHocFilterKeys));
               }),
               tap((k) => (tableKeys[table] = k))
             )

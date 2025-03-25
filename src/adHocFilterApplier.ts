@@ -53,7 +53,7 @@ export class AdHocFilterApplier {
       }
     } else if (filter.operator === "=~") {
       return `toString(${key}) LIKE '${filter.value}'`;
-    } else if (filter.operator === "!~" ) {
+    } else if (filter.operator === "!~") {
       return `toString(${key}) NOT LIKE '${filter.value}'`;
     } else {
       return `${key} ${filter.operator} '${filter.value}'`;
