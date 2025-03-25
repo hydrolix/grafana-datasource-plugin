@@ -64,10 +64,10 @@ export default {
           description: "Used when no specific database is provided in queries",
           placeholder: "sample",
         },
-        defaultTimeRange: {
-          label: "Default time range",
+        adHocFilterTimeRange: {
+          label: "Ad-hoc filter default time range",
           description:
-            "Used for ad-hoc filter values when dashboard time range is not available",
+            "Used to filter possible ad-hoc filter values when dashboard time range is unavailable",
         },
         adHocKeyQuery: {
           label: "Ad-hoc filter key query",
@@ -84,12 +84,12 @@ export default {
         adHocTableVariable: {
           label: "Ad-hoc filter table variable name",
           description:
-            "Dashboard variable name to specify the table for retrieving ad-hoc filter keys (overrides the default table)",
+            "Dashboard variable name to specify the table for retrieving ad-hoc filter keys",
         },
         adHocTimeFilterVariable: {
-          label: "Ad-hoc filter time filter column variable name",
+          label: "Ad-hoc filter time column variable name",
           description:
-            "Dashboard variable name to specify the time filter for retrieving ad-hoc filter values (overrides the default time filter)",
+            "Dashboard variable name to specify the time column used to filter possible ad-hoc filter values within the dashboard time range",
         },
       },
     },
