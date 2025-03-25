@@ -316,18 +316,6 @@ export function ConfigEditor(props: Props) {
           />
         </Field>
         <Field
-          label={labels.defaultTimeRange.label}
-          description={labels.defaultTimeRange.description}
-        >
-          <div style={{ width: "23em" }}>
-            <TimeRangeInput
-              value={jsonData.defaultTimeRange!}
-              onChange={onUpdateTimeRange}
-              aria-label={labels.defaultTimeRange.label}
-            />
-          </div>
-        </Field>
-        <Field
           label={labels.adHocTableVariable.label}
           description={labels.adHocTableVariable.description}
         >
@@ -390,7 +378,18 @@ export function ConfigEditor(props: Props) {
             placeholder={labels.adHocValuesQuery.placeholder}
           />
         </Field>
-
+        <Field
+            label={labels.adHocFilterTimeRange.label}
+            description={labels.adHocFilterTimeRange.description}
+        >
+          <div style={{ width: "23em" }}>
+            <TimeRangeInput
+                value={jsonData.defaultTimeRange!}
+                onChange={onUpdateTimeRange}
+                aria-label={labels.adHocFilterTimeRange.label}
+            />
+          </div>
+        </Field>
         <Field
           label={labels.dialTimeout.label}
           description={labels.dialTimeout.description}
