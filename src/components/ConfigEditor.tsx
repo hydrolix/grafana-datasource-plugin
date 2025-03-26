@@ -1,7 +1,6 @@
-import React, { useMemo } from "react";
+import React from "react";
 import {
   DataSourcePluginOptionsEditorProps,
-  dateTime,
   onUpdateDatasourceJsonDataOption,
   onUpdateDatasourceSecureJsonDataOption,
   TimeRange,
@@ -21,6 +20,7 @@ import {
 import { ConfigSection, DataSourceDescription } from "@grafana/plugin-ui";
 import { HdxDataSourceOptions, HdxSecureJsonData, Protocol } from "../types";
 import allLabels from "labels";
+import defaultConfigs from "defaultConfigs";
 
 export interface Props
   extends DataSourcePluginOptionsEditorProps<
@@ -29,8 +29,16 @@ export interface Props
   > {}
 
 export function ConfigEditor(props: Props) {
+
   const { onOptionsChange, options } = props;
+  if (!Object.keys(options.jsonData).length) {
+    options.jsonData = defaultConfigs
+  }
   const { jsonData, secureJsonFields } = options;
+
+  if (!jsonData.defaultTimeRange) {
+    jsonData.defaultTimeRange = defaultConfigs.defaultTimeRange
+  }
 
   const labels = allLabels.components.config.editor;
   const secureJsonData = (options.secureJsonData || {}) as HdxSecureJsonData;
@@ -120,15 +128,6 @@ export function ConfigEditor(props: Props) {
       },
     });
   };
-  useMemo(() => {
-    if (!props.options.jsonData.defaultTimeRange) {
-      props.options.jsonData.defaultTimeRange = {
-        from: dateTime().subtract("5m"),
-        to: dateTime(),
-        raw: { from: "now-5m", to: "now" },
-      };
-    }
-  }, [props.options.jsonData]);
 
   const onUpdateTimeRange = (e: TimeRange) => {
     onOptionsChange({
@@ -179,7 +178,7 @@ export function ConfigEditor(props: Props) {
               name="port"
               width={40}
               type="number"
-              value={jsonData.port || ""}
+              value={jsonData.port!}
               disabled={jsonData.useDefaultPort}
               onChange={(e) => onPortChange(e.currentTarget.value)}
               label={labels.port.label}
@@ -203,7 +202,7 @@ export function ConfigEditor(props: Props) {
           <RadioButtonGroup<Protocol>
             options={protocolOptions}
             disabledOptions={[]}
-            value={jsonData.protocol || Protocol.Native}
+            value={jsonData.protocol!}
             onChange={(e) => onProtocolToggle(e!)}
           />
         </Field>
@@ -215,7 +214,7 @@ export function ConfigEditor(props: Props) {
           <Switch
             id="secure"
             className="gf-form"
-            value={jsonData.secure || false}
+            value={jsonData.secure}
             onChange={(e) => onSecureChange(e.currentTarget.checked)}
           />
         </Field>
@@ -226,7 +225,7 @@ export function ConfigEditor(props: Props) {
             description={labels.path.description}
           >
             <Input
-              value={jsonData.path || ""}
+              value={jsonData.path}
               name="path"
               width={80}
               onChange={onUpdateDatasourceJsonDataOption(props, "path")}
@@ -248,7 +247,7 @@ export function ConfigEditor(props: Props) {
             >
               <Switch
                 className="gf-form"
-                value={jsonData.skipTlsVerify || false}
+                value={jsonData.skipTlsVerify}
                 onChange={(e) => onTlsSettingsChange(e.currentTarget.checked)}
               />
             </Field>
@@ -266,7 +265,7 @@ export function ConfigEditor(props: Props) {
           <Input
             name={"username"}
             width={40}
-            value={jsonData.username || ""}
+            value={jsonData.username}
             onChange={onUpdateDatasourceJsonDataOption(props, "username")}
             label={labels.username.label}
             aria-label={labels.username.label}
@@ -320,7 +319,7 @@ export function ConfigEditor(props: Props) {
           description={labels.adHocTableVariable.description}
         >
           <Input
-            name={"adHocKeyQuery"}
+            name={"adHocTableVariable"}
             width={40}
             value={jsonData.adHocTableVariable || ""}
             onChange={onUpdateDatasourceJsonDataOption(
@@ -354,7 +353,7 @@ export function ConfigEditor(props: Props) {
           <Input
             name={"adHocKeyQuery"}
             width={80}
-            value={jsonData.adHocKeyQuery || ""}
+            value={jsonData.adHocKeyQuery}
             onChange={onUpdateDatasourceJsonDataOption(props, "adHocKeyQuery")}
             label={labels.adHocKeyQuery.label}
             aria-label={labels.adHocKeyQuery.label}
@@ -368,7 +367,7 @@ export function ConfigEditor(props: Props) {
           <Input
             name={"adHocKeyQuery"}
             width={80}
-            value={jsonData.adHocValuesQuery || ""}
+            value={jsonData.adHocValuesQuery}
             onChange={onUpdateDatasourceJsonDataOption(
               props,
               "adHocValuesQuery"
