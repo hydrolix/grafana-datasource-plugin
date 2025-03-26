@@ -29,6 +29,7 @@ import { ConditionalAllApplier } from "./conditionalAllApplier";
 import { AdHocFilterApplier } from "./adHocFilterApplier";
 import { getMetadataProvider } from "./editor/metadataProvider";
 import { getColumnValuesStatement, getTable as getAstTable } from "./ast";
+import { getFirstValidRound } from "./editor/timeRangeUtils";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -76,6 +77,10 @@ export class DataSource extends DataSourceWithBackend<
             .then((q) => ({
               ...t,
               rawSql: q,
+              round: getFirstValidRound([
+                t.round,
+                this.instanceSettings.jsonData.defaultQueryRound || "",
+              ]),
               filters: undefined,
               meta: {
                 timezone: this.resolveTimezone(request),

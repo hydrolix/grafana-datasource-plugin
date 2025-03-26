@@ -41,6 +41,7 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   path?: string;
   skipTlsVerify?: boolean;
   defaultDatabase?: string;
+  defaultQueryRound?: string;
   defaultTimeRange?: TimeRange;
   adHocTableVariable?: string;
   adHocTimeFilterVariable?: string;
