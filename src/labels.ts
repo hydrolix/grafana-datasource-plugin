@@ -67,7 +67,7 @@ export default {
         adHocFilterTimeRange: {
           label: "Ad-hoc filter default time range",
           description:
-            "Used to filter possible ad-hoc filter values when dashboard time range is unavailable",
+            "Used to filter possible ad-hoc filter values when the dashboard time range is unavailable",
         },
         adHocKeyQuery: {
           label: "Ad-hoc filter key query",
@@ -91,7 +91,11 @@ export default {
           description:
             "Dashboard variable name to specify the time column used to filter possible ad-hoc filter values within the dashboard time range",
         },
-
+        defaultQueryRound: {
+          label: "Default round",
+          description:
+            "Automatically rounds $from and $to timestamps to the nearest multiple of a default value (e.g., 1m rounds to the nearest whole minute). Used when no specific round value is provided in the query. Supported time units: ms, s, m, h. No value or a value of 0 means no rounding is applied",
+        },
       },
     },
   },

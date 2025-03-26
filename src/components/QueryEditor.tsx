@@ -89,7 +89,7 @@ export function QueryEditor(props: Props) {
                 label={
                   <InlineLabel
                     width={10}
-                    tooltip="Round $from and $to timestamps to the nearest multiple of the specified value (1m rounds to the nearest whole minute). Supports time units: ms, s, m, h"
+                    tooltip="Round $from and $to timestamps to the nearest multiple of the specified value (1m rounds to the nearest whole minute). Supports time units: ms, s, m, h. No value means that the default round value will be used. A value of 0 means no rounding is applied"
                   >
                     Round
                   </InlineLabel>

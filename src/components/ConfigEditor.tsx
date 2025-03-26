@@ -1,4 +1,4 @@
-import React from "react";
+import React, { FormEvent, useRef } from "react";
 import {
   DataSourcePluginOptionsEditorProps,
   onUpdateDatasourceJsonDataOption,
@@ -21,6 +21,7 @@ import { ConfigSection, DataSourceDescription } from "@grafana/plugin-ui";
 import { HdxDataSourceOptions, HdxSecureJsonData, Protocol } from "../types";
 import allLabels from "labels";
 import defaultConfigs from "defaultConfigs";
+import { QUERY_DURATION_REGEX } from "../editor/timeRangeUtils";
 
 export interface Props
   extends DataSourcePluginOptionsEditorProps<
@@ -29,15 +30,14 @@ export interface Props
   > {}
 
 export function ConfigEditor(props: Props) {
-
   const { onOptionsChange, options } = props;
   if (!Object.keys(options.jsonData).length) {
-    options.jsonData = defaultConfigs
+    options.jsonData = defaultConfigs;
   }
   const { jsonData, secureJsonFields } = options;
 
   if (!jsonData.defaultTimeRange) {
-    jsonData.defaultTimeRange = defaultConfigs.defaultTimeRange
+    jsonData.defaultTimeRange = defaultConfigs.defaultTimeRange;
   }
 
   const labels = allLabels.components.config.editor;
@@ -135,6 +135,20 @@ export function ConfigEditor(props: Props) {
       jsonData: {
         ...options.jsonData,
         defaultTimeRange: e,
+      },
+    });
+  };
+
+  let invalidDuration = useRef(false);
+  const onRoundChange = (e: FormEvent<HTMLInputElement>) => {
+    let round = e.currentTarget.value;
+
+    invalidDuration.current = !QUERY_DURATION_REGEX.test(round);
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...options.jsonData,
+        defaultQueryRound: round,
       },
     });
   };
@@ -315,6 +329,18 @@ export function ConfigEditor(props: Props) {
           />
         </Field>
         <Field
+          error={"invalid duration"}
+          label={labels.defaultQueryRound.label}
+          description={labels.defaultQueryRound.description}
+          invalid={invalidDuration.current}
+        >
+          <Input
+            width={40}
+            onChange={onRoundChange}
+            value={jsonData.defaultQueryRound}
+          />
+        </Field>
+        <Field
           label={labels.adHocTableVariable.label}
           description={labels.adHocTableVariable.description}
         >
@@ -378,14 +404,14 @@ export function ConfigEditor(props: Props) {
           />
         </Field>
         <Field
-            label={labels.adHocFilterTimeRange.label}
-            description={labels.adHocFilterTimeRange.description}
+          label={labels.adHocFilterTimeRange.label}
+          description={labels.adHocFilterTimeRange.description}
         >
           <div style={{ width: "23em" }}>
             <TimeRangeInput
-                value={jsonData.defaultTimeRange!}
-                onChange={onUpdateTimeRange}
-                aria-label={labels.adHocFilterTimeRange.label}
+              value={jsonData.defaultTimeRange!}
+              onChange={onUpdateTimeRange}
+              aria-label={labels.adHocFilterTimeRange.label}
             />
           </div>
         </Field>
