@@ -5,5 +5,5 @@
         <console>1</console>
     </logger>
     <timezone>UTC</timezone>
-    <custom_settings_prefix>hdx_</custom_settings_prefix>
+    <custom_settings_prefixes replace="replace">SQL_,hdx_</custom_settings_prefixes>
 </clickhouse>

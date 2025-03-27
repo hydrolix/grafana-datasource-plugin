@@ -9,31 +9,35 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"log"
 	"os"
-	"strconv"
 )
 
+// DsTestSuite is base test suite struct with CH container support.
 type DsTestSuite struct {
 	ChContainer *ClickhouseContainer
 	HdxPlugin   sqlds.Driver
 	Ctx         context.Context
 }
 
+// SetupSuite instantiates CH container if external one isn't provided.
+// CLICKHOUSE_HOSTNAME env variable should points to provided CH service then.
 func (s *DsTestSuite) SetupSuite() {
 	s.Ctx = context.Background()
-	disable, err := strconv.ParseBool(os.Getenv("CLICKHOUSE_DISABLE_CONTAINER"))
-	if err == nil && disable {
+
+	if chHost := os.Getenv("CLICKHOUSE_HOSTNAME"); chHost != "" {
 		s.ChContainer = &ClickhouseContainer{
-			Hostname:   os.Getenv("CLICKHOUSE_HOSTNAME"),
+			Hostname:   chHost,
 			NativePort: 9000,
 			HttpPort:   8123,
 		}
-	} else {
-		chContainer, err := CreateClickhouseContainer(s.Ctx, "default", "")
-		if err != nil {
-			log.Fatal(err)
-		}
-		s.ChContainer = chContainer
+		return
 	}
+
+	chContainer, err := NewClickhouseContainer(s.Ctx, "default", "")
+	if err != nil {
+		log.Fatal(err)
+		panic(err)
+	}
+	s.ChContainer = chContainer
 }
 
 func (s *DsTestSuite) TearDownSuite() {
