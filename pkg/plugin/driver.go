@@ -8,16 +8,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
-	"github.com/grafana/grafana-plugin-sdk-go/build"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
 	"github.com/grafana/sqlds/v4"
+	hdxbuild "github.com/hydrolix/plugin/pkg/build"
 	"github.com/hydrolix/plugin/pkg/converters"
 	"github.com/hydrolix/plugin/pkg/macros"
 	"github.com/hydrolix/plugin/pkg/models"
@@ -27,6 +26,12 @@ import (
 // Hydrolix defines how to connect to a Hydrolix datasource
 type Hydrolix struct{}
 
+var (
+	_ sqlds.Driver       = (*Hydrolix)(nil)
+	_ sqlds.QueryMutator = (*Hydrolix)(nil)
+)
+
+// getClientInfoProducts reads build information of grafana and plugin
 func getClientInfoProducts(ctx context.Context) (products []struct{ Name, Version string }) {
 	version := backend.UserAgentFromContext(ctx).GrafanaVersion()
 
@@ -37,57 +42,24 @@ func getClientInfoProducts(ctx context.Context) (products []struct{ Name, Versio
 		})
 	}
 
-	if info, err := build.GetBuildInfo(); err == nil {
-		products = append(products, struct{ Name, Version string }{
-			Name:    models.HydrolixPluginName,
-			Version: info.Version,
-		})
-	}
+	info := hdxbuild.BuildInfo{}.GetBuildInfo()
+	products = append(products, struct{ Name, Version string }{
+		Name:    info.PluginID,
+		Version: info.Version,
+	})
 
 	return products
 }
 
-func CheckMinServerVersion(conn *sql.DB, major, minor, patch uint64) (bool, error) {
-	var version struct {
-		Major uint64
-		Minor uint64
-		Patch uint64
-	}
-	var res string
-	if err := conn.QueryRow("SELECT version()").Scan(&res); err != nil {
-		return false, err
-	}
-	for i, v := range strings.Split(res, ".") {
-		switch i {
-		case 0:
-			version.Major, _ = strconv.ParseUint(v, 10, 64)
-		case 1:
-			version.Minor, _ = strconv.ParseUint(v, 10, 64)
-		case 2:
-			version.Patch, _ = strconv.ParseUint(v, 10, 64)
-		}
-	}
-	if version.Major < major || (version.Major == major && version.Minor < minor) || (version.Major == major && version.Minor == minor && version.Patch < patch) {
-		return false, nil
-	}
-	return true, nil
-}
-
 // Connect opens a sql.DB connection using datasource settings
 func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanceSettings, message json.RawMessage) (*sql.DB, error) {
-	settings, err := models.LoadPluginSettings(ctx, config)
+	settings, err := models.NewPluginSettings(ctx, config)
 	if err != nil {
 		return nil, err
 	}
 
-	dt, err := strconv.Atoi(settings.DialTimeout)
-	if err != nil {
-		return nil, backend.DownstreamError(errors.New(fmt.Sprintf("invalid timeout: %s", settings.DialTimeout)))
-	}
-	qt, err := strconv.Atoi(settings.QueryTimeout)
-	if err != nil {
-		return nil, backend.DownstreamError(errors.New(fmt.Sprintf("invalid query timeout: %s", settings.QueryTimeout)))
-	}
+	dt, _ := strconv.Atoi(settings.DialTimeout)
+	qt, _ := strconv.Atoi(settings.QueryTimeout)
 
 	protocol := clickhouse.Native
 	if settings.Protocol == "http" {
@@ -127,6 +99,8 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		DialTimeout: time.Duration(dt) * time.Second,
 		ReadTimeout: time.Duration(qt) * time.Second,
 		TLS:         tlsConfig,
+
+		BlockBufferSize: 2,
 	}
 
 	if protocol == clickhouse.HTTP {
@@ -141,6 +115,12 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 
 	db := clickhouse.OpenDB(opts)
 
+	// TODO: add config UI for connection pool
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxIdleTime(time.Duration(2) * time.Minute)
+	db.SetConnMaxLifetime(time.Duration(2) * time.Minute)
+
 	select {
 	case <-ctx.Done():
 		return db, fmt.Errorf("connect to database was cancelled: %w", ctx.Err())
@@ -154,7 +134,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 			return db, err
 		}
 	}
-
+	log.DefaultLogger.Info("connect datasource", "name", config.Name)
 	return db, nil
 }
 
@@ -164,22 +144,21 @@ func (h *Hydrolix) Converters() []sqlutil.Converter {
 }
 
 // Macros returns list of macro functions convert the macros of raw query
-func (h *Hydrolix) Macros() sqlds.Macros {
+func (h *Hydrolix) Macros() sqlutil.Macros {
 	return macros.Macros
 }
 
+// Settings reads Json Datasource Plugin's configuration
 func (h *Hydrolix) Settings(ctx context.Context, config backend.DataSourceInstanceSettings) sqlds.DriverSettings {
-	settings, err := models.LoadPluginSettings(ctx, config)
-	timeout := 60
-	if err == nil {
-		t, err := strconv.Atoi(settings.QueryTimeout)
-		if err == nil {
-			timeout = t
-		}
+	settings, err := models.NewPluginSettings(ctx, config)
+	if err != nil {
+		return sqlds.DriverSettings{}
 	}
 
+	timeoutSec, _ := strconv.Atoi(settings.QueryTimeout)
+
 	return sqlds.DriverSettings{
-		Timeout: time.Second * time.Duration(timeout),
+		Timeout: time.Second * time.Duration(timeoutSec),
 		FillMode: &data.FillMissing{
 			Mode: data.FillModeNull,
 		},
@@ -187,6 +166,8 @@ func (h *Hydrolix) Settings(ctx context.Context, config backend.DataSourceInstan
 	}
 }
 
+// MutateQuery adds user location timezone metadata if it is available. Also, it rounds the Query Time Range to
+// specified time interval.
 func (h *Hydrolix) MutateQuery(ctx context.Context, req backend.DataQuery) (context.Context, backend.DataQuery) {
 	var dataQuery struct {
 		Meta struct {
@@ -204,83 +185,25 @@ func (h *Hydrolix) MutateQuery(ctx context.Context, req backend.DataQuery) (cont
 		req.TimeRange = roundTimeRange(req.TimeRange, dataQuery.Round)
 	}
 
-	if dataQuery.Meta.TimeZone == "" {
-		return ctx, req
+	if dataQuery.Meta.TimeZone != "" {
+		loc, _ := time.LoadLocation(dataQuery.Meta.TimeZone)
+		log.DefaultLogger.Info("Update query context with location info", "location", loc.String())
+		ctx = clickhouse.Context(ctx, clickhouse.WithUserLocation(loc))
 	}
 
-	loc, _ := time.LoadLocation(dataQuery.Meta.TimeZone)
-	return clickhouse.Context(ctx, clickhouse.WithUserLocation(loc)), req
+	return ctx, req
 }
 
-func roundTimeRange(timeRange backend.TimeRange, round string) backend.TimeRange {
-	if d, err := time.ParseDuration(round); err != nil {
-		log.DefaultLogger.Warn("invalid round time range, using default: %s", round)
-		return timeRange
-	} else {
-		To := timeRange.To.Round(d)
-		From := timeRange.From.Round(d)
+// roundTimeRange rounds the time range to provided time interval
+func roundTimeRange(timeRange backend.TimeRange, interval string) backend.TimeRange {
+	if dInterval, err := time.ParseDuration(interval); err == nil && dInterval.Seconds() >= 1 {
+		To := timeRange.To.Round(dInterval)
+		From := timeRange.From.Round(dInterval)
+
+		log.DefaultLogger.Debug("Time range rounded", "original", timeRange, "from", From, "to", To, "interval", interval)
 		return backend.TimeRange{To: To, From: From}
 	}
 
-}
-
-// MutateResponse converts fields of type FieldTypeNullableJSON to string,
-// except for specific visualizations (traces, tables, and logs).
-func (h *Hydrolix) MutateResponse(ctx context.Context, res data.Frames) (data.Frames, error) {
-	for _, frame := range res {
-		if shouldConvertFields(frame.Meta.PreferredVisualization) {
-			if err := convertNullableJSONFields(frame); err != nil {
-				return res, err
-			}
-		}
-	}
-	return res, nil
-}
-
-// shouldConvertFields determines whether field conversion is needed based on visualization type.
-func shouldConvertFields(visType data.VisType) bool {
-	return visType != data.VisTypeTrace && visType != data.VisTypeTable && visType != data.VisTypeLogs
-}
-
-// convertNullableJSONFields converts all FieldTypeNullableJSON fields in the given frame to string.
-func convertNullableJSONFields(frame *data.Frame) error {
-	var convertedFields []*data.Field
-
-	for _, field := range frame.Fields {
-		if field.Type() == data.FieldTypeNullableJSON {
-			newField, err := convertFieldToString(field)
-			if err != nil {
-				return err
-			}
-			convertedFields = append(convertedFields, newField)
-		} else {
-			convertedFields = append(convertedFields, field)
-		}
-	}
-
-	frame.Fields = convertedFields
-	return nil
-}
-
-// convertFieldToString creates a new field where JSON values are marshaled into string representations.
-func convertFieldToString(field *data.Field) (*data.Field, error) {
-	values := make([]*string, field.Len())
-	newField := data.NewField(field.Name, field.Labels, values)
-	newField.SetConfig(field.Config)
-
-	for i := 0; i < field.Len(); i++ {
-		val, _ := field.At(i).(*json.RawMessage)
-		if val == nil {
-			newField.Set(i, nil)
-		} else {
-			bytes, err := val.MarshalJSON()
-			if err != nil {
-				return nil, err
-			}
-			sVal := string(bytes)
-			newField.Set(i, &sVal)
-		}
-	}
-
-	return newField, nil
+	log.DefaultLogger.Warn("Using default time range, provided round interval is invalid", "interval", interval)
+	return timeRange
 }

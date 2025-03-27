@@ -1,3 +1,4 @@
+// Package converters provides Hydrolix plugin SQL converters.
 package converters
 
 import (
@@ -10,6 +11,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
 )
 
+// Converter structure to describe and generate sqlutil.Converter
 type Converter struct {
 	convert    func(in interface{}) (interface{}, error)
 	fieldType  data.FieldType
@@ -17,15 +19,59 @@ type Converter struct {
 	scanType   reflect.Type
 }
 
-var matchRegexes = map[string]*regexp.Regexp{
-	// for complex Arrays e.g. Array(Tuple)
-	"Array()":                   regexp.MustCompile(`^Array\(.*\)`),
-	"Date":                      regexp.MustCompile(`^Date\(?`),
-	"Map()":                     regexp.MustCompile(`^Map\(.*\)`),
-	"Nullable(Date)":            regexp.MustCompile(`^Nullable\(Date\(?`),
-	"Nullable(String)":          regexp.MustCompile(`^Nullable\(String`),
+// toSqlConverter turns this Converter into a sqlutil.Converter
+func (c *Converter) toSqlConverter(name string) sqlutil.Converter {
+	convert := defaultConvert
+	if c.convert != nil {
+		convert = c.convert
+	}
+	return sqlutil.Converter{
+		Name:           name,
+		InputScanType:  c.scanType,
+		InputTypeRegex: c.matchRegex,
+		InputTypeName:  name,
+		FrameConverter: sqlutil.FrameConverter{
+			FieldType:     c.fieldType,
+			ConverterFunc: convert,
+		},
+	}
 }
 
+// Default converter transforms nullables to their type and empty nullables as string nullables.
+func defaultConvert(in interface{}) (interface{}, error) {
+	if in == nil {
+		return reflect.Zero(reflect.TypeOf(in)).Interface(), nil
+	}
+
+	val := reflect.ValueOf(in)
+	switch val.Kind() {
+	case reflect.Pointer:
+		if val.IsNil() {
+			// we can't dereference nil pointer.
+			return (*string)(nil), nil
+		}
+		return val.Elem().Interface(), nil
+	default:
+		return in, nil
+	}
+
+}
+
+// Json converter  transforms value to json
+func jsonConverter(in interface{}) (interface{}, error) {
+	if in == nil {
+		return (*string)(nil), nil
+	}
+	bjson, err := json.Marshal(in)
+	if err != nil {
+		return nil, err
+	}
+
+	msg := json.RawMessage(bjson)
+	return &msg, nil
+}
+
+// Map of plugin converters
 var convertersMap = map[string]Converter{
 	"String": {
 		fieldType: data.FieldTypeString,
@@ -113,110 +159,39 @@ var convertersMap = map[string]Converter{
 	},
 	// covers DateTime with tz, DateTime64 - see regexes, Date32
 	"Date": {
+		matchRegex: regexp.MustCompile(`^Date\(?`),
 		fieldType:  data.FieldTypeTime,
-		matchRegex: matchRegexes["Date"],
 		scanType:   reflect.PointerTo(reflect.TypeOf(time.Time{})),
 	},
 	"Nullable(Date)": {
+		matchRegex: regexp.MustCompile(`^Nullable\(Date\(?`),
 		fieldType:  data.FieldTypeNullableTime,
-		matchRegex: matchRegexes["Nullable(Date)"],
 		scanType:   reflect.PointerTo(reflect.PointerTo(reflect.TypeOf(time.Time{}))),
 	},
 	"Nullable(String)": {
+		matchRegex: regexp.MustCompile(`^Nullable\(String`),
 		fieldType:  data.FieldTypeNullableString,
-		matchRegex: matchRegexes["Nullable(String)"],
 		scanType:   reflect.PointerTo(reflect.PointerTo(reflect.TypeOf(""))),
 	},
 	"Array()": {
-		convert:    jsonConverter,
+		matchRegex: regexp.MustCompile(`^Array\(.*\)`),
 		fieldType:  data.FieldTypeNullableJSON,
-		matchRegex: matchRegexes["Array()"],
 		scanType:   reflect.TypeOf((*interface{})(nil)).Elem(),
+		convert:    jsonConverter,
 	},
 	"Map()": {
-		convert:    jsonConverter,
+		matchRegex: regexp.MustCompile(`^Map\(.*\)`),
 		fieldType:  data.FieldTypeNullableJSON,
-		matchRegex: matchRegexes["Map()"],
 		scanType:   reflect.TypeOf((*interface{})(nil)).Elem(),
+		convert:    jsonConverter,
 	},
-
 }
 
-func createSqlSdkConverters() []sqlutil.Converter {
-	var list []sqlutil.Converter
+// Converters List of adapters for Grafana data.Frame
+var Converters = func() []sqlutil.Converter {
+	var list = make([]sqlutil.Converter, 0, len(convertersMap))
 	for name, converter := range convertersMap {
-		list = append(list, createConverter(name, converter))
+		list = append(list, converter.toSqlConverter(name))
 	}
 	return list
-}
-
-func GetConverter(columnType string) sqlutil.Converter {
-	if converter, ok := convertersMap[columnType]; ok {
-		return createConverter(columnType, converter)
-	}
-	return findConverterWithRegex(columnType)
-}
-
-func findConverterWithRegex(columnType string) sqlutil.Converter {
-	for name, converter := range convertersMap {
-		if converter.matchRegex != nil && converter.matchRegex.MatchString(columnType) {
-			return createConverter(name, converter)
-		}
-	}
-
-	return sqlutil.Converter{}
-}
-
-func createConverter(name string, converter Converter) sqlutil.Converter {
-	convert := defaultConvert
-	if converter.convert != nil {
-		convert = converter.convert
-	}
-	return sqlutil.Converter{
-		Name:           name,
-		InputScanType:  converter.scanType,
-		InputTypeRegex: converter.matchRegex,
-		InputTypeName:  name,
-		FrameConverter: sqlutil.FrameConverter{
-			FieldType:     converter.fieldType,
-			ConverterFunc: convert,
-		},
-	}
-}
-
-
-func defaultConvert(in interface{}) (interface{}, error) {
-	if in == nil {
-		return reflect.Zero(reflect.TypeOf(in)).Interface(), nil
-	}
-
-	val := reflect.ValueOf(in)
-	switch val.Kind(){
-	case reflect.String:
-		return in, nil
-	case reflect.Pointer:
-		if val.IsNil() {
-			// we can't dereference nil pointer. 
-			return (*string)(nil), nil
-		}
-		return val.Elem().Interface(), nil
-	default:
-		return in, nil
-	}
-
-}
-
-func jsonConverter(in interface{}) (interface{}, error) {
-	if in == nil {
-		return (*string)(nil), nil
-	}
-	bjson, err := json.Marshal(in)
-	if err != nil {
-		return nil, err
-	}
-
-	msg := json.RawMessage(bjson)
-	return &msg, nil
-}
-
-var Converters = createSqlSdkConverters()
+}()
