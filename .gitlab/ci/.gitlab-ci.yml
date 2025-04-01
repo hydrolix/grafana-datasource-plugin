@@ -100,7 +100,6 @@ test-frontend:
     ESLINT_CODE_QUALITY_REPORT: eslint_report.json
     JEST_JUNIT_OUTPUT_FILE: junit_report.xml
   script:
-    - npx tsc
     - npm run lint
     - npm run test:ci
   coverage: /^Statements\s*:\s*([^%]+)/
