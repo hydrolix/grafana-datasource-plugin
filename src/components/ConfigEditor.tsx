@@ -345,8 +345,8 @@ export function ConfigEditor(props: Props) {
         </Field>
         <Field
           error={"invalid duration"}
-          label={labels.defaultQueryRound.label}
-          description={labels.defaultQueryRound.description}
+          label={labels.defaultRound.label}
+          description={labels.defaultRound.description}
           invalid={invalidDuration.current}
         >
           <Input
@@ -393,7 +393,7 @@ export function ConfigEditor(props: Props) {
         >
           <div style={{ width: "50em" }}>
             <TextArea
-              name={"adHocKeyQuery"}
+              name={"adHocKeysQuery"}
               cols={40}
               rows={4}
               value={jsonData.adHocKeysQuery}
@@ -410,7 +410,7 @@ export function ConfigEditor(props: Props) {
         >
           <div style={{ width: "50em" }}>
             <TextArea
-              name={"adHocKeyQuery"}
+              name={"adHocValuesQuery"}
               cols={40}
               rows={4}
               value={jsonData.adHocValuesQuery}
