@@ -1,8 +1,9 @@
-import React from "react";
+import React, { FormEvent, useRef } from "react";
 import {
   DataSourcePluginOptionsEditorProps,
   onUpdateDatasourceJsonDataOption,
   onUpdateDatasourceSecureJsonDataOption,
+  TimeRange,
 } from "@grafana/data";
 import {
   Divider,
@@ -14,10 +15,14 @@ import {
   SecretInput,
   Stack,
   Switch,
+  TextArea,
+  TimeRangeInput,
 } from "@grafana/ui";
-import { ConfigSection, DataSourceDescription } from "@grafana/plugin-ui";
+import { ConfigSection } from "@grafana/plugin-ui";
 import { HdxDataSourceOptions, HdxSecureJsonData, Protocol } from "../types";
 import allLabels from "labels";
+import defaultConfigs from "defaultConfigs";
+import { QUERY_DURATION_REGEX } from "../editor/timeRangeUtils";
 
 export interface Props
   extends DataSourcePluginOptionsEditorProps<
@@ -27,7 +32,14 @@ export interface Props
 
 export function ConfigEditor(props: Props) {
   const { onOptionsChange, options } = props;
+  if (!Object.keys(options.jsonData).length) {
+    options.jsonData = defaultConfigs;
+  }
   const { jsonData, secureJsonFields } = options;
+
+  if (!jsonData.adHocDefaultTimeRange) {
+    jsonData.adHocDefaultTimeRange = defaultConfigs.adHocDefaultTimeRange;
+  }
 
   const labels = allLabels.components.config.editor;
   const secureJsonData = (options.secureJsonData || {}) as HdxSecureJsonData;
@@ -118,14 +130,52 @@ export function ConfigEditor(props: Props) {
     });
   };
 
+  const onUpdateTimeRange = (e: TimeRange) => {
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...options.jsonData,
+        adHocDefaultTimeRange: e,
+      },
+    });
+  };
+
+  const onUpdateAdHocKeysQuery = (e: FormEvent<HTMLTextAreaElement>) => {
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...options.jsonData,
+        adHocKeysQuery: (e.target as HTMLTextAreaElement).value,
+      },
+    });
+  };
+
+  const onUpdateAdHocValuesQuery = (e: FormEvent<HTMLTextAreaElement>) => {
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...options.jsonData,
+        adHocValuesQuery: (e.target as HTMLTextAreaElement).value,
+      },
+    });
+  };
+
+  let invalidDuration = useRef(false);
+  const onRoundChange = (e: FormEvent<HTMLInputElement>) => {
+    let round = e.currentTarget.value;
+
+    invalidDuration.current = !QUERY_DURATION_REGEX.test(round);
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...options.jsonData,
+        defaultRound: round,
+      },
+    });
+  };
+
   return (
     <>
-      <DataSourceDescription
-        dataSourceName="Hydrolix"
-        docsLink="https://hydrolix.io"
-        hasRequiredFields
-      />
-      <Divider />
       <ConfigSection title={"Server"}>
         <Field
           required
@@ -157,7 +207,7 @@ export function ConfigEditor(props: Props) {
               name="port"
               width={40}
               type="number"
-              value={jsonData.port || ""}
+              value={jsonData.port!}
               disabled={jsonData.useDefaultPort}
               onChange={(e) => onPortChange(e.currentTarget.value)}
               label={labels.port.label}
@@ -181,7 +231,7 @@ export function ConfigEditor(props: Props) {
           <RadioButtonGroup<Protocol>
             options={protocolOptions}
             disabledOptions={[]}
-            value={jsonData.protocol || Protocol.Native}
+            value={jsonData.protocol!}
             onChange={(e) => onProtocolToggle(e!)}
           />
         </Field>
@@ -193,7 +243,7 @@ export function ConfigEditor(props: Props) {
           <Switch
             id="secure"
             className="gf-form"
-            value={jsonData.secure || false}
+            value={jsonData.secure}
             onChange={(e) => onSecureChange(e.currentTarget.checked)}
           />
         </Field>
@@ -204,7 +254,7 @@ export function ConfigEditor(props: Props) {
             description={labels.path.description}
           >
             <Input
-              value={jsonData.path || ""}
+              value={jsonData.path}
               name="path"
               width={80}
               onChange={onUpdateDatasourceJsonDataOption(props, "path")}
@@ -226,7 +276,7 @@ export function ConfigEditor(props: Props) {
             >
               <Switch
                 className="gf-form"
-                value={jsonData.skipTlsVerify || false}
+                value={jsonData.skipTlsVerify}
                 onChange={(e) => onTlsSettingsChange(e.currentTarget.checked)}
               />
             </Field>
@@ -244,7 +294,7 @@ export function ConfigEditor(props: Props) {
           <Input
             name={"username"}
             width={40}
-            value={jsonData.username || ""}
+            value={jsonData.username}
             onChange={onUpdateDatasourceJsonDataOption(props, "username")}
             label={labels.username.label}
             aria-label={labels.username.label}
@@ -294,17 +344,15 @@ export function ConfigEditor(props: Props) {
           />
         </Field>
         <Field
-          label={labels.defaultTable.label}
-          description={labels.defaultTable.description}
+          error={"invalid duration"}
+          label={labels.defaultRound.label}
+          description={labels.defaultRound.description}
+          invalid={invalidDuration.current}
         >
           <Input
-            name={"defaultTable"}
             width={40}
-            value={jsonData.defaultTable || ""}
-            onChange={onUpdateDatasourceJsonDataOption(props, "defaultTable")}
-            label={labels.defaultTable.label}
-            aria-label={labels.defaultTable.label}
-            placeholder={labels.defaultTable.placeholder}
+            onChange={onRoundChange}
+            value={jsonData.defaultRound}
           />
         </Field>
         <Field
@@ -312,7 +360,7 @@ export function ConfigEditor(props: Props) {
           description={labels.adHocTableVariable.description}
         >
           <Input
-            name={"adHocKeyQuery"}
+            name={"adHocTableVariable"}
             width={40}
             value={jsonData.adHocTableVariable || ""}
             onChange={onUpdateDatasourceJsonDataOption(
@@ -324,37 +372,67 @@ export function ConfigEditor(props: Props) {
           />
         </Field>
         <Field
-          label={labels.adHocKeyQuery.label}
-          description={labels.adHocKeyQuery.description}
+          label={labels.adHocTimeColumnVariable.label}
+          description={labels.adHocTimeColumnVariable.description}
         >
           <Input
-            name={"adHocKeyQuery"}
-            width={80}
-            value={jsonData.adHocKeyQuery || ""}
-            onChange={onUpdateDatasourceJsonDataOption(props, "adHocKeyQuery")}
-            label={labels.adHocKeyQuery.label}
-            aria-label={labels.adHocKeyQuery.label}
-            placeholder={labels.adHocKeyQuery.placeholder}
+            name={"adHocTimeFilterVariable"}
+            width={40}
+            value={jsonData.adHocTimeColumnVariable || ""}
+            onChange={onUpdateDatasourceJsonDataOption(
+              props,
+              "adHocTimeColumnVariable"
+            )}
+            label={labels.adHocTimeColumnVariable.label}
+            aria-label={labels.adHocTimeColumnVariable.label}
           />
+        </Field>
+        <Field
+          label={labels.adHocKeysQuery.label}
+          description={labels.adHocKeysQuery.description}
+        >
+          <div style={{ width: "50em" }}>
+            <TextArea
+              name={"adHocKeysQuery"}
+              cols={40}
+              rows={4}
+              value={jsonData.adHocKeysQuery}
+              onChange={onUpdateAdHocKeysQuery}
+              label={labels.adHocKeysQuery.label}
+              aria-label={labels.adHocKeysQuery.label}
+              placeholder={labels.adHocKeysQuery.placeholder}
+            />
+          </div>
         </Field>
         <Field
           label={labels.adHocValuesQuery.label}
           description={labels.adHocValuesQuery.description}
         >
-          <Input
-            name={"adHocKeyQuery"}
-            width={80}
-            value={jsonData.adHocValuesQuery || ""}
-            onChange={onUpdateDatasourceJsonDataOption(
-              props,
-              "adHocValuesQuery"
-            )}
-            label={labels.adHocValuesQuery.label}
-            aria-label={labels.adHocValuesQuery.label}
-            placeholder={labels.adHocValuesQuery.placeholder}
-          />
+          <div style={{ width: "50em" }}>
+            <TextArea
+              name={"adHocValuesQuery"}
+              cols={40}
+              rows={4}
+              value={jsonData.adHocValuesQuery}
+              onChange={onUpdateAdHocValuesQuery}
+              label={labels.adHocValuesQuery.label}
+              aria-label={labels.adHocValuesQuery.label}
+              placeholder={labels.adHocValuesQuery.placeholder}
+            />
+          </div>
         </Field>
-
+        <Field
+          label={labels.adHocDefaultTimeRange.label}
+          description={labels.adHocDefaultTimeRange.description}
+        >
+          <div style={{ width: "23em" }}>
+            <TimeRangeInput
+              value={jsonData.adHocDefaultTimeRange!}
+              onChange={onUpdateTimeRange}
+              aria-label={labels.adHocDefaultTimeRange.label}
+            />
+          </div>
+        </Field>
         <Field
           label={labels.dialTimeout.label}
           description={labels.dialTimeout.description}

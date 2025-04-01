@@ -4,7 +4,6 @@ import {
   DataQueryError,
   DataQueryRequest,
   DataQueryResponse,
-  DataSourceGetTagKeysOptions,
   DataSourceGetTagValuesOptions,
   DataSourceInstanceSettings,
   Field,
@@ -17,17 +16,19 @@ import {
 import {
   DataSourceWithBackend,
   getTemplateSrv,
+  logError,
+  logWarning,
   TemplateSrv,
 } from "@grafana/runtime";
-import { isString } from "lodash";
 import { DEFAULT_QUERY, HdxDataSourceOptions, HdxQuery } from "./types";
 import { from, Observable, switchMap } from "rxjs";
 import { map } from "rxjs/operators";
 import { ErrorMessageBeautifier } from "./errorBeautifier";
 import { ConditionalAllApplier } from "./conditionalAllApplier";
-import { AdHocFilterApplier, keyToColumnAndTable } from "./adHocFilterApplier";
+import { AdHocFilterApplier } from "./adHocFilterApplier";
 import { getMetadataProvider } from "./editor/metadataProvider";
 import { getColumnValuesStatement, getTable as getAstTable } from "./ast";
+import { getFirstValidRound } from "./editor/timeRangeUtils";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -48,8 +49,9 @@ export class DataSource extends DataSourceWithBackend<
     super(instanceSettings);
   }
 
-  async metricFindQuery(query: HdxQuery | string, options?: any) {
-    const hdxQuery = isString(query) ? { rawSql: query } : query;
+  async metricFindQuery(query: Partial<HdxQuery> | string, options?: any) {
+    const hdxQuery: Partial<HdxQuery> =
+      typeof query === "string" ? { rawSql: query } : query;
     if (!hdxQuery.rawSql) {
       return [];
     }
@@ -74,6 +76,10 @@ export class DataSource extends DataSourceWithBackend<
             .then((q) => ({
               ...t,
               rawSql: q,
+              round: getFirstValidRound([
+                t.round,
+                this.instanceSettings.jsonData.defaultRound || "",
+              ]),
               filters: undefined,
               meta: {
                 timezone: this.resolveTimezone(request),
@@ -94,6 +100,23 @@ export class DataSource extends DataSourceWithBackend<
             map((response: DataQueryResponse) => {
               const errors = response.errors?.map((error: DataQueryError) => {
                 console.error(error);
+                logError(
+                  {
+                    name: `DataQueryError with status ${error.statusText}`,
+                    message: error.message || "",
+                  },
+                  {
+                    data_message: error.data?.message || "",
+                    data_error: error.data?.error || "",
+                    message: error.message || "",
+                    status: error.status?.toString() || "",
+                    statusText: error.statusText || "",
+                    refId: error.refId || "",
+                    traceId: error.traceId || "",
+                    type: "" + error.type,
+                  }
+                );
+
                 if (error.message) {
                   const message = this.beautifier.beautify(error.message);
                   if (message) {
@@ -130,43 +153,16 @@ export class DataSource extends DataSourceWithBackend<
     };
   }
 
-  async getTagKeys(
-    options: DataSourceGetTagKeysOptions<HdxQuery>
-  ): Promise<MetricFindValue[]> {
-    if (!this.instanceSettings.jsonData.adHocKeyQuery) {
+  async getTagKeys(): Promise<MetricFindValue[]> {
+    if (!this.instanceSettings.jsonData.adHocKeysQuery) {
       return [];
     }
-    let table = this.replace(
-      `$\{${this.instanceSettings.jsonData.adHocTableVariable}}`
-    );
+    let table = this.adHocFilterTableName();
 
-    if (table && !table.startsWith("${")) {
+    if (table) {
       return await this.metadataProvider.tableKeys(table);
-    } else if (
-      this.instanceSettings.jsonData.defaultDatabase &&
-      this.instanceSettings.jsonData.defaultTable
-    ) {
-      return await this.metadataProvider.tableKeys(
-        `${this.instanceSettings.jsonData.defaultDatabase}.${this.instanceSettings.jsonData.defaultTable}`
-      );
     } else {
-      let tables = options.queries
-        ?.map((q) => this.getTable(q.rawSql))
-        .filter((t, i, arr) => arr.indexOf(t) === i);
-      if (tables && tables.length) {
-        return (
-          await Promise.all(
-            tables.map((t) => this.metadataProvider.tableKeys(t))
-          )
-        )
-          .flatMap((k) => k)
-          .map((k) => ({
-            ...k,
-            value: `${k.group}.${k.value}`,
-          }));
-      } else {
-        return [];
-      }
+      return [];
     }
   }
 
@@ -181,73 +177,78 @@ export class DataSource extends DataSourceWithBackend<
   }
 
   async getTagValues(
-    options: DataSourceGetTagValuesOptions<HdxQuery>
+    options: DataSourceGetTagValuesOptions
   ): Promise<MetricFindValue[]> {
     if (!this.instanceSettings.jsonData.adHocValuesQuery) {
       return [];
     }
-    let [column, table] = keyToColumnAndTable(options.key);
-    if (!table) {
-      let variable = this.replace(
-        `$\{${this.instanceSettings.jsonData.adHocTableVariable}}`
-      );
-      if (variable && !variable?.startsWith('${')) {
-        table = variable
-      }
-    }
-    if (
-      !table &&
-      this.instanceSettings.jsonData.defaultDatabase &&
-      this.instanceSettings.jsonData.defaultTable
-    ) {
-      table = `${this.instanceSettings.jsonData.defaultDatabase}.${this.instanceSettings.jsonData.defaultTable}`;
-    }
+
+    let table = this.adHocFilterTableName();
     if (!table) {
       return [];
     }
-    let sql = options.queries
-      ?.map((q): string => {
-        if (this.getTable(q.rawSql) === table) {
-          return getColumnValuesStatement(
-            column,
-            q.rawSql,
-            this.instanceSettings.jsonData.adHocValuesQuery!
-          );
-        }
-        return "";
-      })
-      .find((s) => s);
-    if (!sql) {
-      sql = options.queries
-        ?.map((q): string =>
-          getColumnValuesStatement(
-            column,
-            q.rawSql,
-            this.instanceSettings.jsonData.adHocValuesQuery!
-          )
-        )
-        .find((s) => s);
+
+    let keys = await this.metadataProvider
+      .tableKeys(table)
+      .then((keys) => keys.map((k) => k.value));
+    if (!keys.includes(options.key)) {
+      logWarning(
+        `ad-hoc filter key ${options.key} is not available for table ${table}`
+      );
+      return [];
     }
 
+    let timeFilter;
+    let timeFilterVariable = this.replace(
+      `$\{${this.instanceSettings.jsonData.adHocTimeColumnVariable}}`
+    );
+    if (timeFilterVariable && !timeFilterVariable?.startsWith("${")) {
+      timeFilter = timeFilterVariable;
+    }
+
+    let sql;
+    if (table && timeFilter) {
+      sql = getColumnValuesStatement(
+        options.key,
+        table,
+        timeFilter,
+        this.instanceSettings.jsonData.adHocValuesQuery!
+      );
+    }
     if (!sql) {
       return [];
     }
 
     let response = await this.metadataProvider.executeQuery(
       await this.adHocFilterApplier.apply(sql, options.filters),
-      options.timeRange
+      options.timeRange || this.instanceSettings.jsonData.adHocDefaultTimeRange
     );
     let fields: Field[] = response.data[0]?.fields?.length
       ? response.data[0].fields
       : [];
     let values: string[] = fields[0]?.values;
-    let counts: string[] = fields[1]?.values;
     return values
       .filter((n) => n !== "")
-      .map((n, i) => ({
-        text: n ? `${n} (${counts[i]})` : n,
+      .map((n) => ({
+        text: n ? n : "null",
         value: n,
       }));
+  }
+
+  private adHocFilterTableName() {
+    let table = this.replace(
+      `$\{${this.instanceSettings.jsonData.adHocTableVariable}}`
+    );
+
+    if (table && !table.startsWith("${")) {
+      if (table.includes(".")) {
+        return table;
+      } else {
+        return `${this.instanceSettings.jsonData.defaultDatabase}.${table}`;
+      }
+    } else {
+      return undefined;
+    }
   }
 
   filterQuery(query: HdxQuery): boolean {

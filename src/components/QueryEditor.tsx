@@ -27,14 +27,16 @@ export type Props = QueryEditorProps<
 >;
 
 export function QueryEditor(props: Props) {
-  const queryTypeOptions: Array<SelectableValue<number>> = Object.keys(
-    QueryType
-  )
-    .filter((key) => Number.isNaN(+key))
-    .map((key) => ({
-      label: key,
-      value: QueryType[key as keyof typeof QueryType],
-    }));
+  const queryTypeOptions = useMemo<Array<SelectableValue<number>>>(
+    () =>
+      Object.keys(QueryType)
+        .filter((key) => Number.isNaN(+key))
+        .map((key) => ({
+          label: key,
+          value: QueryType[key as keyof typeof QueryType],
+        })),
+    []
+  );
 
   const onQueryTextChange = (queryText: string) => {
     props.onChange({ ...props.query, rawSql: queryText });
@@ -54,7 +56,7 @@ export function QueryEditor(props: Props) {
   const updateQueryType = useCallback(
     (q: number) => {
       setQueryType(() => q);
-      props.query.format = q;
+      props.onChange({ ...props.query, format: q });
     },
     [props]
   );
@@ -83,14 +85,13 @@ export function QueryEditor(props: Props) {
                   size={"md"}
                 />
               </InlineField>
-
               <InlineField
                 error={"invalid duration"}
                 invalid={invalidDuration.current}
                 label={
                   <InlineLabel
                     width={10}
-                    tooltip="Set rounding for $from and $to timestamps..."
+                    tooltip="Round $from and $to timestamps to the nearest multiple of the specified value (1m rounds to the nearest whole minute). Supports time units: ms, s, m, h. No value means that the default round value will be used. A value of 0 means no rounding is applied"
                   >
                     Round
                   </InlineLabel>

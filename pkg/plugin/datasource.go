@@ -8,10 +8,9 @@ import (
 	"github.com/grafana/sqlds/v4"
 )
 
-// Create Hydrolix sql ds
+// NewDatasource creates Hydrolix SQLDS datasource
 func NewDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-	hydrolixPlugin := Hydrolix{}
-	ds := sqlds.NewDatasource(&hydrolixPlugin)
-	ds.EnableMultipleConnections = true // TODO: make it configurable and limit connections pool
+	ds := sqlds.NewDatasource(&Hydrolix{})
+	ds.EnableMultipleConnections = true
 	return ds.NewDatasource(ctx, settings)
 }

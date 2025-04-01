@@ -202,34 +202,34 @@ func TestMacrosInterpolation(t *testing.T) {
 	toMS := to.UnixMilli()
 
 	testCases := []struct {
-		name   string
-		origin  string
+		name         string
+		origin       string
 		interpolated string
 	}{
-		{origin: "SELECT * FROM foo WHERE $__timeFilter(cast(col as timestamp))", 
-			interpolated: fmt.Sprintf("SELECT * FROM foo WHERE cast(col as timestamp) >= toDateTime(%d) AND cast(col as timestamp) <= toDateTime(%d)", fromSec, toSec), 
-			name: "timeFilter"},
-		{origin: "SELECT * FROM foo WHERE $__timeFilter( cast(col as timestamp) )", 
-			interpolated: fmt.Sprintf("SELECT * FROM foo WHERE cast(col as timestamp) >= toDateTime(%d) AND cast(col as timestamp) <= toDateTime(%d)", fromSec, toSec), 
-			name: "timeFilter with whitespaces"},
-		{origin: "SELECT * FROM foo WHERE $__timeFilter_ms(cast(col as timestamp))", 
-			interpolated: fmt.Sprintf("SELECT * FROM foo WHERE cast(col as timestamp) >= fromUnixTimestamp64Milli(%d) AND cast(col as timestamp) <= fromUnixTimestamp64Milli(%d)", fromMS, toMS), 
-			name: "timeFilter_ms"},
-		{origin: "SELECT * FROM foo WHERE $__timeFilter_ms( cast(col as timestamp) )", 
-			interpolated: fmt.Sprintf("SELECT * FROM foo WHERE cast(col as timestamp) >= fromUnixTimestamp64Milli(%d) AND cast(col as timestamp) <= fromUnixTimestamp64Milli(%d)", fromMS, toMS), 
-			name: "timeFilter_ms with whitespaces"},
-		{origin: "SELECT * FROM foo WHERE ( col >= $__fromTime and col <= $__toTime ) limit 100", 
-			interpolated: fmt.Sprintf("SELECT * FROM foo WHERE ( col >= toDateTime(%d) and col <= toDateTime(%d) ) limit 100", fromSec, toSec), 
-			name: "fromTime and toTime"},
-		{origin: "SELECT * FROM foo WHERE ( col >= $__fromTime ) and ( col <= $__toTime ) limit 100", 
-			interpolated: fmt.Sprintf("SELECT * FROM foo WHERE ( col >= toDateTime(%d) ) and ( col <= toDateTime(%d) ) limit 100", fromSec, toSec), 
-			name: "fromTime and toTime condition #2"},
-		{origin: "SELECT * FROM foo WHERE ( col >= $__fromTime_ms and col <= $__toTime_ms ) limit 100", 
-			interpolated: fmt.Sprintf("SELECT * FROM foo WHERE ( col >= fromUnixTimestamp64Milli(%d) and col <= fromUnixTimestamp64Milli(%d) ) limit 100", fromMS, toMS), 
-			name: "fromTime_ms and toTime_ms"},
-		{origin: "SELECT * FROM foo WHERE ( col >= $__fromTime_ms ) and ( col <= $__toTime_ms ) limit 100", 
-			interpolated: fmt.Sprintf("SELECT * FROM foo WHERE ( col >= fromUnixTimestamp64Milli(%d) ) and ( col <= fromUnixTimestamp64Milli(%d) ) limit 100", fromMS, toMS), 
-			name: "fromTime_ms and toTime_ms condition #2"},
+		{origin: "SELECT * FROM foo WHERE $__timeFilter(cast(col as timestamp))",
+			interpolated: fmt.Sprintf("SELECT * FROM foo WHERE cast(col as timestamp) >= toDateTime(%d) AND cast(col as timestamp) <= toDateTime(%d)", fromSec, toSec),
+			name:         "timeFilter"},
+		{origin: "SELECT * FROM foo WHERE $__timeFilter( cast(col as timestamp) )",
+			interpolated: fmt.Sprintf("SELECT * FROM foo WHERE cast(col as timestamp) >= toDateTime(%d) AND cast(col as timestamp) <= toDateTime(%d)", fromSec, toSec),
+			name:         "timeFilter with whitespaces"},
+		{origin: "SELECT * FROM foo WHERE $__timeFilter_ms(cast(col as timestamp))",
+			interpolated: fmt.Sprintf("SELECT * FROM foo WHERE cast(col as timestamp) >= fromUnixTimestamp64Milli(%d) AND cast(col as timestamp) <= fromUnixTimestamp64Milli(%d)", fromMS, toMS),
+			name:         "timeFilter_ms"},
+		{origin: "SELECT * FROM foo WHERE $__timeFilter_ms( cast(col as timestamp) )",
+			interpolated: fmt.Sprintf("SELECT * FROM foo WHERE cast(col as timestamp) >= fromUnixTimestamp64Milli(%d) AND cast(col as timestamp) <= fromUnixTimestamp64Milli(%d)", fromMS, toMS),
+			name:         "timeFilter_ms with whitespaces"},
+		{origin: "SELECT * FROM foo WHERE ( col >= $__fromTime and col <= $__toTime ) limit 100",
+			interpolated: fmt.Sprintf("SELECT * FROM foo WHERE ( col >= toDateTime(%d) and col <= toDateTime(%d) ) limit 100", fromSec, toSec),
+			name:         "fromTime and toTime"},
+		{origin: "SELECT * FROM foo WHERE ( col >= $__fromTime ) and ( col <= $__toTime ) limit 100",
+			interpolated: fmt.Sprintf("SELECT * FROM foo WHERE ( col >= toDateTime(%d) ) and ( col <= toDateTime(%d) ) limit 100", fromSec, toSec),
+			name:         "fromTime and toTime condition #2"},
+		{origin: "SELECT * FROM foo WHERE ( col >= $__fromTime_ms and col <= $__toTime_ms ) limit 100",
+			interpolated: fmt.Sprintf("SELECT * FROM foo WHERE ( col >= fromUnixTimestamp64Milli(%d) and col <= fromUnixTimestamp64Milli(%d) ) limit 100", fromMS, toMS),
+			name:         "fromTime_ms and toTime_ms"},
+		{origin: "SELECT * FROM foo WHERE ( col >= $__fromTime_ms ) and ( col <= $__toTime_ms ) limit 100",
+			interpolated: fmt.Sprintf("SELECT * FROM foo WHERE ( col >= fromUnixTimestamp64Milli(%d) ) and ( col <= fromUnixTimestamp64Milli(%d) ) limit 100", fromMS, toMS),
+			name:         "fromTime_ms and toTime_ms condition #2"},
 	}
 
 	for _, tc := range testCases {

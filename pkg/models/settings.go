@@ -1,3 +1,4 @@
+// Package models provides Hydrolix plugin's configuration settings
 package models
 
 import (
@@ -5,23 +6,26 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"math"
+	"slices"
 	"strconv"
 	"strings"
-	"time"
-
-	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/grafana/grafana-plugin-sdk-go/backend/proxy"
 )
 
+// Settings validation errors
 var (
-	ErrorMessageInvalidJSON     = errors.New("invalid settings json")
-	ErrorMessageInvalidHost     = errors.New("Server address is missing")
-	ErrorMessageInvalidPort     = errors.New("invalid database port")
-	ErrorMessageInvalidUserName = errors.New("username is required")
-	ErrorMessageInvalidPassword = errors.New("password is required")
-	ErrorMessageInvalidProtocol = errors.New("protocol is should be either native or http")
+	ErrorMessageInvalidJSON         = errors.New("invalid settings json")
+	ErrorMessageInvalidHost         = errors.New("Server address is missing")
+	ErrorMessageInvalidPort         = errors.New("Server port is missing")
+	ErrorMessageInvalidUserName     = errors.New("Username is missing")
+	ErrorMessageInvalidPassword     = errors.New("Password is missing")
+	ErrorMessageInvalidProtocol     = errors.New("Protocol should be either native or http")
+	ErrorMessageInvalidQueryTimeout = errors.New("Invalid Query Timeout")
+	ErrorMessageInvalidDialTimeout  = errors.New("Invalid Connect Timeout")
 )
 
+// PluginSettings structure represent data source configuration options
 type PluginSettings struct {
 	Host            string         `json:"host"`
 	UserName        string         `json:"username"`
@@ -34,20 +38,50 @@ type PluginSettings struct {
 	DialTimeout     string         `json:"dialTimeout,omitempty"`
 	QueryTimeout    string         `json:"queryTimeout,omitempty"`
 	DefaultDatabase string         `json:"defaultDatabase,omitempty"`
-	ProxyOptions    *proxy.Options `json:"-"`
+	Other           map[string]any `json:"-"`
 }
 
-func (settings *PluginSettings) isValid() (err error) {
+// IsValid validates configuration data correctness
+func (settings *PluginSettings) IsValid() error {
 	if settings.Host == "" {
 		return backend.DownstreamError(ErrorMessageInvalidHost)
 	}
 	if settings.Port == 0 {
 		return backend.DownstreamError(ErrorMessageInvalidPort)
 	}
+	//if settings.UserName == "" {
+	//	return backend.DownstreamError(ErrorMessageInvalidUserName)
+	//}
+	//if settings.Password == "" {
+	//	return backend.DownstreamError(ErrorMessageInvalidPassword)
+	//}
+	if !slices.Contains([]string{"http", "native"}, settings.Protocol) {
+		return backend.DownstreamError(ErrorMessageInvalidProtocol)
+	}
+
+	if _, err := strconv.Atoi(settings.DialTimeout); err != nil {
+		return backend.DownstreamError(ErrorMessageInvalidDialTimeout)
+	}
+
+	if _, err := strconv.Atoi(settings.QueryTimeout); err != nil {
+		return backend.DownstreamError(ErrorMessageInvalidQueryTimeout)
+	}
+
 	return nil
 }
 
-func LoadPluginSettings(ctx context.Context, source backend.DataSourceInstanceSettings) (settings PluginSettings, e error) {
+// SetDefaults applies default values to not defined options
+func (settings *PluginSettings) SetDefaults() {
+	if strings.TrimSpace(settings.DialTimeout) == "" {
+		settings.DialTimeout = "10"
+	}
+	if strings.TrimSpace(settings.QueryTimeout) == "" {
+		settings.QueryTimeout = "60"
+	}
+}
+
+// NewPluginSettings initializes PluginSettings with data provided by Grafana
+func NewPluginSettings(ctx context.Context, source backend.DataSourceInstanceSettings) (settings PluginSettings, e error) {
 	var jsonData map[string]interface{}
 	if err := json.Unmarshal(source.JSONData, &jsonData); err != nil {
 		return settings, fmt.Errorf("%s: %w", err.Error(), ErrorMessageInvalidJSON)
@@ -56,29 +90,27 @@ func LoadPluginSettings(ctx context.Context, source backend.DataSourceInstanceSe
 	if jsonData["host"] != nil {
 		settings.Host = jsonData["host"].(string)
 	}
+
 	if jsonData["port"] != nil {
-		if portAsFloat, ok := jsonData["port"].(float64); ok {
-			settings.Port = uint16(portAsFloat)
-		} else if portAsString, ok := jsonData["port"].(string); ok {
-			port, err := strconv.ParseFloat(portAsString, 64)
-			if err != nil {
-				settings.Port = uint16(port)
-			}
+		port, err := parseUint(jsonData["port"])
+		if err != nil {
+			return settings, err
 		}
+		settings.Port = port
 	}
+
 	if jsonData["protocol"] != nil {
 		settings.Protocol = jsonData["protocol"].(string)
 	}
+
 	if jsonData["secure"] != nil {
-		if secure, ok := jsonData["secure"].(string); ok {
-			settings.Secure, e = strconv.ParseBool(secure)
-			if e != nil {
-				return settings, backend.DownstreamError(fmt.Errorf("could not parse secure value: %w", e))
-			}
-		} else {
-			settings.Secure = jsonData["secure"].(bool)
+		secure, err := parseBool(jsonData["secure"])
+		if err != nil {
+			return settings, err
 		}
+		settings.Secure = secure
 	}
+
 	if jsonData["path"] != nil {
 		settings.Path = jsonData["path"].(string)
 	}
@@ -100,54 +132,59 @@ func LoadPluginSettings(ctx context.Context, source backend.DataSourceInstanceSe
 	}
 
 	if jsonData["skipTlsVerify"] != nil {
-		settings.SkipTlsVerify = jsonData["skipTlsVerify"].(bool)
+		skipTlsVerify, err := parseBool(jsonData["skipTlsVerify"])
+		if err != nil {
+			return settings, err
+		}
+		settings.SkipTlsVerify = skipTlsVerify
 	}
 
 	if password, ok := source.DecryptedSecureJSONData["password"]; ok {
 		settings.Password = password
 	}
 
-	if strings.TrimSpace(settings.DialTimeout) == "" {
-		settings.DialTimeout = "10"
-	}
-	if strings.TrimSpace(settings.QueryTimeout) == "" {
-		settings.QueryTimeout = "60"
-	}
+	settings.SetDefaults()
 
-	proxyOpts, e := source.ProxyOptionsFromContext(ctx)
-	if e == nil && proxyOpts != nil {
-		// the sdk expects the timeout to not be a string
-		timeout, err := strconv.ParseFloat(settings.DialTimeout, 64)
-		if err == nil {
-			proxyOpts.Timeouts.Timeout = time.Duration(timeout) * time.Second
-		}
-
-		settings.ProxyOptions = proxyOpts
-	}
-
-	return settings, settings.isValid()
+	return settings, settings.IsValid()
 }
 
-func readDuration(jsonData map[string]interface{}, name string, defaultValue string) (*string, error) {
-	if jsonData[name] == nil {
-		return &defaultValue, nil
+// parseBool parses boolean value
+func parseBool(in any) (bool, error) {
+	switch v := in.(type) {
+	case bool:
+		return v, nil
+	case string:
+		return strconv.ParseBool(v)
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return strconv.ParseBool(fmt.Sprintf("%d", v))
+	case float32, float64:
+		v64, _ := strconv.ParseFloat(fmt.Sprintf("%f", v), 64)
+		if math.Trunc(v64) == v64 {
+			return strconv.ParseBool(strconv.FormatFloat(v64, 'f', -1, 64))
+		}
+		return false, backend.DownstreamError(fmt.Errorf("could not parse bool value: %s", in))
+	default:
+		return false, backend.DownstreamError(fmt.Errorf("could not parse bool value: %s", in))
+	}
+}
+
+// parseUint parses unsigned integer value
+func parseUint(in any) (uint16, error) {
+	switch v := in.(type) {
+	case string:
+		port, err := strconv.ParseUint(v, 10, 16)
+		return uint16(port), err
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		v64, err := strconv.ParseUint(fmt.Sprintf("%d", v), 10, 16)
+		return uint16(v64), err
+	case float32, float64:
+		v64, _ := strconv.ParseFloat(fmt.Sprintf("%f", v), 64)
+		if math.Trunc(v64) == v64 {
+			return uint16(v64), nil
+		}
+		return 0, backend.DownstreamError(fmt.Errorf("could not parse bool value: %s", in))
+	default:
+		return 0, backend.DownstreamError(fmt.Errorf("could not parse uint value: %s", in))
 	}
 
-	var value string
-	if stringValue, ok := jsonData[name].(string); ok {
-		if strings.TrimSpace(stringValue) == "" {
-			stringValue = defaultValue
-		}
-		if _, err := time.ParseDuration(stringValue); err == nil {
-			value = stringValue
-		} else if _, err := time.ParseDuration(stringValue + "s"); err == nil {
-			value = stringValue + "s"
-		} else {
-			return nil, fmt.Errorf("%s: %w", err.Error(), ErrorMessageInvalidJSON)
-		}
-	} else if floatValue, ok := jsonData[name].(float64); ok {
-		value = fmt.Sprintf("%ds", int64(floatValue))
-	}
-
-	return &value, nil
 }

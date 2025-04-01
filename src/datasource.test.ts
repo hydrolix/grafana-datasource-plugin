@@ -1,7 +1,12 @@
-import { of } from "rxjs";
-import { toDataFrame } from "@grafana/data";
+import { firstValueFrom, of } from "rxjs";
+import { DataQueryRequest, toDataFrame } from "@grafana/data";
 import { setupDataSourceMock } from "__mocks__/datasource";
-import { fooVariable } from "./__mocks__/variable";
+import {
+  adHocTableVariable,
+  adHocTimeColumnVariable,
+  fooVariable,
+} from "./__mocks__/variable";
+import { AdHocFilterKeys, HdxQuery } from "./types";
 
 describe("HdxDataSource", () => {
   beforeEach(() => {
@@ -85,5 +90,91 @@ describe("HdxDataSource", () => {
       {}
     );
     expect(actual.rawSql).toEqual("foo templatedFoo");
+  });
+
+  describe("ad-hoc filtering", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+    const { datasource, queryMock } = setupDataSourceMock({
+      variables: [adHocTableVariable, adHocTimeColumnVariable],
+    });
+    const getKeysMock = jest.spyOn(datasource.metadataProvider, "tableKeys");
+
+    it("should return keys", async () => {
+      let response = ["key1", "key2", "key3"].map(
+        (k) => ({ text: k, value: k } as AdHocFilterKeys)
+      );
+      getKeysMock.mockReturnValue(Promise.resolve(response));
+      let keys = await datasource.getTagKeys();
+
+      expect(keys).toBe(response);
+    });
+
+    it("should not return values", async () => {
+      let response = ["key1", "key2", "key3"].map(
+        (k) => ({ text: k, value: k } as AdHocFilterKeys)
+      );
+      getKeysMock.mockReturnValue(Promise.resolve(response));
+      let values = await datasource.getTagValues({ key: "key", filters: [] });
+
+      expect(values).toEqual([]);
+    });
+
+    it("should  return values", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve(
+          ["key1", "key2", "key3"].map(
+            (k) => ({ text: k, value: k } as AdHocFilterKeys)
+          )
+        )
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: [100, 200] }],
+            }),
+          ],
+        })
+      );
+      let values = await datasource.getTagValues({ key: "key1", filters: [] });
+
+      expect(values).toEqual([100, 200].map((k) => ({ text: k, value: k })));
+    });
+
+    it("should return null value", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve(
+          ["key1", "key2", "key3"].map(
+            (k) => ({ text: k, value: k } as AdHocFilterKeys)
+          )
+        )
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: [null] }],
+            }),
+          ],
+        })
+      );
+      let values = await datasource.getTagValues({ key: "key1", filters: [] });
+
+      expect(values).toEqual([{ text: "null", value: null }]);
+    });
+  });
+
+  it("should process error", async () => {
+    const { datasource, queryMock } = setupDataSourceMock({});
+    queryMock.mockReturnValue(
+      of({ data: [], errors: [{ message: "error message", status: "error" }] })
+    );
+    const req = {
+      targets: [{ rawSql: "select 1", refId: String(Math.random()) }],
+    } as DataQueryRequest<HdxQuery>;
+    let a = await firstValueFrom(datasource.query(req));
+    expect(a.errors![0].message).toBe("error message");
   });
 });
