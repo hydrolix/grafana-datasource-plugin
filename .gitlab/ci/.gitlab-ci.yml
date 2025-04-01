@@ -246,7 +246,7 @@ remove-e2e-image:
   script:
     - .gitlab/remove-image.sh "$CI_JOB_TOKEN" "$CI_PROJECT_ID" "$E2E_IMAGE_NAME" "$E2E_IMAGE_TAG"
 
-publish:
+publish-gitlab:
   extends:
     - .rules:release
   stage: publish
@@ -255,4 +255,15 @@ publish:
   needs: [zip, e2e]
   tags: [gitlab-org]
   script:
-    - .gitlab/publish.sh
+    - .gitlab/publish-gitlab.sh
+
+publish-aws:
+  extends:
+    - .rules:release
+  stage: publish
+  image: registry.gitlab.com/gitlab-org/cloud-deploy/aws-base:latest
+  when: manual
+  needs: [zip, e2e]
+  tags: [gitlab-org]
+  script:
+    - .gitlab/publish-aws.sh "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY"

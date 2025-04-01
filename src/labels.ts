@@ -70,16 +70,15 @@ export default {
             "Used to filter possible ad-hoc filter values when the dashboard time range is unavailable",
         },
         adHocKeysQuery: {
-          label: "Ad-hoc filter key query",
+          label: "Ad-hoc filter keys query",
           description: "Used to retrieve possible keys for ad-hoc filters",
-          placeholder: "SELECT key FROM ${table}",
+          placeholder: "",
         },
         adHocValuesQuery: {
-          label: "Ad-hoc filter value query",
+          label: "Ad-hoc filter values query",
           description:
             "Used to retrieve possible values for ad-hoc filter keys",
-          placeholder:
-            "SELECT ${column}, COUNT(${column}) as count  FROM ${table} WHERE $__timeFilter(${timeColumn}) AND $__adHocFilter() GROUP BY ${column} ORDER BY count DESC LIMIT 100",
+          placeholder: "",
         },
         adHocTableVariable: {
           label: "Ad-hoc filter table variable name",
@@ -91,7 +90,7 @@ export default {
           description:
             "Dashboard variable name to specify the time column used to filter possible ad-hoc filter values within the dashboard time range",
         },
-        defaultQueryRound: {
+        defaultRound: {
           label: "Default round",
           description:
             "Automatically rounds $from and $to timestamps to the nearest multiple of a default value (e.g., 1m rounds to the nearest whole minute). Used when no specific round value is provided in the query. Supported time units: ms, s, m, h. No value or a value of 0 means no rounding is applied",
