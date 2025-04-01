@@ -108,7 +108,7 @@ datasources:
       adHocTimeColumnVariable: timeColumn
       adHocKeysQuery: DESCRIBE $${table}
       adHocValuesQuery: >
-        SELECT ${column}, COUNT(*) as count FROM $${table}
+        SELECT $${column}, COUNT(*) as count FROM $${table}
         WHERE $$__timeFilter($${timeColumn}) AND $$__adHocFilter()
         GROUP BY $${column}
         ORDER BY count DESC
