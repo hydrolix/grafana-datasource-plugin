@@ -4,7 +4,6 @@ import {
   DataQueryError,
   DataQueryRequest,
   DataQueryResponse,
-  DataSourceGetTagKeysOptions,
   DataSourceGetTagValuesOptions,
   DataSourceInstanceSettings,
   Field,
@@ -79,7 +78,7 @@ export class DataSource extends DataSourceWithBackend<
               rawSql: q,
               round: getFirstValidRound([
                 t.round,
-                this.instanceSettings.jsonData.defaultQueryRound || "",
+                this.instanceSettings.jsonData.defaultRound || "",
               ]),
               filters: undefined,
               meta: {
@@ -154,11 +153,8 @@ export class DataSource extends DataSourceWithBackend<
     };
   }
 
-  async getTagKeys(
-    options: DataSourceGetTagKeysOptions<HdxQuery>
-  ): Promise<MetricFindValue[]> {
-    console.log("getTagKeys", options, this);
-    if (!this.instanceSettings.jsonData.adHocKeyQuery) {
+  async getTagKeys(): Promise<MetricFindValue[]> {
+    if (!this.instanceSettings.jsonData.adHocKeysQuery) {
       return [];
     }
     let table = this.adHocFilterTableName();
@@ -183,7 +179,6 @@ export class DataSource extends DataSourceWithBackend<
   async getTagValues(
     options: DataSourceGetTagValuesOptions
   ): Promise<MetricFindValue[]> {
-    console.log("getTagValues", options);
     if (!this.instanceSettings.jsonData.adHocValuesQuery) {
       return [];
     }
@@ -197,7 +192,6 @@ export class DataSource extends DataSourceWithBackend<
       .tableKeys(table)
       .then((keys) => keys.map((k) => k.value));
     if (!keys.includes(options.key)) {
-      console.log("oops", keys);
       logWarning(
         `ad-hoc filter key ${options.key} is not available for table ${table}`
       );
@@ -206,7 +200,7 @@ export class DataSource extends DataSourceWithBackend<
 
     let timeFilter;
     let timeFilterVariable = this.replace(
-      `$\{${this.instanceSettings.jsonData.adHocTimeFilterVariable}}`
+      `$\{${this.instanceSettings.jsonData.adHocTimeColumnVariable}}`
     );
     if (timeFilterVariable && !timeFilterVariable?.startsWith("${")) {
       timeFilter = timeFilterVariable;
@@ -221,13 +215,13 @@ export class DataSource extends DataSourceWithBackend<
         this.instanceSettings.jsonData.adHocValuesQuery!
       );
     }
-    if (!sql || !options.timeRange) {
+    if (!sql) {
       return [];
     }
 
     let response = await this.metadataProvider.executeQuery(
       await this.adHocFilterApplier.apply(sql, options.filters),
-      options.timeRange || this.instanceSettings.jsonData.defaultTimeRange
+      options.timeRange || this.instanceSettings.jsonData.adHocDefaultTimeRange
     );
     let fields: Field[] = response.data[0]?.fields?.length
       ? response.data[0].fields

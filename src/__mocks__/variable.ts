@@ -43,3 +43,29 @@ export const fooVariable: CustomVariableModel = {
   options: [{ value: "templatedFoo", text: "templatedFooo", selected: true }],
   multi: false,
 };
+
+export const adHocTableVariable: CustomVariableModel = {
+  ...initialCustomVariableModelState,
+  id: "table",
+  name: "table",
+  current: {
+    value: "table",
+    text: "table",
+    selected: true,
+  },
+  options: [{ value: "table", text: "table", selected: true }],
+  multi: false,
+};
+
+export const adHocTimeColumnVariable: CustomVariableModel = {
+  ...initialCustomVariableModelState,
+  id: "timefilter",
+  name: "timefilter",
+  current: {
+    value: "timefilter",
+    text: "timefilter",
+    selected: true,
+  },
+  options: [{ value: "timefilter", text: "timefilter", selected: true }],
+  multi: false,
+};

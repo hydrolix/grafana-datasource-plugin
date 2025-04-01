@@ -11,5 +11,4 @@ module.exports = {
     "!**/__mocks__/**",
   ],
   coverageReporters: ["html", "text", "text-summary", "cobertura"],
-  testMatch: ["**/*.test.js"],
 };
