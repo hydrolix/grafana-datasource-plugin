@@ -15,9 +15,10 @@ import {
   SecretInput,
   Stack,
   Switch,
+  TextArea,
   TimeRangeInput,
 } from "@grafana/ui";
-import { ConfigSection, DataSourceDescription } from "@grafana/plugin-ui";
+import { ConfigSection } from "@grafana/plugin-ui";
 import { HdxDataSourceOptions, HdxSecureJsonData, Protocol } from "../types";
 import allLabels from "labels";
 import defaultConfigs from "defaultConfigs";
@@ -36,8 +37,8 @@ export function ConfigEditor(props: Props) {
   }
   const { jsonData, secureJsonFields } = options;
 
-  if (!jsonData.defaultTimeRange) {
-    jsonData.defaultTimeRange = defaultConfigs.defaultTimeRange;
+  if (!jsonData.adHocDefaultTimeRange) {
+    jsonData.adHocDefaultTimeRange = defaultConfigs.adHocDefaultTimeRange;
   }
 
   const labels = allLabels.components.config.editor;
@@ -134,7 +135,27 @@ export function ConfigEditor(props: Props) {
       ...options,
       jsonData: {
         ...options.jsonData,
-        defaultTimeRange: e,
+        adHocDefaultTimeRange: e,
+      },
+    });
+  };
+
+  const onUpdateAdHocKeysQuery = (e: FormEvent<HTMLTextAreaElement>) => {
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...options.jsonData,
+        adHocKeysQuery: (e.target as HTMLTextAreaElement).value,
+      },
+    });
+  };
+
+  const onUpdateAdHocValuesQuery = (e: FormEvent<HTMLTextAreaElement>) => {
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...options.jsonData,
+        adHocValuesQuery: (e.target as HTMLTextAreaElement).value,
       },
     });
   };
@@ -148,19 +169,13 @@ export function ConfigEditor(props: Props) {
       ...options,
       jsonData: {
         ...options.jsonData,
-        defaultQueryRound: round,
+        defaultRound: round,
       },
     });
   };
 
   return (
     <>
-      <DataSourceDescription
-        dataSourceName="Hydrolix"
-        docsLink="https://hydrolix.io"
-        hasRequiredFields
-      />
-      <Divider />
       <ConfigSection title={"Server"}>
         <Field
           required
@@ -337,7 +352,7 @@ export function ConfigEditor(props: Props) {
           <Input
             width={40}
             onChange={onRoundChange}
-            value={jsonData.defaultQueryRound}
+            value={jsonData.defaultRound}
           />
         </Field>
         <Field
@@ -357,61 +372,64 @@ export function ConfigEditor(props: Props) {
           />
         </Field>
         <Field
-          label={labels.adHocTimeFilterVariable.label}
-          description={labels.adHocTimeFilterVariable.description}
+          label={labels.adHocTimeColumnVariable.label}
+          description={labels.adHocTimeColumnVariable.description}
         >
           <Input
             name={"adHocTimeFilterVariable"}
             width={40}
-            value={jsonData.adHocTimeFilterVariable || ""}
+            value={jsonData.adHocTimeColumnVariable || ""}
             onChange={onUpdateDatasourceJsonDataOption(
               props,
-              "adHocTimeFilterVariable"
+              "adHocTimeColumnVariable"
             )}
-            label={labels.adHocTimeFilterVariable.label}
-            aria-label={labels.adHocTimeFilterVariable.label}
+            label={labels.adHocTimeColumnVariable.label}
+            aria-label={labels.adHocTimeColumnVariable.label}
           />
         </Field>
         <Field
-          label={labels.adHocKeyQuery.label}
-          description={labels.adHocKeyQuery.description}
+          label={labels.adHocKeysQuery.label}
+          description={labels.adHocKeysQuery.description}
         >
-          <Input
-            name={"adHocKeyQuery"}
-            width={80}
-            value={jsonData.adHocKeyQuery}
-            onChange={onUpdateDatasourceJsonDataOption(props, "adHocKeyQuery")}
-            label={labels.adHocKeyQuery.label}
-            aria-label={labels.adHocKeyQuery.label}
-            placeholder={labels.adHocKeyQuery.placeholder}
-          />
+          <div style={{ width: "50em" }}>
+            <TextArea
+              name={"adHocKeyQuery"}
+              cols={40}
+              rows={4}
+              value={jsonData.adHocKeysQuery}
+              onChange={onUpdateAdHocKeysQuery}
+              label={labels.adHocKeysQuery.label}
+              aria-label={labels.adHocKeysQuery.label}
+              placeholder={labels.adHocKeysQuery.placeholder}
+            />
+          </div>
         </Field>
         <Field
           label={labels.adHocValuesQuery.label}
           description={labels.adHocValuesQuery.description}
         >
-          <Input
-            name={"adHocKeyQuery"}
-            width={80}
-            value={jsonData.adHocValuesQuery}
-            onChange={onUpdateDatasourceJsonDataOption(
-              props,
-              "adHocValuesQuery"
-            )}
-            label={labels.adHocValuesQuery.label}
-            aria-label={labels.adHocValuesQuery.label}
-            placeholder={labels.adHocValuesQuery.placeholder}
-          />
+          <div style={{ width: "50em" }}>
+            <TextArea
+              name={"adHocKeyQuery"}
+              cols={40}
+              rows={4}
+              value={jsonData.adHocValuesQuery}
+              onChange={onUpdateAdHocValuesQuery}
+              label={labels.adHocValuesQuery.label}
+              aria-label={labels.adHocValuesQuery.label}
+              placeholder={labels.adHocValuesQuery.placeholder}
+            />
+          </div>
         </Field>
         <Field
-          label={labels.adHocFilterTimeRange.label}
-          description={labels.adHocFilterTimeRange.description}
+          label={labels.adHocDefaultTimeRange.label}
+          description={labels.adHocDefaultTimeRange.description}
         >
           <div style={{ width: "23em" }}>
             <TimeRangeInput
-              value={jsonData.defaultTimeRange!}
+              value={jsonData.adHocDefaultTimeRange!}
               onChange={onUpdateTimeRange}
-              aria-label={labels.adHocFilterTimeRange.label}
+              aria-label={labels.adHocDefaultTimeRange.label}
             />
           </div>
         </Field>

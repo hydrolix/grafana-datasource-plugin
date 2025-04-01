@@ -9,40 +9,14 @@ import {
 import { TableDefinition } from "@grafana/plugin-ui/dist/src/components/SQLEditor/types";
 import { DataSource } from "../datasource";
 import { AdHocFilterKeys } from "../types";
-
-const SCHEMA_SQL =
-  "SELECT DISTINCT database as project FROM system.tables WHERE engine = 'TurbineStorage' AND (project != 'sample_project' AND project != 'hdx' AND total_rows > 0)";
-const TABLES_SQL =
-  "SELECT name FROM system.tables WHERE engine = 'TurbineStorage' AND database = '{schema}' AND total_rows > 0";
-const COLUMNS_SQL =
-  "SELECT name FROM system.columns WHERE database='{schema}' AND table ='{table}'";
-const FUNCTIONS_SQL = "SELECT name FROM  system.functions";
-
-const SUPPORTED_TYPES = [
-  "DateTime",
-  "DateTime64",
-  "String",
-  "Int8",
-  "Int16",
-  "Int32",
-  "Int64",
-  "Int128",
-  "Int256",
-  "UInt8",
-  "UInt16",
-  "UInt32",
-  "UInt64",
-  "UInt128",
-  "UInt256",
-  "Float32",
-  "Float64",
-  "Decimal32",
-  "Decimal64",
-  "Decimal128",
-  "Decimal256",
-];
-
-const NULLABLE_TYPES = SUPPORTED_TYPES.map((t) => `Nullable(${t})`);
+import {
+  COLUMNS_SQL,
+  FUNCTIONS_SQL,
+  NULLABLE_TYPES,
+  SCHEMA_SQL,
+  SUPPORTED_TYPES,
+  TABLES_SQL,
+} from "./constants";
 
 export const getQueryRunner = (
   ds: DataSource
@@ -89,6 +63,7 @@ export interface MetadataProvider {
     timeRange?: TimeRange
   ) => Promise<DataQueryResponse>;
 }
+
 const transformResponse = (r: DataQueryResponse): string[] => {
   return r.data[0]?.fields?.length ? r.data[0].fields[0].values : [];
 };
@@ -117,12 +92,12 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
     | Array<{ id: string; name: string; description: string }>
     | undefined;
   let tableKeysFn: (table: string) => Promise<AdHocFilterKeys[]>;
-  if (ds.instanceSettings.jsonData.adHocKeyQuery) {
+  if (ds.instanceSettings.jsonData.adHocKeysQuery) {
     tableKeysFn = (table: string) =>
       !tableKeys[table]
         ? firstValueFrom(
             queryRunner(
-              ds.instanceSettings.jsonData.adHocKeyQuery!.replaceAll(
+              ds.instanceSettings.jsonData.adHocKeysQuery!.replaceAll(
                 "${table}",
                 table
               )

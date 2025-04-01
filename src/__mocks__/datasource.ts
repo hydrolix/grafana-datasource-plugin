@@ -16,7 +16,13 @@ import { of } from "rxjs";
 
 export const MockDataSourceInstanceSettings: DataSourceInstanceSettings<HdxDataSourceOptions> =
   {
-    jsonData: {},
+    jsonData: {
+      defaultDatabase: "sample",
+      adHocKeysQuery: "adHocKeysQuery",
+      adHocValuesQuery: "adHocValuesQuery",
+      adHocTableVariable: "table",
+      adHocTimeColumnVariable: "timefilter",
+    },
     id: 0,
     uid: "",
     type: "",
@@ -73,6 +79,7 @@ export function setupTemplateServiceMock(
             const variable = scopedVars ? scopedVars[name] : undefined;
             if (variable) {
               output = output.replace("$" + name, variable.value);
+              output = output.replace(`$\{${name}}`, variable.value);
             }
           });
 
@@ -90,6 +97,7 @@ export function setupTemplateServiceMock(
                 repVal = value;
               }
               output = output.replace("$" + variable.name, repVal);
+              output = output.replace(`\$\{${variable.name}}`, repVal);
               output = output.replace("[[" + variable.name + "]]", repVal);
             });
           }

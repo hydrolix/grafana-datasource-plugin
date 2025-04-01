@@ -115,19 +115,3 @@ export const customSuggestionKinds: () => SuggestionKindProvider = () => () =>
       applyTo: [CustomStatementPosition.AfterQuery],
     },
   ];
-
-export const overrideSqlStringColor = (m: Monaco) => {
-  m.editor
-    .getEditors()
-    // @ts-ignore
-    .map((e) => e?._themeService?._theme as IStandaloneThemeData)
-    .forEach((currentTheme) => {
-      m.editor.defineTheme("hdx-default", {
-        base: currentTheme.base,
-        inherit: true,
-        colors: currentTheme.colors,
-        rules: [{ token: "string.sql", foreground: "CE9178" }],
-      });
-      m.editor.setTheme("hdx-default");
-    });
-};
