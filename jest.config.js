@@ -6,7 +6,7 @@ module.exports = {
   // Jest configuration provided by Grafana scaffolding
   ...require("./.config/jest.config"),
   collectCoverageFrom: [
-    "src/**/*.js",
+    "src/**/*.{js,jsx,ts,tsx}",
     "!**/node_modules/**",
     "!**/__mocks__/**",
   ],
