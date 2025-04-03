@@ -1,7 +1,8 @@
-import { TypedVariableModel } from "@grafana/data";
+import { VARIABLE_REGEX } from "../constants";
+import { Context, MacrosApplier } from "./macrosService";
 
-export class ConditionalAllApplier {
-  apply(rawQuery: string, templateVars: TypedVariableModel[]): string {
+export class ConditionalAllApplier implements MacrosApplier {
+  async applyMacros(rawQuery: string, context: Context): Promise<string> {
     if (!rawQuery) {
       return rawQuery;
     }
@@ -17,11 +18,13 @@ export class ConditionalAllApplier {
         return rawQuery;
       }
       const templateVarParam = params[1].trim();
-      const varRegex = /(?<=\$\{)\w+(?=})|(?<=\$)\w+/;
-      const templateVar = varRegex.exec(templateVarParam);
+
+      const templateVar = VARIABLE_REGEX.exec(templateVarParam);
       let phrase = params[0];
       if (templateVar) {
-        const key = templateVars.find((x) => x.name === templateVar[0]) as any;
+        const key = context.templateVars.find(
+          (x) => x.name === templateVar[0]
+        ) as any;
         let value = key?.current.value.toString();
         if (value === "" || value === "$__all") {
           phrase = "1=1";

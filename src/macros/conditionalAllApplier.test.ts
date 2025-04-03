@@ -1,5 +1,6 @@
 import { TypedVariableModel } from "@grafana/data";
 import { ConditionalAllApplier } from "./conditionalAllApplier";
+import { emptyContext } from "./macrosService";
 
 describe("ConditionalAllApplier", () => {
   beforeEach(() => {
@@ -40,7 +41,10 @@ describe("ConditionalAllApplier", () => {
 
   test.each(cases)("$name", async ({ query, variables, expected }) => {
     const applier = new ConditionalAllApplier();
-    const actual = applier.apply(query, variables);
+    const actual = await applier.applyMacros(query, {
+      ...emptyContext,
+      templateVars: variables,
+    });
     expect(actual).toEqual(expected);
   });
 });

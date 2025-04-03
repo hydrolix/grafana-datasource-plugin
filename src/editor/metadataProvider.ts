@@ -16,7 +16,7 @@ import {
   SCHEMA_SQL,
   SUPPORTED_TYPES,
   TABLES_SQL,
-} from "./constants";
+} from "../constants";
 
 export const getQueryRunner = (
   ds: DataSource

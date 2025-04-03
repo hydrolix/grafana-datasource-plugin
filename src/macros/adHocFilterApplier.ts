@@ -1,17 +1,15 @@
 import { AdHocVariableFilter } from "@grafana/data";
-import { MetadataProvider } from "./editor/metadataProvider";
+import { MetadataProvider } from "../editor/metadataProvider";
+import { Context, MacrosApplier } from "./macrosService";
 
 export const AD_HOC_MACRO = "$__adHocFilter()";
 
-export class AdHocFilterApplier {
+export class AdHocFilterApplier implements MacrosApplier {
   constructor(
     private metadataProvider: MetadataProvider,
     private getTableFn: (sql: string) => string
   ) {}
-  async apply(
-    rawQuery: string,
-    filters?: AdHocVariableFilter[]
-  ): Promise<string> {
+  async applyMacros(rawQuery: string, context: Context): Promise<string> {
     if (!rawQuery) {
       return rawQuery;
     }
@@ -20,12 +18,12 @@ export class AdHocFilterApplier {
     if (hasMacro) {
       let condition;
 
-      if (filters?.length) {
+      if (context.filters?.length) {
         let table = this.getTableFn(rawQuery);
         let keys = (await this.metadataProvider.tableKeys(table)).map(
           (k) => k.value
         );
-        condition = filters
+        condition = context.filters
           .filter((f) => !f.key.includes(".") || f.key.includes(table))
           .filter((f) => keys.includes(keyToColumnAndTable(f.key)[0]))
           .map(this.getFilterExpression)

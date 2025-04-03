@@ -1,4 +1,5 @@
 import {
+  AdHocVariableFilter,
   CoreApp,
   DataFrame,
   DataQueryError,
@@ -24,11 +25,12 @@ import { DEFAULT_QUERY, HdxDataSourceOptions, HdxQuery } from "./types";
 import { from, Observable, switchMap } from "rxjs";
 import { map } from "rxjs/operators";
 import { ErrorMessageBeautifier } from "./errorBeautifier";
-import { ConditionalAllApplier } from "./conditionalAllApplier";
-import { AdHocFilterApplier } from "./adHocFilterApplier";
 import { getMetadataProvider } from "./editor/metadataProvider";
 import { getColumnValuesStatement, getTable as getAstTable } from "./ast";
 import { getFirstValidRound } from "./editor/timeRangeUtils";
+import { MacrosService } from "./macros/macrosService";
+import { ConditionalAllApplier } from "./macros/conditionalAllApplier";
+import { AdHocFilterApplier } from "./macros/adHocFilterApplier";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -36,17 +38,18 @@ export class DataSource extends DataSourceWithBackend<
 > {
   public readonly metadataProvider = getMetadataProvider(this);
   private readonly beautifier = new ErrorMessageBeautifier();
-  private readonly conditionalAllApplier = new ConditionalAllApplier();
-  private readonly adHocFilterApplier = new AdHocFilterApplier(
-    this.metadataProvider,
-    this.getTable.bind(this)
-  );
+
+  private readonly macrosService = new MacrosService();
 
   constructor(
     public instanceSettings: DataSourceInstanceSettings<HdxDataSourceOptions>,
     readonly templateSrv: TemplateSrv = getTemplateSrv()
   ) {
     super(instanceSettings);
+    this.macrosService.registerMacros(new ConditionalAllApplier());
+    this.macrosService.registerMacros(
+      new AdHocFilterApplier(this.metadataProvider, this.getTable.bind(this))
+    );
   }
 
   async metricFindQuery(query: Partial<HdxQuery> | string, options?: any) {
@@ -71,20 +74,20 @@ export class DataSource extends DataSourceWithBackend<
     let targets$ = from(
       Promise.all(
         request.targets.map((t) =>
-          this.adHocFilterApplier
-            .apply(t.rawSql || "", request.filters)
-            .then((q) => ({
-              ...t,
-              rawSql: q,
-              round: getFirstValidRound([
-                t.round,
-                this.instanceSettings.jsonData.defaultRound || "",
-              ]),
-              filters: undefined,
-              meta: {
-                timezone: this.resolveTimezone(request),
-              },
-            }))
+          // this.adHocFilterApplier
+          //   .apply(t.rawSql || "", request.filters)
+          this.applyMacros(t.rawSql, request.filters).then((q) => ({
+            ...t,
+            rawSql: q,
+            round: getFirstValidRound([
+              t.round,
+              this.instanceSettings.jsonData.defaultRound || "",
+            ]),
+            filters: undefined,
+            meta: {
+              timezone: this.resolveTimezone(request),
+            },
+          }))
         )
       )
     );
@@ -137,16 +140,20 @@ export class DataSource extends DataSourceWithBackend<
     );
   }
 
+  private applyMacros(sql: string, filters: AdHocVariableFilter[] | undefined) {
+    return this.macrosService.applyMacros(sql || "", {
+      filters: filters,
+      templateVars: this.templateSrv.getVariables(),
+      replaceFn: this.templateSrv.replace.bind(this),
+    });
+  }
+
   getDefaultQuery(_: CoreApp): Partial<HdxQuery> {
     return DEFAULT_QUERY;
   }
 
   applyTemplateVariables(query: HdxQuery, scoped: ScopedVars): HdxQuery {
     let rawQuery = query.rawSql || "";
-    rawQuery = this.conditionalAllApplier.apply(
-      rawQuery,
-      this.templateSrv.getVariables()
-    );
     return {
       ...query,
       rawSql: this.replace(rawQuery, scoped) || "",
@@ -220,7 +227,7 @@ export class DataSource extends DataSourceWithBackend<
     }
 
     let response = await this.metadataProvider.executeQuery(
-      await this.adHocFilterApplier.apply(sql, options.filters),
+      await this.applyMacros(sql, options.filters),
       options.timeRange || this.instanceSettings.jsonData.adHocDefaultTimeRange
     );
     let fields: Field[] = response.data[0]?.fields?.length
