@@ -49,7 +49,9 @@ export function QueryEditor(props: Props) {
     props.onChange({ ...props.query, round: round });
   };
   useMemo(() => {
-    props.query.format = props.query.format || QueryType.Table;
+    if (props.query.format === undefined) {
+      props.query.format = QueryType.Table;
+    }
   }, [props.query]);
 
   const [queryType, setQueryType] = useState(props.query.format);
