@@ -1,8 +1,12 @@
 # Changelog
 
+## 0.1.2
+
+- **Feature**: Add support for alerting
+
 ## 0.1.1
 
-- **Compatibility**: Improved compatibility with Grafana 10.4.x
+- **Compatibility**: Improve compatibility with Grafana 10.4.x
 
 ## 0.1.0
 
