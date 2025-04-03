@@ -1,4 +1,5 @@
 import { AdHocVariableFilter, TypedVariableModel } from "@grafana/data";
+import { MacrosApplier } from "./macrosApplier";
 
 export class MacrosService {
   private macrosApplierList: MacrosApplier[] = [];
@@ -21,10 +22,6 @@ export interface Context {
   templateVars: TypedVariableModel[];
   replaceFn: (s: string) => string;
   intervalMs?: number;
-}
-
-export interface MacrosApplier {
-  applyMacros: (sql: string, context: Context) => Promise<string> | string;
 }
 
 export const emptyContext: Context = {

@@ -1,40 +1,39 @@
 import { AdHocVariableFilter } from "@grafana/data";
 import { MetadataProvider } from "../editor/metadataProvider";
-import { Context, MacrosApplier } from "./macrosService";
+import { Context } from "./macrosService";
+import { MacrosApplier } from "./macrosApplier";
 
-export const AD_HOC_MACRO = "$__adHocFilter()";
+export const AD_HOC_MACRO = "$__adHocFilter";
 
-export class AdHocFilterApplier implements MacrosApplier {
+export class AdHocFilterApplier extends MacrosApplier {
   constructor(
     private metadataProvider: MetadataProvider,
     private getTableFn: (sql: string) => string
-  ) {}
-  async applyMacros(rawQuery: string, context: Context): Promise<string> {
-    if (!rawQuery) {
-      return rawQuery;
-    }
+  ) {
+    super();
+  }
+  async applyMacro(rawQuery: string, context: Context): Promise<string> {
+    let condition;
 
-    let hasMacro = rawQuery.includes(AD_HOC_MACRO);
-    if (hasMacro) {
-      let condition;
-
-      if (context.filters?.length) {
-        let table = this.getTableFn(rawQuery);
-        let keys = (await this.metadataProvider.tableKeys(table)).map(
-          (k) => k.value
-        );
-        condition = context.filters
-          .filter((f) => !f.key.includes(".") || f.key.includes(table))
-          .filter((f) => keys.includes(keyToColumnAndTable(f.key)[0]))
-          .map(this.getFilterExpression)
-          .join(" AND ");
-      }
-      if (!condition) {
-        condition = "1=1";
-      }
-      rawQuery = rawQuery.replaceAll(AD_HOC_MACRO, condition);
+    if (context.filters?.length) {
+      let table = this.getTableFn(rawQuery);
+      let keys = (await this.metadataProvider.tableKeys(table)).map(
+        (k) => k.value
+      );
+      condition = context.filters
+        .filter((f) => !f.key.includes(".") || f.key.includes(table))
+        .filter((f) => keys.includes(keyToColumnAndTable(f.key)[0]))
+        .map(this.getFilterExpression)
+        .join(" AND ");
     }
-    return rawQuery;
+    if (!condition) {
+      condition = "1=1";
+    }
+    return rawQuery.replaceAll(`${AD_HOC_MACRO}()`, condition);
+  }
+
+  macroName(): string {
+    return AD_HOC_MACRO;
   }
 
   getFilterExpression(filter: AdHocVariableFilter): string {
