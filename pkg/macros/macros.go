@@ -136,12 +136,6 @@ func TimeIntervalMs(query *sqlutil.Query, args []string) (string, error) {
 	return fmt.Sprintf("toStartOfInterval(toDateTime64(%s, 3), INTERVAL %d millisecond)", args[0], int(milliseconds)), nil
 }
 
-// IntervalSeconds The Query's Interval rounded to seconds (>= 1s)
-func IntervalSeconds(query *sqlutil.Query, args []string) (string, error) {
-	seconds := math.Max(query.Interval.Seconds(), 1)
-	return fmt.Sprintf("%d", int(seconds)), nil
-}
-
 // Macros for sqlds datasource
 var Macros = sqlutil.Macros{
 	"fromTime":        FromTimeFilter,
@@ -155,5 +149,4 @@ var Macros = sqlutil.Macros{
 	"dt":              DateTimeFilter,
 	"timeInterval":    TimeInterval,
 	"timeInterval_ms": TimeIntervalMs,
-	"interval_s":      IntervalSeconds,
 }

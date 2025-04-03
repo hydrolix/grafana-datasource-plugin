@@ -20,6 +20,7 @@ export interface Context {
   filters?: AdHocVariableFilter[];
   templateVars: TypedVariableModel[];
   replaceFn: (s: string) => string;
+  intervalMs?: number;
 }
 
 export interface MacrosApplier {

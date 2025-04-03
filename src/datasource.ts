@@ -1,5 +1,4 @@
 import {
-  AdHocVariableFilter,
   CoreApp,
   DataFrame,
   DataQueryError,
@@ -31,6 +30,7 @@ import { getFirstValidRound } from "./editor/timeRangeUtils";
 import { MacrosService } from "./macros/macrosService";
 import { ConditionalAllApplier } from "./macros/conditionalAllApplier";
 import { AdHocFilterApplier } from "./macros/adHocFilterApplier";
+import { IntervalSApplier } from "./macros/intervalApplier";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -50,6 +50,7 @@ export class DataSource extends DataSourceWithBackend<
     this.macrosService.registerMacros(
       new AdHocFilterApplier(this.metadataProvider, this.getTable.bind(this))
     );
+    this.macrosService.registerMacros(new IntervalSApplier());
   }
 
   async metricFindQuery(query: Partial<HdxQuery> | string, options?: any) {
@@ -74,9 +75,7 @@ export class DataSource extends DataSourceWithBackend<
     let targets$ = from(
       Promise.all(
         request.targets.map((t) =>
-          // this.adHocFilterApplier
-          //   .apply(t.rawSql || "", request.filters)
-          this.applyMacros(t.rawSql, request.filters).then((q) => ({
+          this.applyMacros(t.rawSql, request).then((q) => ({
             ...t,
             rawSql: q,
             round: getFirstValidRound([
@@ -140,11 +139,15 @@ export class DataSource extends DataSourceWithBackend<
     );
   }
 
-  private applyMacros(sql: string, filters: AdHocVariableFilter[] | undefined) {
+  private applyMacros(
+    sql: string,
+    request: Partial<DataQueryRequest<HdxQuery>>
+  ) {
     return this.macrosService.applyMacros(sql || "", {
-      filters: filters,
+      filters: request.filters,
       templateVars: this.templateSrv.getVariables(),
       replaceFn: this.templateSrv.replace.bind(this),
+      intervalMs: request.intervalMs,
     });
   }
 
@@ -227,7 +230,7 @@ export class DataSource extends DataSourceWithBackend<
     }
 
     let response = await this.metadataProvider.executeQuery(
-      await this.applyMacros(sql, options.filters),
+      await this.applyMacros(sql, { filters: options.filters }),
       options.timeRange || this.instanceSettings.jsonData.adHocDefaultTimeRange
     );
     let fields: Field[] = response.data[0]?.fields?.length
