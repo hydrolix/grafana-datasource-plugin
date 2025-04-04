@@ -9,13 +9,15 @@ export abstract class MacrosApplier {
     if (!sql) {
       return sql;
     }
-    while (sql.includes(this.macroName())) {
+    while (sql.includes(`${this.macroName()}(`)) {
       sql = await this.applyMacro(sql, context);
     }
     return sql;
   }
 
-  parseMacroArgs(query: string, argsIndex: number): string[] {
+  parseMacroArgs(query: string): string[] {
+    let argsIndex =
+      query.lastIndexOf(this.macroName()) + this.macroName().length;
     const args = [] as string[];
     const re = /[(),]/g;
     let bracketCount = 0;
@@ -30,15 +32,11 @@ export abstract class MacrosApplier {
         bracketCount--;
       }
       if (foundNode === "," && bracketCount === 1) {
-        args.push(
-          argsSubstr.substring(lastArgEndIndex, re.lastIndex - 1).trim()
-        );
+        args.push(argsSubstr.substring(lastArgEndIndex, re.lastIndex - 1));
         lastArgEndIndex = re.lastIndex;
       }
       if (bracketCount === 0) {
-        args.push(
-          argsSubstr.substring(lastArgEndIndex, re.lastIndex - 1).trim()
-        );
+        args.push(argsSubstr.substring(lastArgEndIndex, re.lastIndex - 1));
         return args;
       }
     }

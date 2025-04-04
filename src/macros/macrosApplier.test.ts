@@ -39,11 +39,8 @@ describe("macros parse params", () => {
     let rawQuery =
       "select 1 from table where $__test(1, 'word', func(), $__mac())";
 
-    const params = testApplier.parseMacroArgs(
-      rawQuery,
-      rawQuery.indexOf(testApplier.macroName()) + testApplier.macroName().length
-    );
+    const params = testApplier.parseMacroArgs(rawQuery);
 
-    expect(params).toStrictEqual(["1", "'word'", "func()", "$__mac()"]);
+    expect(params).toStrictEqual(["1", " 'word'", " func()", " $__mac()"]);
   });
 });

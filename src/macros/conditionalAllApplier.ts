@@ -4,12 +4,7 @@ import { MacrosApplier } from "./macrosApplier";
 
 export class ConditionalAllApplier extends MacrosApplier {
   async applyMacro(rawQuery: string, context: Context): Promise<string> {
-    let macroIndex = rawQuery.lastIndexOf(this.macroName());
-
-    const params = this.parseMacroArgs(
-      rawQuery,
-      macroIndex + this.macroName().length
-    );
+    const params = this.parseMacroArgs(rawQuery);
     if (params.length !== 2) {
       throw new Error("Macros $__conditionalAll should contain 2 parameters");
     }

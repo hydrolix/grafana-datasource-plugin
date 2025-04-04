@@ -166,24 +166,6 @@ func TestMacroDateTimeFilter(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf("(dateCol >= toDate('%s') AND dateCol <= toDate('%s')) AND (timeCol >= toDateTime(%d) AND timeCol <= toDateTime(%d))", fromD, toD, fromSec, toSec), res)
 }
 
-func TestMacroTimeInterval(t *testing.T) {
-	query := sqlutil.Query{
-		Interval: 2555 * time.Millisecond,
-	}
-	res, err := macros.TimeInterval(&query, []string{"col"})
-	require.NoError(t, err)
-	assert.Equal(t, "toStartOfInterval(toDateTime(col), INTERVAL 2 second)", res)
-}
-
-func TestMacroTimeIntervalMs(t *testing.T) {
-	query := sqlutil.Query{
-		Interval: 2555555 * time.Microsecond,
-	}
-	res, err := macros.TimeIntervalMs(&query, []string{"col"})
-	require.NoError(t, err)
-	assert.Equal(t, "toStartOfInterval(toDateTime64(col, 3), INTERVAL 2555 millisecond)", res)
-}
-
 func TestMacrosInterpolation(t *testing.T) {
 	from, _ := time.Parse(time.RFC3339, "2025-02-12T11:45:26.123Z")
 	to, _ := time.Parse(time.RFC3339, "2025-02-13T11:45:26.456Z")

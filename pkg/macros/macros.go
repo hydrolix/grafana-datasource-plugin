@@ -2,7 +2,6 @@ package macros
 
 import (
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -114,39 +113,15 @@ func DateTimeFilter(query *sqlutil.Query, args []string) (string, error) {
 	return fmt.Sprintf("(%s) AND (%s)", dateCondition, dateTimeCondition), nil
 }
 
-// TimeInterval Rounding to the Query's Interval Start in seconds ( => 1s)
-// args should contain one string element with a time column name
-func TimeInterval(query *sqlutil.Query, args []string) (string, error) {
-	if len(args) != 1 {
-		return "", backend.DownstreamError(fmt.Errorf("%w: expected 1 argument, received %d", sqlutil.ErrorBadArgumentCount, len(args)))
-	}
-
-	seconds := math.Max(query.Interval.Seconds(), 1)
-	return fmt.Sprintf("toStartOfInterval(toDateTime(%s), INTERVAL %d second)", args[0], int(seconds)), nil
-}
-
-// TimeIntervalMs Rounding to the Query's Interval Start in milliseconds ( => 1ms)
-// args should contain one string element with a time column name
-func TimeIntervalMs(query *sqlutil.Query, args []string) (string, error) {
-	if len(args) != 1 {
-		return "", backend.DownstreamError(fmt.Errorf("%w: expected 1 argument, received %d", sqlutil.ErrorBadArgumentCount, len(args)))
-	}
-
-	milliseconds := math.Max(float64(query.Interval.Milliseconds()), 1)
-	return fmt.Sprintf("toStartOfInterval(toDateTime64(%s, 3), INTERVAL %d millisecond)", args[0], int(milliseconds)), nil
-}
-
 // Macros for sqlds datasource
 var Macros = sqlutil.Macros{
-	"fromTime":        FromTimeFilter,
-	"toTime":          ToTimeFilter,
-	"fromTime_ms":     FromTimeFilterMs,
-	"toTime_ms":       ToTimeFilterMs,
-	"timeFilter":      TimeFilter,
-	"timeFilter_ms":   TimeFilterMs,
-	"dateFilter":      DateFilter,
-	"dateTimeFilter":  DateTimeFilter,
-	"dt":              DateTimeFilter,
-	"timeInterval":    TimeInterval,
-	"timeInterval_ms": TimeIntervalMs,
+	"fromTime":       FromTimeFilter,
+	"toTime":         ToTimeFilter,
+	"fromTime_ms":    FromTimeFilterMs,
+	"toTime_ms":      ToTimeFilterMs,
+	"timeFilter":     TimeFilter,
+	"timeFilter_ms":  TimeFilterMs,
+	"dateFilter":     DateFilter,
+	"dateTimeFilter": DateTimeFilter,
+	"dt":             DateTimeFilter,
 }

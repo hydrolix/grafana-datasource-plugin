@@ -31,6 +31,8 @@ import { MacrosService } from "./macros/macrosService";
 import { ConditionalAllApplier } from "./macros/conditionalAllApplier";
 import { AdHocFilterApplier } from "./macros/adHocFilterApplier";
 import { IntervalSApplier } from "./macros/intervalApplier";
+import { TimeIntervalApplier } from "./macros/timeIntervalApplier";
+import { TimeIntervalMsApplier } from "./macros/timeIntervalMsApplier";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -51,6 +53,8 @@ export class DataSource extends DataSourceWithBackend<
       new AdHocFilterApplier(this.metadataProvider, this.getTable.bind(this))
     );
     this.macrosService.registerMacros(new IntervalSApplier());
+    this.macrosService.registerMacros(new TimeIntervalApplier());
+    this.macrosService.registerMacros(new TimeIntervalMsApplier());
   }
 
   async metricFindQuery(query: Partial<HdxQuery> | string, options?: any) {
