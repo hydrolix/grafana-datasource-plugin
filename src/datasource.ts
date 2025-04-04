@@ -37,6 +37,10 @@ import { TimeFilterApplier } from "./macros/timeFilterApplier";
 import { DateFilterApplier } from "./macros/dateFilterApplier";
 import { DateTimeFilterApplier } from "./macros/dateTimeFilterApplier";
 import { DTApplier } from "./macros/dtApplier";
+import { ToTimeApplier } from "./macros/toTimeApplier";
+import { ToTimeMsApplier } from "./macros/toTimeMsApplier";
+import { FromTimeApplier } from "./macros/fromTimeApplier";
+import { FromTimeMsApplier } from "./macros/fromTimeMsApplier";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -56,14 +60,21 @@ export class DataSource extends DataSourceWithBackend<
     this.macrosService.registerMacros(
       new AdHocFilterApplier(this.metadataProvider, this.getTable.bind(this))
     );
+
     this.macrosService.registerMacros(new IntervalSApplier());
     this.macrosService.registerMacros(new TimeIntervalApplier());
     this.macrosService.registerMacros(new TimeIntervalMsApplier());
+
     this.macrosService.registerMacros(new TimeFilterApplier());
     this.macrosService.registerMacros(new TimeIntervalMsApplier());
     this.macrosService.registerMacros(new DateFilterApplier());
     this.macrosService.registerMacros(new DateTimeFilterApplier());
     this.macrosService.registerMacros(new DTApplier());
+
+    this.macrosService.registerMacros(new ToTimeApplier());
+    this.macrosService.registerMacros(new ToTimeMsApplier());
+    this.macrosService.registerMacros(new FromTimeApplier());
+    this.macrosService.registerMacros(new FromTimeMsApplier());
   }
 
   async metricFindQuery(query: Partial<HdxQuery> | string, options?: any) {

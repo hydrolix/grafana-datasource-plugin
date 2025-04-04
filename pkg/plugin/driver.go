@@ -18,7 +18,6 @@ import (
 	"github.com/grafana/sqlds/v4"
 	hdxbuild "github.com/hydrolix/plugin/pkg/build"
 	"github.com/hydrolix/plugin/pkg/converters"
-	"github.com/hydrolix/plugin/pkg/macros"
 	"github.com/hydrolix/plugin/pkg/models"
 	"github.com/pkg/errors"
 )
@@ -145,7 +144,7 @@ func (h *Hydrolix) Converters() []sqlutil.Converter {
 
 // Macros returns list of macro functions convert the macros of raw query
 func (h *Hydrolix) Macros() sqlutil.Macros {
-	return macros.Macros
+	return sqlutil.Macros{}
 }
 
 // Settings reads Json Datasource Plugin's configuration
