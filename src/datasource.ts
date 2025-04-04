@@ -33,6 +33,10 @@ import { AdHocFilterApplier } from "./macros/adHocFilterApplier";
 import { IntervalSApplier } from "./macros/intervalApplier";
 import { TimeIntervalApplier } from "./macros/timeIntervalApplier";
 import { TimeIntervalMsApplier } from "./macros/timeIntervalMsApplier";
+import { TimeFilterApplier } from "./macros/timeFilterApplier";
+import { DateFilterApplier } from "./macros/dateFilterApplier";
+import { DateTimeFilterApplier } from "./macros/dateTimeFilterApplier";
+import { DTApplier } from "./macros/dtApplier";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -55,6 +59,11 @@ export class DataSource extends DataSourceWithBackend<
     this.macrosService.registerMacros(new IntervalSApplier());
     this.macrosService.registerMacros(new TimeIntervalApplier());
     this.macrosService.registerMacros(new TimeIntervalMsApplier());
+    this.macrosService.registerMacros(new TimeFilterApplier());
+    this.macrosService.registerMacros(new TimeIntervalMsApplier());
+    this.macrosService.registerMacros(new DateFilterApplier());
+    this.macrosService.registerMacros(new DateTimeFilterApplier());
+    this.macrosService.registerMacros(new DTApplier());
   }
 
   async metricFindQuery(query: Partial<HdxQuery> | string, options?: any) {
@@ -152,6 +161,7 @@ export class DataSource extends DataSourceWithBackend<
       templateVars: this.templateSrv.getVariables(),
       replaceFn: this.templateSrv.replace.bind(this),
       intervalMs: request.intervalMs,
+      timeRange: request.range,
     });
   }
 

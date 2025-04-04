@@ -130,42 +130,6 @@ func TestMacroToTimeFilterMs(t *testing.T) {
 	})
 }
 
-func TestMacroDateFilter(t *testing.T) {
-	from, _ := time.Parse(time.RFC3339, "2025-02-12T01:02:03.9999Z")
-	to, _ := time.Parse(time.RFC3339, "2025-02-13T01:02:03.9999Z")
-	fromD := from.Format(time.DateOnly)
-	toD := to.Format(time.DateOnly)
-
-	query := sqlutil.Query{
-		TimeRange: backend.TimeRange{
-			From: from,
-			To:   to,
-		},
-	}
-	res, err := macros.DateFilter(&query, []string{"col"})
-	assert.Nil(t, err)
-	assert.Equal(t, fmt.Sprintf("col >= toDate('%s') AND col <= toDate('%s')", fromD, toD), res)
-}
-
-func TestMacroDateTimeFilter(t *testing.T) {
-	from, _ := time.Parse(time.RFC3339, "2025-02-12T01:02:03.9999Z")
-	to, _ := time.Parse(time.RFC3339, "2025-02-13T01:02:03.9999Z")
-	fromD := from.Format(time.DateOnly)
-	toD := to.Format(time.DateOnly)
-	fromSec := from.Unix()
-	toSec := to.Unix()
-
-	query := sqlutil.Query{
-		TimeRange: backend.TimeRange{
-			From: from,
-			To:   to,
-		},
-	}
-	res, err := macros.DateTimeFilter(&query, []string{"dateCol", "timeCol"})
-	require.NoError(t, err)
-	assert.Equal(t, fmt.Sprintf("(dateCol >= toDate('%s') AND dateCol <= toDate('%s')) AND (timeCol >= toDateTime(%d) AND timeCol <= toDateTime(%d))", fromD, toD, fromSec, toSec), res)
-}
-
 func TestMacrosInterpolation(t *testing.T) {
 	from, _ := time.Parse(time.RFC3339, "2025-02-12T11:45:26.123Z")
 	to, _ := time.Parse(time.RFC3339, "2025-02-13T11:45:26.456Z")

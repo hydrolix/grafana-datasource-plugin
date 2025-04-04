@@ -32,7 +32,7 @@ describe("macros time interval", () => {
     );
   });
 
-  it("should apply macros with no params", async () => {
+  it("should fail on macros with no params", async () => {
     let t = async () =>
       await timeIntervalApplier.applyMacros("SELECT $__timeInterval()", {
         ...emptyContext,

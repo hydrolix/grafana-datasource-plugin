@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
 )
 
@@ -43,85 +42,10 @@ func ToTimeFilterMs(query *sqlutil.Query, args []string) (string, error) {
 	return TimeToDateTime64(query.TimeRange.To), nil
 }
 
-// TimeFilter the TimeFilter's From <= args[0] AND args[0] <= To as Unix seconds datetime
-// args should contain one string element with a column name
-func TimeFilter(query *sqlutil.Query, args []string) (string, error) {
-	if len(args) != 1 {
-		return "", backend.DownstreamError(fmt.Errorf("%w: expected 1 argument, received %d", sqlutil.ErrorBadArgumentCount, len(args)))
-	}
-
-	var (
-		column = args[0]
-		from   = query.TimeRange.From
-		to     = query.TimeRange.To
-	)
-
-	return fmt.Sprintf("%s >= %s AND %s <= %s", column, TimeToDateTime(from), column, TimeToDateTime(to)), nil
-}
-
-// TimeFilterMs the TimeFilter's From <= args[0] AND args[0] <= To as Unix milliseconds datetime
-// args should contain one string element with a column name
-func TimeFilterMs(query *sqlutil.Query, args []string) (string, error) {
-	if len(args) != 1 {
-		return "", backend.DownstreamError(fmt.Errorf("%w: expected 1 argument, received %d", sqlutil.ErrorBadArgumentCount, len(args)))
-	}
-
-	var (
-		column = args[0]
-		from   = query.TimeRange.From
-		to     = query.TimeRange.To
-	)
-
-	return fmt.Sprintf("%s >= %s AND %s <= %s", column, TimeToDateTime64(from), column, TimeToDateTime64(to)), nil
-}
-
-// DateFilter the TimeFilter's From <= args[0] AND args[0] <= To as Date
-// args should contain one string element with a column name
-func DateFilter(query *sqlutil.Query, args []string) (string, error) {
-	if len(args) != 1 {
-		return "", backend.DownstreamError(fmt.Errorf("%w: expected 1 argument, received %d", sqlutil.ErrorBadArgumentCount, len(args)))
-	}
-	var (
-		column = args[0]
-		from   = query.TimeRange.From
-		to     = query.TimeRange.To
-	)
-
-	return fmt.Sprintf("%s >= %s AND %s <= %s", column, TimeToDate(from), column, TimeToDate(to)), nil
-}
-
-// DateTimeFilter the TimeFilter's From <= args[0] AND args[0] <= To as Date
-// AND From <= args[1] AND args[1] <= To as a Unix seconds datetime
-// args should contain two string elements. First one is for Date comparision. Second one for DateTime comparision.
-func DateTimeFilter(query *sqlutil.Query, args []string) (string, error) {
-	if len(args) != 2 {
-		return "", backend.DownstreamError(fmt.Errorf("%w: expected 2 arguments, received %d", sqlutil.ErrorBadArgumentCount, len(args)))
-	}
-	var (
-		dateColumn = args[0]
-		timeColumn = args[1]
-	)
-
-	dateCondition, err := DateFilter(query, []string{dateColumn})
-	if err != nil {
-		return "", err
-	}
-	dateTimeCondition, err := TimeFilter(query, []string{timeColumn})
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("(%s) AND (%s)", dateCondition, dateTimeCondition), nil
-}
-
 // Macros for sqlds datasource
 var Macros = sqlutil.Macros{
-	"fromTime":       FromTimeFilter,
-	"toTime":         ToTimeFilter,
-	"fromTime_ms":    FromTimeFilterMs,
-	"toTime_ms":      ToTimeFilterMs,
-	"timeFilter":     TimeFilter,
-	"timeFilter_ms":  TimeFilterMs,
-	"dateFilter":     DateFilter,
-	"dateTimeFilter": DateTimeFilter,
-	"dt":             DateTimeFilter,
+	"fromTime":    FromTimeFilter,
+	"toTime":      ToTimeFilter,
+	"fromTime_ms": FromTimeFilterMs,
+	"toTime_ms":   ToTimeFilterMs,
 }

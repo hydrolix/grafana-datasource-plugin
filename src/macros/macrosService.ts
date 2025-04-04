@@ -1,4 +1,9 @@
-import { AdHocVariableFilter, TypedVariableModel } from "@grafana/data";
+import {
+  AdHocVariableFilter,
+  dateTime,
+  TimeRange,
+  TypedVariableModel,
+} from "@grafana/data";
 import { MacrosApplier } from "./macrosApplier";
 
 export class MacrosService {
@@ -22,10 +27,16 @@ export interface Context {
   templateVars: TypedVariableModel[];
   replaceFn: (s: string) => string;
   intervalMs?: number;
+  timeRange?: TimeRange;
 }
 
 export const emptyContext: Context = {
   filters: [],
   templateVars: [],
   replaceFn: (s) => s,
+  timeRange: {
+    from: dateTime().subtract("5m"),
+    to: dateTime(),
+    raw: { from: "now-5m", to: "now" },
+  },
 };
