@@ -1,4 +1,4 @@
-import { emptyContext } from "./macrosService";
+import { emptyContext } from "../macrosService";
 import { dateTime } from "@grafana/data";
 import { DTApplier } from "./dtApplier";
 

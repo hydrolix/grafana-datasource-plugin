@@ -1,6 +1,10 @@
 import { Context } from "./macrosService";
 
 export abstract class MacrosApplier {
+  private macrosRe = new RegExp(
+    "\\" + this.macroName() + "(?:\\b\\(\\s*\\)|\\b)"
+  );
+
   abstract applyMacro(sql: string, context: Context): Promise<string>;
 
   abstract macroName(): string;
@@ -9,15 +13,24 @@ export abstract class MacrosApplier {
     if (!sql) {
       return sql;
     }
-    while (sql.includes(`${this.macroName()}(`)) {
+
+    while (this.macrosRe.test(sql)) {
       sql = await this.applyMacro(sql, context);
     }
     return sql;
   }
 
+  macrosMatch(query: string): string {
+    let match = this.macrosRe.exec(query);
+    return match ? match[0] : "";
+  }
+
   parseMacroArgs(query: string): string[] {
-    let argsIndex =
-      query.lastIndexOf(this.macroName()) + this.macroName().length;
+    let macrosIndex = this.macrosRe.exec(query)?.index;
+    if (macrosIndex === undefined) {
+      return [];
+    }
+    let argsIndex = macrosIndex + this.macroName().length;
     const args = [] as string[];
     const re = /[(),]/g;
     let bracketCount = 0;

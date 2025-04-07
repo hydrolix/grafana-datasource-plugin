@@ -1,7 +1,7 @@
 import { AdHocVariableFilter } from "@grafana/data";
-import { MetadataProvider } from "../editor/metadataProvider";
-import { Context } from "./macrosService";
-import { MacrosApplier } from "./macrosApplier";
+import { MacrosApplier } from "../macrosApplier";
+import { MetadataProvider } from "../../editor/metadataProvider";
+import { Context } from "macros/macrosService";
 
 export const AD_HOC_MACRO = "$__adHocFilter";
 
@@ -29,7 +29,7 @@ export class AdHocFilterApplier extends MacrosApplier {
     if (!condition) {
       condition = "1=1";
     }
-    return rawQuery.replaceAll(`${AD_HOC_MACRO}()`, condition);
+    return rawQuery.replaceAll(this.macrosMatch(rawQuery), condition);
   }
 
   macroName(): string {

@@ -1,4 +1,4 @@
-import { emptyContext } from "./macrosService";
+import { emptyContext } from "../macrosService";
 import { IntervalSApplier } from "./intervalApplier";
 
 describe("macros interval", () => {

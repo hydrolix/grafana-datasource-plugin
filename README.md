@@ -26,7 +26,7 @@ You can configure the Hydrolix data source directly within Grafana or via config
 Following is the list of Hydrolix configuration options:
 
 | Name                                                   | Description                                                                                                                                                                   |
-|--------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Name**                                               | The name used to reference this data source in panels and queries                                                                                                             |
 | **Default**                                            | Toggle to set this Hydrolix data source as the default in panels and visualizations                                                                                           |
 | **Server address**                                     | The IP address or hostname of your Hydrolix instance                                                                                                                          |
@@ -142,7 +142,7 @@ The editor provides extensive SQL capabilities, featuring:
 To simplify syntax and to allow for dynamic parts, like date range filters, the query can contain macros.
 
 | Macro                                        | Description                                                                                                           | Output example                                                                                        |
-|----------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | --- |
 | `$__dateFilter(column)`                      | Generates a condition to filter data (using the provided column) based on the panel's date range                      | `date >= toDate('2022-10-21') AND date <= toDate('2022-10-23')`                                       |
 | `$__timeFilter(column)`                      | Generates a condition to filter data (using the provided column) based on the panel's time range in seconds           | `time >= toDateTime(1415792726) AND time <= toDateTime(1447328726)`                                   |
 | `$__timeFilter_ms(column)`                   | Generates a condition to filter data (using the provided column) based on the panel's time range in milliseconds      | `time >= fromUnixTimestamp64Milli(1415792726123) AND time <= fromUnixTimestamp64Milli(1447328726456)` |
@@ -155,7 +155,7 @@ To simplify syntax and to allow for dynamic parts, like date range filters, the 
 | `$__interval_s`                              | Replaced with the interval in seconds                                                                                 | `20`                                                                                                  |
 | `$__timeInterval(column)`                    | Calculates intervals based on panel width, useful for grouping data in seconds                                        | `toStartOfInterval(toDateTime(column), INTERVAL 20 second)`                                           |
 | `$__timeInterval_ms(column)`                 | Calculates intervals based on panel width, useful for grouping data in milliseconds                                   | `toStartOfInterval(toDateTime64(column, 3), INTERVAL 20 millisecond)`                                 |
-| `$__conditionalAll(condition, $templateVar)` | Includes the provided condition only if the template variable does not select all values, defaults to `1=1` otherwise | `condition` or `1=1`                                                                                  |                                                                                                       |
+| `$__conditionalAll(condition, $templateVar)` | Includes the provided condition only if the template variable does not select all values, defaults to `1=1` otherwise | `condition` or `1=1`                                                                                  |     |
 
 Below is an example of a query with the `$__timeFilter` macro:
 
@@ -186,18 +186,19 @@ The plugin ensures filters are applied only when valid for the selected table.
 
 To enable ad hoc filters, both the data source and the dashboard must be configured properly:
 
-1. In the data source settings (under *Advanced Settings*):
-    - **Ad-hoc filter table variable name**: the name of a dashboard variable that defines the table used for retrieving
-      filter keys and values.
-    - **Ad-hoc filter time column variable name**: the name of a dashboard variable that defines the time column used
-      for time filtering in value queries.
-    - **Ad-hoc filter keys query**: a query template for listing possible keys.
-    - **Ad-hoc filter values query**: a query template for listing possible values.
-    - **Ad-hoc filter default time range**: a default time range to use when the dashboard’s time range is unavailable.
+1. In the data source settings (under _Advanced Settings_):
+
+   - **Ad-hoc filter table variable name**: the name of a dashboard variable that defines the table used for retrieving
+     filter keys and values.
+   - **Ad-hoc filter time column variable name**: the name of a dashboard variable that defines the time column used
+     for time filtering in value queries.
+   - **Ad-hoc filter keys query**: a query template for listing possible keys.
+   - **Ad-hoc filter values query**: a query template for listing possible values.
+   - **Ad-hoc filter default time range**: a default time range to use when the dashboard’s time range is unavailable.
 
 2. In the target dashboard, create two variables using the exact names defined in the data source settings:
-    - A variable for the table name.
-    - A variable for the time column.
+   - A variable for the table name.
+   - A variable for the time column.
 
 > **Note:** Ad hoc filters will not work unless both the data source and the dashboard are configured correctly. Be sure
 > to match variable names precisely.
@@ -227,7 +228,7 @@ In the query templates, certain placeholders are dynamically replaced with real 
 variable represents:
 
 | Name            | Description                                                                                                                        |
-|-----------------|------------------------------------------------------------------------------------------------------------------------------------|
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `${table}`      | Table from which the ad hoc keys and values are pulled                                                                             |
 | `${column}`     | Specific column selected by the user as a filter key. This value comes from the list of available fields returned by the key query |
 | `${timeColumn}` | Column used for applying the time filter                                                                                           |
@@ -249,7 +250,7 @@ The supported time units for rounding are: `ms` (milliseconds), `s` (seconds), `
 #### Examples
 
 | Default round | Query round | Effective round | Input timestamp | Rounded timestamp |
-|---------------|-------------|-----------------|-----------------|-------------------|
+| ------------- | ----------- | --------------- | --------------- | ----------------- |
 | `5m`          | _not set_   | `5m`            | `10:07:20`      | `10:05:00`        |
 | `5m`          | `1m`        | `1m`            | `09:02:30`      | `09:03:00`        |
 | _not set_     | _not set_   | _not applied_   | `08:01:23`      | `08:01:23`        |

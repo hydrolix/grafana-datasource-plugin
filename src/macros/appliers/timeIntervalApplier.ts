@@ -1,5 +1,5 @@
-import { Context } from "./macrosService";
-import { MacrosApplier } from "./macrosApplier";
+import { MacrosApplier } from "../macrosApplier";
+import { Context } from "macros/macrosService";
 
 export const MACRO = "$__timeInterval";
 

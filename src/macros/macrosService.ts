@@ -18,7 +18,9 @@ export class MacrosService {
   }
 
   registerMacros(macrosApplier: MacrosApplier) {
-    this.macrosApplierList.push(macrosApplier);
+    this.macrosApplierList = [...this.macrosApplierList, macrosApplier].sort(
+      (x, y) => y.macroName().length - x.macroName().length
+    );
   }
 }
 

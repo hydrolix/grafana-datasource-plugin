@@ -1,16 +1,16 @@
-import { emptyContext } from "./macrosService";
+import { emptyContext } from "../macrosService";
 import { dateTime, TimeRange } from "@grafana/data";
-import { TimeFilterApplier } from "./timeFilterApplier";
+import { TimeFilterMsApplier } from "./timeFilterMsApplier";
 
-describe("macros timeFilter", () => {
-  let timeFilterApplier: TimeFilterApplier;
+describe("macros timeFilter_ms", () => {
+  let timeFilterMsApplier: TimeFilterMsApplier;
   beforeEach(() => {
-    timeFilterApplier = new TimeFilterApplier();
+    timeFilterMsApplier = new TimeFilterMsApplier();
   });
 
   it("should apply macros", async () => {
-    let result = await timeFilterApplier.applyMacros(
-      "SELECT * FROM table WHERE $__timeFilter(date)",
+    let result = await timeFilterMsApplier.applyMacros(
+      "SELECT * FROM table WHERE $__timeFilter_ms(date)",
       {
         ...emptyContext,
         timeRange: {
@@ -24,13 +24,13 @@ describe("macros timeFilter", () => {
       }
     );
     expect(result).toBe(
-      "SELECT * FROM table WHERE date >= toDateTime(1666369533) AND date <= toDateTime(1666715133)"
+      "SELECT * FROM table WHERE date >= fromUnixTimestamp64Milli(1666369533000) AND date <= fromUnixTimestamp64Milli(1666715133000)"
     );
   });
 
   it("should apply without timerange", async () => {
-    let result = await timeFilterApplier.applyMacros(
-      "SELECT * FROM table WHERE $__timeFilter(date)",
+    let result = await timeFilterMsApplier.applyMacros(
+      "SELECT * FROM table WHERE $__timeFilter_ms(date)",
       {
         ...emptyContext,
         timeRange: null as unknown as TimeRange,
@@ -41,14 +41,14 @@ describe("macros timeFilter", () => {
 
   it("should fail on macros with no params", async () => {
     let t = async () =>
-      await timeFilterApplier.applyMacros(
-        "SELECT * FROM table WHERE $__timeFilter()",
+      await timeFilterMsApplier.applyMacros(
+        "SELECT * FROM table WHERE $__timeFilter_ms()",
         {
           ...emptyContext,
         }
       );
     await expect(t()).rejects.toThrow(
-      "Macros $__timeFilter should contain 1 parameter"
+      "Macros $__timeFilter_ms should contain 1 parameter"
     );
   });
 });

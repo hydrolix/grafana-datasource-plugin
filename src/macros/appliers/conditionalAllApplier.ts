@@ -1,6 +1,6 @@
-import { VARIABLE_REGEX } from "../constants";
-import { Context } from "./macrosService";
-import { MacrosApplier } from "./macrosApplier";
+import { MacrosApplier } from "../macrosApplier";
+import { VARIABLE_REGEX } from "../../constants";
+import { Context } from "macros/macrosService";
 
 export class ConditionalAllApplier extends MacrosApplier {
   async applyMacro(rawQuery: string, context: Context): Promise<string> {

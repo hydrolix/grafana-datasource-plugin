@@ -1,32 +1,29 @@
 import { AdHocFilterApplier } from "./adHocFilterApplier";
-import { MetadataProvider } from "../editor/metadataProvider";
-import { emptyContext } from "./macrosService";
+import { MetadataProvider } from "../../editor/metadataProvider";
+import { emptyContext } from "../macrosService";
 
+export const TABLE_FN = (_: string) => "table";
+export const MD_PROVIDER = {
+  tableKeys: (_: string) =>
+    Promise.resolve([{ value: "column1" }, { value: "column2" }]),
+} as MetadataProvider;
 describe("AdHocFilterApplier apply", () => {
   const SQL_WITH_FILTER =
     "SELECT column1, columnt2 FROM table WHERE $__adHocFilter()";
   const SQL_WITHOUT_FILTER = "SELECT column1, columnt2 FROM table";
 
-  const TABLE_FN = (_: string) => "table";
-  let metadataProvider: MetadataProvider;
-  beforeEach(() => {
-    metadataProvider = {
-      tableKeys: (_: string) =>
-        Promise.resolve([{ value: "column1" }, { value: "column2" }]),
-    } as MetadataProvider;
-  });
   test("apply to query without macros", async () => {
-    const applier = new AdHocFilterApplier(metadataProvider, TABLE_FN);
+    const applier = new AdHocFilterApplier(MD_PROVIDER, TABLE_FN);
     const actual = await applier.applyMacros(SQL_WITHOUT_FILTER, emptyContext);
     expect(actual).toEqual(SQL_WITHOUT_FILTER);
   });
   test("apply without filters", async () => {
-    const applier = new AdHocFilterApplier(metadataProvider, TABLE_FN);
+    const applier = new AdHocFilterApplier(MD_PROVIDER, TABLE_FN);
     const actual = await applier.applyMacros(SQL_WITH_FILTER, emptyContext);
     expect(actual).toEqual("SELECT column1, columnt2 FROM table WHERE 1=1");
   });
   test("apply with filter", async () => {
-    const applier = new AdHocFilterApplier(metadataProvider, TABLE_FN);
+    const applier = new AdHocFilterApplier(MD_PROVIDER, TABLE_FN);
     const actual = await applier.applyMacros(SQL_WITH_FILTER, {
       ...emptyContext,
       filters: [{ key: "column1", operator: "=", value: "value" }],
@@ -36,7 +33,7 @@ describe("AdHocFilterApplier apply", () => {
     );
   });
   test("apply with filters", async () => {
-    const applier = new AdHocFilterApplier(metadataProvider, TABLE_FN);
+    const applier = new AdHocFilterApplier(MD_PROVIDER, TABLE_FN);
     const actual = await applier.applyMacros(SQL_WITH_FILTER, {
       ...emptyContext,
       filters: [
@@ -49,7 +46,7 @@ describe("AdHocFilterApplier apply", () => {
     );
   });
   test("apply and skip invalid column", async () => {
-    const applier = new AdHocFilterApplier(metadataProvider, TABLE_FN);
+    const applier = new AdHocFilterApplier(MD_PROVIDER, TABLE_FN);
     const actual = await applier.applyMacros(SQL_WITH_FILTER, {
       ...emptyContext,
       filters: [
@@ -63,7 +60,7 @@ describe("AdHocFilterApplier apply", () => {
     );
   });
   test("apply with all invalid columns", async () => {
-    const applier = new AdHocFilterApplier(metadataProvider, TABLE_FN);
+    const applier = new AdHocFilterApplier(MD_PROVIDER, TABLE_FN);
     const actual = await applier.applyMacros(SQL_WITH_FILTER, {
       ...emptyContext,
       filters: [
@@ -77,8 +74,6 @@ describe("AdHocFilterApplier apply", () => {
 });
 
 describe("AdHocFilterApplier getFilterExpression", () => {
-  const MD_PROVIDER = {} as MetadataProvider;
-  const TABLE_FN = (_: string) => "table";
   test("eq expression", async () => {
     const applier = new AdHocFilterApplier(MD_PROVIDER, TABLE_FN);
     const actual = applier.getFilterExpression({

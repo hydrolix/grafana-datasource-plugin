@@ -1,14 +1,15 @@
-import { Context } from "./macrosService";
-import { MacrosApplier } from "./macrosApplier";
 import { TimeRange } from "@grafana/data";
+import { MacrosApplier } from "../macrosApplier";
+import { Context } from "macros/macrosService";
+import { DATE_FORMAT } from "../../constants";
 
-export const MACRO = "$__timeFilter";
+export const MACRO = "$__dateFilter";
 
-export class TimeFilterApplier extends MacrosApplier {
+export class DateFilterApplier extends MacrosApplier {
   async applyMacro(rawQuery: string, context: Context): Promise<string> {
     let params = this.parseMacroArgs(rawQuery);
     if (params.length !== 1 || params[0] === "") {
-      throw new Error("Macros $__timeFilter should contain 1 parameter");
+      throw new Error("Macros $__dateFilter should contain 1 parameter");
     }
     let param = params[0];
 
@@ -28,8 +29,8 @@ export class TimeFilterApplier extends MacrosApplier {
 
   generateCondition(column: string, timeRange: TimeRange): string {
     return (
-      `${column} >= toDateTime(${timeRange.from.toDate().getTime() / 1000}) ` +
-      `AND ${column} <= toDateTime(${timeRange.to.toDate().getTime() / 1000})`
+      `${column} >= toDate(${timeRange.from.format(DATE_FORMAT)}) ` +
+      `AND ${column} <= toDate(${timeRange.to.format(DATE_FORMAT)})`
     );
   }
 }

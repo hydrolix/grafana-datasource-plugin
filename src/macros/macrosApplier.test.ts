@@ -32,6 +32,13 @@ describe("macros applier", () => {
     });
     expect(result).toBe("query with");
   });
+
+  it("apply without query", async () => {
+    let result = await testApplier.applyMacros("", {
+      ...emptyContext,
+    });
+    expect(result).toBe("");
+  });
 });
 describe("macros parse params", () => {
   it("parse multiple params", () => {

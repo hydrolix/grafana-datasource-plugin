@@ -1,5 +1,5 @@
-import { Context } from "./macrosService";
-import { MacrosApplier } from "./macrosApplier";
+import { MacrosApplier } from "../macrosApplier";
+import { Context } from "macros/macrosService";
 
 const MACRO = "$__toTime_ms";
 
@@ -9,7 +9,7 @@ export class ToTimeMsApplier extends MacrosApplier {
       throw new Error("cannot apply macros without time range");
     }
     return rawQuery.replace(
-      `${this.macroName()}()`,
+      this.macrosMatch(rawQuery),
       `fromUnixTimestamp64Milli(${context.timeRange.to.toDate().getTime()})`
     );
   }

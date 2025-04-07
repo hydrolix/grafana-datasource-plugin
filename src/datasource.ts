@@ -27,20 +27,7 @@ import { ErrorMessageBeautifier } from "./errorBeautifier";
 import { getMetadataProvider } from "./editor/metadataProvider";
 import { getColumnValuesStatement, getTable as getAstTable } from "./ast";
 import { getFirstValidRound } from "./editor/timeRangeUtils";
-import { MacrosService } from "./macros/macrosService";
-import { ConditionalAllApplier } from "./macros/conditionalAllApplier";
-import { AdHocFilterApplier } from "./macros/adHocFilterApplier";
-import { IntervalSApplier } from "./macros/intervalApplier";
-import { TimeIntervalApplier } from "./macros/timeIntervalApplier";
-import { TimeIntervalMsApplier } from "./macros/timeIntervalMsApplier";
-import { TimeFilterApplier } from "./macros/timeFilterApplier";
-import { DateFilterApplier } from "./macros/dateFilterApplier";
-import { DateTimeFilterApplier } from "./macros/dateTimeFilterApplier";
-import { DTApplier } from "./macros/dtApplier";
-import { ToTimeApplier } from "./macros/toTimeApplier";
-import { ToTimeMsApplier } from "./macros/toTimeMsApplier";
-import { FromTimeApplier } from "./macros/fromTimeApplier";
-import { FromTimeMsApplier } from "./macros/fromTimeMsApplier";
+import { registerMacrosService } from "./macros/registerMacrosService";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -49,32 +36,16 @@ export class DataSource extends DataSourceWithBackend<
   public readonly metadataProvider = getMetadataProvider(this);
   private readonly beautifier = new ErrorMessageBeautifier();
 
-  private readonly macrosService = new MacrosService();
+  private readonly macrosService = registerMacrosService(
+    this.metadataProvider,
+    this.getTable.bind(this)
+  );
 
   constructor(
     public instanceSettings: DataSourceInstanceSettings<HdxDataSourceOptions>,
     readonly templateSrv: TemplateSrv = getTemplateSrv()
   ) {
     super(instanceSettings);
-    this.macrosService.registerMacros(new ConditionalAllApplier());
-    this.macrosService.registerMacros(
-      new AdHocFilterApplier(this.metadataProvider, this.getTable.bind(this))
-    );
-
-    this.macrosService.registerMacros(new IntervalSApplier());
-    this.macrosService.registerMacros(new TimeIntervalApplier());
-    this.macrosService.registerMacros(new TimeIntervalMsApplier());
-
-    this.macrosService.registerMacros(new TimeFilterApplier());
-    this.macrosService.registerMacros(new TimeIntervalMsApplier());
-    this.macrosService.registerMacros(new DateFilterApplier());
-    this.macrosService.registerMacros(new DateTimeFilterApplier());
-    this.macrosService.registerMacros(new DTApplier());
-
-    this.macrosService.registerMacros(new ToTimeApplier());
-    this.macrosService.registerMacros(new ToTimeMsApplier());
-    this.macrosService.registerMacros(new FromTimeApplier());
-    this.macrosService.registerMacros(new FromTimeMsApplier());
   }
 
   async metricFindQuery(query: Partial<HdxQuery> | string, options?: any) {

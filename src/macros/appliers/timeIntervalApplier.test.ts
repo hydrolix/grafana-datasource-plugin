@@ -1,4 +1,4 @@
-import { emptyContext } from "./macrosService";
+import { emptyContext } from "../macrosService";
 import { TimeIntervalApplier } from "./timeIntervalApplier";
 
 describe("macros time interval", () => {

@@ -1,4 +1,4 @@
-import { emptyContext } from "./macrosService";
+import { emptyContext } from "../macrosService";
 import { DateFilterApplier } from "./dateFilterApplier";
 import { dateTime, TimeRange } from "@grafana/data";
 

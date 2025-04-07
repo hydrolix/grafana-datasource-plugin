@@ -1,15 +1,15 @@
-import { emptyContext } from "./macrosService";
+import { emptyContext } from "../macrosService";
 import { dateTime, TimeRange } from "@grafana/data";
-import { ToTimeApplier } from "./toTimeApplier";
+import { FromTimeApplier } from "./fromTimeApplier";
 
-describe("macros toTimeFilter", () => {
-  let toTimeApplier: ToTimeApplier;
+describe("macros fromTimeFilter", () => {
+  let fromTimeApplier: FromTimeApplier;
   beforeEach(() => {
-    toTimeApplier = new ToTimeApplier();
+    fromTimeApplier = new FromTimeApplier();
   });
 
   it("should apply macros", async () => {
-    let result = await toTimeApplier.applyMacros("SELECT $__toTime()", {
+    let result = await fromTimeApplier.applyMacros("SELECT $__fromTime()", {
       ...emptyContext,
       timeRange: {
         from: dateTime("2022-10-21T19:23:44"),
@@ -20,12 +20,12 @@ describe("macros toTimeFilter", () => {
         },
       },
     });
-    expect(result).toBe("SELECT toDateTime(1666667864)");
+    expect(result).toBe("SELECT toDateTime(1666380224)");
   });
 
   it("should apply without timerange", async () => {
     let t = async () =>
-      await toTimeApplier.applyMacros("SELECT $__toTime()", {
+      await fromTimeApplier.applyMacros("SELECT $__fromTime()", {
         ...emptyContext,
         timeRange: null as unknown as TimeRange,
       });

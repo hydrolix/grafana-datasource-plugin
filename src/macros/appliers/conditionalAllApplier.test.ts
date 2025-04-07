@@ -1,6 +1,6 @@
 import { TypedVariableModel } from "@grafana/data";
 import { ConditionalAllApplier } from "./conditionalAllApplier";
-import { emptyContext } from "./macrosService";
+import { emptyContext } from "../macrosService";
 
 describe("ConditionalAllApplier", () => {
   beforeEach(() => {
