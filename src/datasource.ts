@@ -27,7 +27,7 @@ import { ErrorMessageBeautifier } from "./errorBeautifier";
 import { getMetadataProvider } from "./editor/metadataProvider";
 import { getColumnValuesStatement, getTable as getAstTable } from "./ast";
 import { getFirstValidRound } from "./editor/timeRangeUtils";
-import { registerMacrosService } from "./macros/registerMacrosService";
+import { applyMacros } from "./macros/macrosApplier";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -35,11 +35,6 @@ export class DataSource extends DataSourceWithBackend<
 > {
   public readonly metadataProvider = getMetadataProvider(this);
   private readonly beautifier = new ErrorMessageBeautifier();
-
-  private readonly macrosService = registerMacrosService(
-    this.metadataProvider,
-    this.getTable.bind(this)
-  );
 
   constructor(
     public instanceSettings: DataSourceInstanceSettings<HdxDataSourceOptions>,
@@ -138,8 +133,14 @@ export class DataSource extends DataSourceWithBackend<
     sql: string,
     request: Partial<DataQueryRequest<HdxQuery>>
   ) {
-    return this.macrosService.applyMacros(sql || "", {
-      filters: request.filters,
+    return applyMacros(sql || "", {
+      adHocFilter: {
+        filters: request.filters,
+        keys: () =>
+          this.metadataProvider
+            .tableKeys(this.getTable(sql))
+            .then((arr) => arr.map((k) => k.text)),
+      },
       templateVars: this.templateSrv.getVariables(),
       replaceFn: this.templateSrv.replace.bind(this),
       intervalMs: request.intervalMs,
