@@ -59,7 +59,7 @@ Below are some provisioning examples.
 apiVersion: 1
 datasources:
   - name: "Hydrolix"
-    type: "grafana-hydrolix-datasource"
+    type: "hydrolix-hydrolix-datasource"
     jsonData:
       host: localhost
       port: 443
@@ -77,7 +77,7 @@ datasources:
 apiVersion: 1
 datasources:
   - name: "Hydrolix"
-    type: "grafana-hydrolix-datasource"
+    type: "hydrolix-hydrolix-datasource"
     jsonData:
       host: localhost
       port: 9440
@@ -94,7 +94,7 @@ datasources:
 apiVersion: 1
 datasources:
   - name: "Hydrolix"
-    type: "grafana-hydrolix-datasource"
+    type: "hydrolix-hydrolix-datasource"
     jsonData:
       host: localhost
       port: 443
