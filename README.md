@@ -1,4 +1,4 @@
-# Hydrolix Data Source for Grafana
+# Hydrolix data source for Grafana
 
 The Hydrolix data source plugin integrates Hydrolix with Grafana, enabling seamless querying, analysis, and
 visualization of Hydrolix data.
