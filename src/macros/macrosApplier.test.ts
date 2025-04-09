@@ -1,6 +1,6 @@
 import { emptyContext, parseMacroArgs, applyMacros } from "./macrosApplier";
 import { dateTime, TimeRange, TypedVariableModel } from "@grafana/data";
-import { getFilterExpression } from "./macrosFunctions";
+import { getFilterExpression } from "./macroFunctions";
 
 describe("macros base applier", () => {
   it("apply with one macro", async () => {

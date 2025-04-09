@@ -47,7 +47,7 @@ export const conditionalAll = async (
   context: Context
 ): Promise<string> => {
   if (params.length !== 2) {
-    throw new Error("Macros $__conditionalAll should contain 2 parameters");
+    throw new Error("Macro $__conditionalAll should contain 2 parameters");
   }
   const templateVarParam = params[1].trim();
 
@@ -70,7 +70,7 @@ export const dateFilter = async (
   context: Context
 ): Promise<string> => {
   if (params.length !== 1 || params[0] === "") {
-    throw new Error("Macros $__dateFilter should contain 1 parameter");
+    throw new Error("Macro $__dateFilter should contain 1 parameter");
   }
   let column = params[0];
 
@@ -91,7 +91,7 @@ export const dateTimeFilter = async (
   context: Context
 ): Promise<string> => {
   if (params.length !== 2) {
-    throw new Error("Macros $__dateTimeFilter should contain 2 parameters");
+    throw new Error("Macro $__dateTimeFilter should contain 2 parameters");
   }
   let dateColumn = params[0];
   let timeColumn = params[1];
@@ -114,7 +114,7 @@ export const fromTime = async (
   context: Context
 ): Promise<string> => {
   if (!context.timeRange) {
-    throw new Error("cannot apply macros without time range");
+    throw new Error("cannot apply macro without time range");
   }
   return `toDateTime(${context.timeRange.from.toDate().getTime() / 1000})`;
 };
@@ -124,7 +124,7 @@ export const fromTime_ms = async (
   context: Context
 ): Promise<string> => {
   if (!context.timeRange) {
-    throw new Error("cannot apply macros without time range");
+    throw new Error("cannot apply macro without time range");
   }
   return `fromUnixTimestamp64Milli(${context.timeRange.from
     .toDate()
@@ -144,7 +144,7 @@ export const timeFilter = async (
   context: Context
 ): Promise<string> => {
   if (params.length !== 1 || params[0] === "") {
-    throw new Error("Macros $__timeFilter should contain 1 parameter");
+    throw new Error("Macro $__timeFilter should contain 1 parameter");
   }
   let column = params[0];
 
@@ -169,7 +169,7 @@ export const timeFilter_ms = async (
   context: Context
 ): Promise<string> => {
   if (params.length !== 1 || params[0] === "") {
-    throw new Error("Macros $__timeFilter_ms should contain 1 parameter");
+    throw new Error("Macro $__timeFilter_ms should contain 1 parameter");
   }
   let param = params[0];
 
@@ -194,7 +194,7 @@ export const timeInterval = async (
   context: Context
 ): Promise<string> => {
   if (params.length !== 1 || params[0] === "") {
-    throw new Error("Macros $__timeInterval should contain 1 parameter");
+    throw new Error("Macro $__timeInterval should contain 1 parameter");
   }
   let param = params[0];
   let interval = (context.intervalMs || 0) / 1000;
@@ -209,7 +209,7 @@ export const timeInterval_ms = async (
   context: Context
 ): Promise<string> => {
   if (params.length !== 1 || params[0] === "") {
-    throw new Error("Macros $__timeInterval_ms should contain 1 parameter");
+    throw new Error("Macro $__timeInterval_ms should contain 1 parameter");
   }
   let param = params[0];
   return `toStartOfInterval(toDateTime64(${param}, 3), INTERVAL ${Math.max(
@@ -223,7 +223,7 @@ export const toTime = async (
   context: Context
 ): Promise<string> => {
   if (!context.timeRange) {
-    throw new Error("cannot apply macros without time range");
+    throw new Error("cannot apply macro without time range");
   }
   return `toDateTime(${context.timeRange.to.toDate().getTime() / 1000})`;
 };
@@ -233,7 +233,7 @@ export const toTime_ms = async (
   context: Context
 ): Promise<string> => {
   if (!context.timeRange) {
-    throw new Error("cannot apply macros without time range");
+    throw new Error("cannot apply macro without time range");
   }
   return `fromUnixTimestamp64Milli(${context.timeRange.to.toDate().getTime()})`;
 };

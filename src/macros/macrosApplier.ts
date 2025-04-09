@@ -18,7 +18,7 @@ import {
   timeInterval_ms,
   toTime,
   toTime_ms,
-} from "./macrosFunctions";
+} from "./macroFunctions";
 
 const macroFunctions: {
   [macro: string]: (
