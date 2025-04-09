@@ -8,7 +8,7 @@
   "alerting": true,
   "executable": "gpx_plugin",
   "info": {
-    "description": "Hydrolix datasource for Grafana",
+    "description": "Hydrolix data source for Grafana",
     "author": {
       "name": "Hydrolix",
       "url": "https://hydrolix.io"
