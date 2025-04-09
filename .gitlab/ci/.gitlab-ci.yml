@@ -1,17 +1,8 @@
-.if-default-branch: &if-default-branch
-  if: "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_MERGE_REQUEST_IID == null"
-
-.if-release-branch: &if-release-branch
-  if: '$CI_COMMIT_BRANCH =~ /^release[\/\-_].+$/'
-
 .if-merge-request: &if-merge-request
   if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_EVENT_TYPE != "merge_train"'
 
 .if-release-merge-request: &if-release-merge-request
-  if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_EVENT_TYPE != "merge_train" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^release[\/\-_].+$/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
-
-.if-schedule-pipeline: &if-schedule-pipeline
-  if: '$CI_PIPELINE_SOURCE == "schedule"'
+  if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^release[\/\-_].+$/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
 
 .if-force-pipeline: &if-force-pipeline
   if: "$FORCE_PIPELINE"
