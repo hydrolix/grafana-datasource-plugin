@@ -323,7 +323,7 @@ describe("$__conditionalAll", () => {
         }
       );
     await expect(t()).rejects.toThrow(
-      "Macros $__conditionalAll should contain 2 parameters"
+      "Macro $__conditionalAll should contain 2 parameters"
     );
   });
 });
@@ -366,7 +366,7 @@ describe("$__dateFilter", () => {
         ...emptyContext,
       });
     await expect(t()).rejects.toThrow(
-      "Macros $__dateFilter should contain 1 parameter"
+      "Macro $__dateFilter should contain 1 parameter"
     );
   });
 });
@@ -409,7 +409,7 @@ describe("$__dateTimeFilter", () => {
         ...emptyContext,
       });
     await expect(t()).rejects.toThrow(
-      "Macros $__dateTimeFilter should contain 2 parameters"
+      "Macro $__dateTimeFilter should contain 2 parameters"
     );
   });
 
@@ -456,7 +456,7 @@ describe("$__fromTime", () => {
         ...emptyContext,
         timeRange: null as unknown as TimeRange,
       });
-    await expect(t()).rejects.toThrow("cannot apply macros without time range");
+    await expect(t()).rejects.toThrow("cannot apply macro without time range");
   });
 });
 
@@ -482,7 +482,7 @@ describe("$__fromTime_ms", () => {
         ...emptyContext,
         timeRange: null as unknown as TimeRange,
       });
-    await expect(t()).rejects.toThrow("cannot apply macros without time range");
+    await expect(t()).rejects.toThrow("cannot apply macro without time range");
   });
 });
 
@@ -537,7 +537,7 @@ describe("$__timeInterval", () => {
         ...emptyContext,
       });
     await expect(t()).rejects.toThrow(
-      "Macros $__timeInterval should contain 1 parameter"
+      "Macro $__timeInterval should contain 1 parameter"
     );
   });
 });
@@ -580,7 +580,7 @@ describe("$__timeFilter", () => {
         ...emptyContext,
       });
     await expect(t()).rejects.toThrow(
-      "Macros $__timeFilter should contain 1 parameter"
+      "Macro $__timeFilter should contain 1 parameter"
     );
   });
 });
@@ -623,7 +623,7 @@ describe("$__timeFilter_ms", () => {
         ...emptyContext,
       });
     await expect(t()).rejects.toThrow(
-      "Macros $__timeFilter_ms should contain 1 parameter"
+      "Macro $__timeFilter_ms should contain 1 parameter"
     );
   });
 });
@@ -653,7 +653,7 @@ describe("$__timeInterval_ms", () => {
         ...emptyContext,
       });
     await expect(t()).rejects.toThrow(
-      "Macros $__timeInterval_ms should contain 1 parameter"
+      "Macro $__timeInterval_ms should contain 1 parameter"
     );
   });
 });
@@ -680,7 +680,7 @@ describe("$__toTime", () => {
         ...emptyContext,
         timeRange: null as unknown as TimeRange,
       });
-    await expect(t()).rejects.toThrow("cannot apply macros without time range");
+    await expect(t()).rejects.toThrow("cannot apply macro without time range");
   });
 });
 
@@ -706,6 +706,6 @@ describe("$__toTime_ms", () => {
         ...emptyContext,
         timeRange: null as unknown as TimeRange,
       });
-    await expect(t()).rejects.toThrow("cannot apply macros without time range");
+    await expect(t()).rejects.toThrow("cannot apply macro without time range");
   });
 });
