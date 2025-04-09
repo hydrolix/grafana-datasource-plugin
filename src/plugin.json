@@ -2,21 +2,32 @@
   "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
   "type": "datasource",
   "name": "Hydrolix",
-  "id": "grafana-hydrolix-datasource",
+  "id": "hydrolix-hydrolix-datasource",
   "metrics": true,
   "backend": true,
+  "alerting": true,
   "executable": "gpx_plugin",
   "info": {
-    "description": "",
+    "description": "Hydrolix data source for Grafana",
     "author": {
-      "name": "Hydrolix"
+      "name": "Hydrolix",
+      "url": "https://hydrolix.io"
     },
-    "keywords": ["datasource"],
+    "keywords": ["hydrolix", "database", "datasource", "plugin", "sql"],
     "logos": {
       "small": "img/logo.svg",
       "large": "img/logo.svg"
     },
-    "links": [],
+    "links": [
+      {
+        "name": "Website",
+        "url": "https://github.com/hydrolix/grafana-datasource-plugin"
+      },
+      {
+        "name": "License",
+        "url": "https://github.com/hydrolix/grafana-datasource-plugin/blob/main/LICENSE"
+      }
+    ],
     "screenshots": [],
     "version": "%VERSION%",
     "updated": "%TODAY%"
@@ -24,6 +35,5 @@
   "dependencies": {
     "grafanaDependency": ">=10.4.0",
     "plugins": []
-  },
-  "alerting": true
+  }
 }

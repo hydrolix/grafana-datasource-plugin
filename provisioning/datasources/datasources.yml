@@ -2,7 +2,7 @@ apiVersion: 1
 
 datasources:
   - name: "Hydrolix"
-    type: "grafana-hydrolix-datasource"
+    type: "hydrolix-hydrolix-datasource"
     access: proxy
     isDefault: false
     orgId: 1

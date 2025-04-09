@@ -1,4 +1,4 @@
-# Hydrolix Data Source for Grafana
+# Hydrolix data source for Grafana
 
 The Hydrolix data source plugin integrates Hydrolix with Grafana, enabling seamless querying, analysis, and
 visualization of Hydrolix data.
@@ -59,7 +59,7 @@ Below are some provisioning examples.
 apiVersion: 1
 datasources:
   - name: "Hydrolix"
-    type: "grafana-hydrolix-datasource"
+    type: "hydrolix-hydrolix-datasource"
     jsonData:
       host: localhost
       port: 443
@@ -77,7 +77,7 @@ datasources:
 apiVersion: 1
 datasources:
   - name: "Hydrolix"
-    type: "grafana-hydrolix-datasource"
+    type: "hydrolix-hydrolix-datasource"
     jsonData:
       host: localhost
       port: 9440
@@ -94,7 +94,7 @@ datasources:
 apiVersion: 1
 datasources:
   - name: "Hydrolix"
-    type: "grafana-hydrolix-datasource"
+    type: "hydrolix-hydrolix-datasource"
     jsonData:
       host: localhost
       port: 443

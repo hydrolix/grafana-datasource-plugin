@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3:
+
+- **Fix**: Rename plugin ID to follow the naming convention
+
 ## 0.1.2
 
 - **Feature**: Add support for alerting
