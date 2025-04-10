@@ -8,7 +8,7 @@ import (
 // DefaultBuilInfo is a Default build information
 var DefaultBuilInfo = build.Info{
 	Time:     0,
-	PluginID: "hydrolix-plugin-datasource",
+	PluginID: "hydrolix-hydrolix-datasource",
 	Version:  "",
 }
 
