@@ -26,7 +26,7 @@ import { map } from "rxjs/operators";
 import { ErrorMessageBeautifier } from "./errorBeautifier";
 import { getMetadataProvider } from "./editor/metadataProvider";
 import { getColumnValuesStatement, getTable as getAstTable } from "./ast";
-import { getFirstValidRound } from "./editor/timeRangeUtils";
+import { getFirstValidRound, roundTimeRange } from "./editor/timeRangeUtils";
 import { applyMacros } from "./macros/macrosApplier";
 
 export class DataSource extends DataSourceWithBackend<
@@ -65,7 +65,7 @@ export class DataSource extends DataSourceWithBackend<
     let targets$ = from(
       Promise.all(
         request.targets.map((t) =>
-          this.applyMacros(t.rawSql, request).then((q) => ({
+          this.applyMacros(t.rawSql, request, t.round).then((q) => ({
             ...t,
             rawSql: q,
             round: getFirstValidRound([
@@ -131,7 +131,8 @@ export class DataSource extends DataSourceWithBackend<
 
   private applyMacros(
     sql: string,
-    request: Partial<DataQueryRequest<HdxQuery>>
+    request: Partial<DataQueryRequest<HdxQuery>>,
+    round: string
   ) {
     return applyMacros(sql || "", {
       adHocFilter: {
@@ -144,7 +145,10 @@ export class DataSource extends DataSourceWithBackend<
       templateVars: this.templateSrv.getVariables(),
       replaceFn: this.templateSrv.replace.bind(this),
       intervalMs: request.intervalMs,
-      timeRange: request.range,
+      timeRange:
+        round && request.range
+          ? roundTimeRange(request.range, round)
+          : request.range,
     });
   }
 
@@ -227,7 +231,7 @@ export class DataSource extends DataSourceWithBackend<
     }
 
     let response = await this.metadataProvider.executeQuery(
-      await this.applyMacros(sql, { filters: options.filters }),
+      await this.applyMacros(sql, { filters: options.filters }, ""),
       options.timeRange || this.instanceSettings.jsonData.adHocDefaultTimeRange
     );
     let fields: Field[] = response.data[0]?.fields?.length
