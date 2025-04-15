@@ -345,7 +345,7 @@ describe("$__dateFilter", () => {
       }
     );
     expect(result).toBe(
-      "SELECT * FROM table WHERE date >= toDate(2022-10-21) AND date <= toDate(2022-10-25)"
+      "SELECT * FROM table WHERE date >= toDate('2022-10-21') AND date <= toDate('2022-10-25')"
     );
   });
 
@@ -388,7 +388,7 @@ describe("$__dateTimeFilter", () => {
       }
     );
     expect(result).toBe(
-      "SELECT * FROM table WHERE date >= toDate(2022-10-21) AND date <= toDate(2022-10-25) AND  time >= toDateTime(1666380224) AND  time <= toDateTime(1666667864)"
+      "SELECT * FROM table WHERE date >= toDate('2022-10-21') AND date <= toDate('2022-10-25') AND  time >= toDateTime(1666380224) AND  time <= toDateTime(1666667864)"
     );
   });
 
@@ -429,7 +429,7 @@ describe("$__dateTimeFilter", () => {
       }
     );
     expect(result).toBe(
-      "SELECT * FROM table WHERE date >= toDate(2022-10-21) AND date <= toDate(2022-10-25) AND  time >= toDateTime(1666380224) AND  time <= toDateTime(1666667864)"
+      "SELECT * FROM table WHERE date >= toDate('2022-10-21') AND date <= toDate('2022-10-25') AND  time >= toDateTime(1666380224) AND  time <= toDateTime(1666667864)"
     );
   });
 });
