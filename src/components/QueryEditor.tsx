@@ -73,7 +73,7 @@ export function QueryEditor(props: Props) {
         {({ formatQuery }) => {
           return (
             <div style={{ display: "flex" }}>
-              <InlineField
+              <InlineField data-testid="data-testid query type"
                 label={
                   <InlineLabel width={15} tooltip="Set query type">
                     Query Type
@@ -101,7 +101,7 @@ export function QueryEditor(props: Props) {
               >
                 <Input
                   width={10}
-                  data-testid="round-input"
+                  data-testid="data-testid round input"
                   onChange={onRoundChange}
                   value={props.query.round}
                 />

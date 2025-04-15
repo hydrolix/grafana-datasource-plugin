@@ -29,6 +29,13 @@ const timeRange = {
   },
 };
 describe("roundTimeRange", () => {
+  test("should round to 2m", () => {
+    let result = roundTimeRange(timeRange, "2m");
+
+    expect(result.to.unix()).toEqual(dateTime("2025-02-13T11:44:00Z").unix());
+    expect(result.from.unix()).toEqual(dateTime("2025-02-12T11:44:00Z").unix());
+  });
+
   test("should round to 1m", () => {
     let result = roundTimeRange(timeRange, "1m");
 

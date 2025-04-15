@@ -176,8 +176,9 @@ export function ConfigEditor(props: Props) {
 
   return (
     <>
+      <div data-testid="data-testid hydrolix_config_page">
       <ConfigSection title={"Server"}>
-        <Field
+        <Field data-testid={labels.host.testId}
           required
           label={labels.host.label}
           description={labels.host.description}
@@ -195,7 +196,7 @@ export function ConfigEditor(props: Props) {
           />
         </Field>
 
-        <Field
+        <Field data-testid={labels.port.testId}
           required
           label={labels.port.label}
           description={portDescription}
@@ -213,7 +214,9 @@ export function ConfigEditor(props: Props) {
               label={labels.port.label}
               aria-label={labels.port.label}
             />
-            <InlineField label={labels.useDefaultPort.label} interactive>
+            <InlineField data-testId={labels.useDefaultPort.testId}
+                label={labels.useDefaultPort.label}
+                interactive>
               <InlineSwitch
                 onChange={(e) =>
                   onUseDefaultPortChange(e.currentTarget.checked)
@@ -224,7 +227,7 @@ export function ConfigEditor(props: Props) {
           </Stack>
         </Field>
 
-        <Field
+        <Field data-testid={labels.protocol.testId}
           label={labels.protocol.label}
           description={labels.protocol.description}
         >
@@ -236,7 +239,7 @@ export function ConfigEditor(props: Props) {
           />
         </Field>
 
-        <Field
+        <Field data-testid={labels.secure.testId}
           label={labels.secure.label}
           description={labels.secure.description}
         >
@@ -249,7 +252,7 @@ export function ConfigEditor(props: Props) {
         </Field>
 
         {jsonData.protocol === Protocol.Http && (
-          <Field
+          <Field data-testid={labels.path.testId}
             label={labels.path.label}
             description={labels.path.description}
           >
@@ -270,7 +273,7 @@ export function ConfigEditor(props: Props) {
         <>
           <Divider />
           <ConfigSection title="TLS / SSL Settings">
-            <Field
+            <Field data-testid={labels.skipTlsVerify.testId}
               label={labels.skipTlsVerify.label}
               description={labels.skipTlsVerify.description}
             >
@@ -287,7 +290,7 @@ export function ConfigEditor(props: Props) {
       <Divider />
 
       <ConfigSection title="Credentials">
-        <Field
+        <Field data-testid={labels.username.testId}
           label={labels.username.label}
           description={labels.username.description}
         >
@@ -301,7 +304,7 @@ export function ConfigEditor(props: Props) {
             placeholder={labels.username.placeholder}
           />
         </Field>
-        <Field
+        <Field data-testid={labels.password.testId}
           label={labels.password.label}
           description={labels.password.description}
         >
@@ -321,12 +324,12 @@ export function ConfigEditor(props: Props) {
         </Field>
       </ConfigSection>
       <Divider />
-      <ConfigSection
-        title="Additional Settings"
+      <ConfigSection data-testid={labels.additionalSettings.testId}
+        title={labels.additionalSettings.label}
         isCollapsible
         isInitiallyOpen={false}
       >
-        <Field
+        <Field data-testid={labels.defaultDatabase.testId}
           label={labels.defaultDatabase.label}
           description={labels.defaultDatabase.description}
         >
@@ -343,7 +346,7 @@ export function ConfigEditor(props: Props) {
             placeholder={labels.defaultDatabase.placeholder}
           />
         </Field>
-        <Field
+        <Field data-testid={labels.defaultRound.testId}
           error={"invalid duration"}
           label={labels.defaultRound.label}
           description={labels.defaultRound.description}
@@ -355,7 +358,7 @@ export function ConfigEditor(props: Props) {
             value={jsonData.defaultRound}
           />
         </Field>
-        <Field
+        <Field data-testid={labels.adHocTableVariable.testId}
           label={labels.adHocTableVariable.label}
           description={labels.adHocTableVariable.description}
         >
@@ -371,7 +374,7 @@ export function ConfigEditor(props: Props) {
             aria-label={labels.adHocTableVariable.label}
           />
         </Field>
-        <Field
+        <Field data-testid={labels.adHocTimeColumnVariable.testId}
           label={labels.adHocTimeColumnVariable.label}
           description={labels.adHocTimeColumnVariable.description}
         >
@@ -387,7 +390,7 @@ export function ConfigEditor(props: Props) {
             aria-label={labels.adHocTimeColumnVariable.label}
           />
         </Field>
-        <Field
+        <Field data-testid={labels.adHocKeysQuery.testId}
           label={labels.adHocKeysQuery.label}
           description={labels.adHocKeysQuery.description}
         >
@@ -404,7 +407,7 @@ export function ConfigEditor(props: Props) {
             />
           </div>
         </Field>
-        <Field
+        <Field data-testid={labels.adHocValuesQuery.testId}
           label={labels.adHocValuesQuery.label}
           description={labels.adHocValuesQuery.description}
         >
@@ -421,7 +424,7 @@ export function ConfigEditor(props: Props) {
             />
           </div>
         </Field>
-        <Field
+        <Field data-testid={labels.adHocDefaultTimeRange.testId}
           label={labels.adHocDefaultTimeRange.label}
           description={labels.adHocDefaultTimeRange.description}
         >
@@ -433,7 +436,7 @@ export function ConfigEditor(props: Props) {
             />
           </div>
         </Field>
-        <Field
+        <Field data-testid={labels.dialTimeout.testId}
           label={labels.dialTimeout.label}
           description={labels.dialTimeout.description}
         >
@@ -448,7 +451,7 @@ export function ConfigEditor(props: Props) {
             type="number"
           />
         </Field>
-        <Field
+        <Field data-testid={labels.queryTimeout.testId}
           label={labels.queryTimeout.label}
           description={labels.queryTimeout.description}
         >
@@ -464,6 +467,7 @@ export function ConfigEditor(props: Props) {
           />
         </Field>
       </ConfigSection>
+      </div>
     </>
   );
 }
