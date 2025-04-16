@@ -26,7 +26,7 @@ You can configure the Hydrolix data source directly within Grafana or via config
 Following is the list of Hydrolix configuration options:
 
 | Name                                                   | Description                                                                                                                                                                   |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|--------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Name**                                               | The name used to reference this data source in panels and queries                                                                                                             |
 | **Default**                                            | Toggle to set this Hydrolix data source as the default in panels and visualizations                                                                                           |
 | **Server address**                                     | The IP address or hostname of your Hydrolix instance                                                                                                                          |
@@ -142,7 +142,7 @@ The editor provides extensive SQL capabilities, featuring:
 To simplify syntax and to allow for dynamic parts, like date range filters, the query can contain macros.
 
 | Macro                                        | Description                                                                                                           | Output example                                                                                        |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | --- |
+|----------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
 | `$__dateFilter(column)`                      | Generates a condition to filter data (using the provided column) based on the panel's date range                      | `date >= toDate('2022-10-21') AND date <= toDate('2022-10-23')`                                       |
 | `$__timeFilter(column)`                      | Generates a condition to filter data (using the provided column) based on the panel's time range in seconds           | `time >= toDateTime(1415792726) AND time <= toDateTime(1447328726)`                                   |
 | `$__timeFilter_ms(column)`                   | Generates a condition to filter data (using the provided column) based on the panel's time range in milliseconds      | `time >= fromUnixTimestamp64Milli(1415792726123) AND time <= fromUnixTimestamp64Milli(1447328726456)` |
@@ -155,7 +155,7 @@ To simplify syntax and to allow for dynamic parts, like date range filters, the 
 | `$__interval_s`                              | Replaced with the interval in seconds                                                                                 | `20`                                                                                                  |
 | `$__timeInterval(column)`                    | Calculates intervals based on panel width, useful for grouping data in seconds                                        | `toStartOfInterval(toDateTime(column), INTERVAL 20 second)`                                           |
 | `$__timeInterval_ms(column)`                 | Calculates intervals based on panel width, useful for grouping data in milliseconds                                   | `toStartOfInterval(toDateTime64(column, 3), INTERVAL 20 millisecond)`                                 |
-| `$__conditionalAll(condition, $templateVar)` | Includes the provided condition only if the template variable does not select all values, defaults to `1=1` otherwise | `condition` or `1=1`                                                                                  |     |
+| `$__conditionalAll(condition, $templateVar)` | Includes the provided condition only if the template variable does not select all values, defaults to `1=1` otherwise | `condition` or `1=1`                                                                                  |
 
 Below is an example of a query with the `$__timeFilter` macro:
 

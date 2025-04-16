@@ -6,6 +6,7 @@ export interface HdxQuery extends DataQuery {
   round: string;
   queryFormat?: string;
   format?: number;
+  skipNextRun?: () => boolean;
 }
 
 /**
