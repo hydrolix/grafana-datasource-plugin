@@ -36,7 +36,6 @@ export default defineConfig<PluginOptions>({
     trace: "on-first-retry",
 
     screenshot: "only-on-failure",
-
   },
 
   /* Configure projects for major browsers */
@@ -54,7 +53,7 @@ export default defineConfig<PluginOptions>({
         ...devices["Desktop Chrome"],
         storageState: "playwright/.auth/admin.json",
         viewport: { width: 1280, height: 1280 },
-        timezoneId: 'UTC',
+        timezoneId: "UTC",
       },
       dependencies: ["auth"],
     },

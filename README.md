@@ -26,7 +26,7 @@ You can configure the Hydrolix data source directly within Grafana or via config
 Following is the list of Hydrolix configuration options:
 
 | Name                                                   | Description                                                                                                                                                                   |
-|--------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Name**                                               | The name used to reference this data source in panels and queries                                                                                                             |
 | **Default**                                            | Toggle to set this Hydrolix data source as the default in panels and visualizations                                                                                           |
 | **Server address**                                     | The IP address or hostname of your Hydrolix instance                                                                                                                          |
@@ -142,7 +142,7 @@ The editor provides extensive SQL capabilities, featuring:
 To simplify syntax and to allow for dynamic parts, like date range filters, the query can contain macros.
 
 | Macro                                        | Description                                                                                                           | Output example                                                                                        |
-|----------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `$__dateFilter(column)`                      | Generates a condition to filter data (using the provided column) based on the panel's date range                      | `date >= toDate('2022-10-21') AND date <= toDate('2022-10-23')`                                       |
 | `$__timeFilter(column)`                      | Generates a condition to filter data (using the provided column) based on the panel's time range in seconds           | `time >= toDateTime(1415792726) AND time <= toDateTime(1447328726)`                                   |
 | `$__timeFilter_ms(column)`                   | Generates a condition to filter data (using the provided column) based on the panel's time range in milliseconds      | `time >= fromUnixTimestamp64Milli(1415792726123) AND time <= fromUnixTimestamp64Milli(1447328726456)` |

@@ -26,7 +26,7 @@ variables:
   if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^release[\/\-_].+$/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
 
 .if-force-pipeline: &if-force-pipeline
-  if: '$FORCE_PIPELINE'
+  if: "$FORCE_PIPELINE"
 
 .if-security-schedule-pipeline: &if-security-schedule-pipeline
   if: '$CI_PIPELINE_SOURCE == "schedule" && $SECURITY'
@@ -222,7 +222,7 @@ e2e:
           date Date,
           v1 INT
           ) ENGINE = MergeTree() ORDER BY datetime;
-          
+
           INSERT INTO e2e.macros (datetime, date, v1) VALUES
           ('2025-04-09 00:00:00', '2025-04-09', 0),
           ('2025-04-09 00:10:00', '2025-04-09', 1000),
