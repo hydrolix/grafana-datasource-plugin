@@ -98,7 +98,10 @@ export const dateTimeFilter = async (
 
   let phrase;
   if (context.timeRange) {
-    phrase = `${await dateFilter([dateColumn], context)} AND ${await timeFilter([timeColumn], context)}`;
+    phrase = `${await dateFilter([dateColumn], context)} AND ${await timeFilter(
+      [timeColumn],
+      context
+    )}`;
   } else {
     phrase = "1=1";
   }
