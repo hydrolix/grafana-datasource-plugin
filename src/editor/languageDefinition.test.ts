@@ -36,7 +36,7 @@ describe("language definition", () => {
     let SQL_LANGUAGE = {
       tokenizer: {},
     } as SQLMonarchLanguage;
-    const MONACO = {
+    const MONACO_10 = {
       KeyMod: {},
       KeyCode: {},
       languages: {
@@ -46,10 +46,28 @@ describe("language definition", () => {
         _standaloneKeybindingService: {
           addDynamicKeybinding: () => {},
         },
+        updateOptions: () => {},
+      },
+    } as unknown as Monaco;
+    const MONACO_11 = {
+      KeyMod: {},
+      KeyCode: {},
+      languages: {
+        getLanguages: () => [],
+      },
+      editor: {
+        getEditors: () => [
+          {
+            _standaloneKeybindingService: {
+              addDynamicKeybinding: () => {},
+            },
+            updateOptions: () => {},
+          },
+        ],
       },
     } as unknown as Monaco;
     const completionItemProvider = languageDefinition(props)
-      .completionProvider!(MONACO, SQL_LANGUAGE);
+      .completionProvider!(MONACO_10, SQL_LANGUAGE);
     it("should get functions", () => {
       let result = completionItemProvider.supportedFunctions!();
       expect(result).toBe(FUNCTIONS);
@@ -90,6 +108,13 @@ describe("language definition", () => {
     it("should get customStatementPlacement", async () => {
       let result = completionItemProvider.customStatementPlacement!();
       expect(result.length).toBe(1);
+    });
+    it("should not fail on grafana 11", () => {
+      const result = languageDefinition(props).completionProvider!(
+        MONACO_11,
+        SQL_LANGUAGE
+      );
+      expect(result).not.toBeNull();
     });
   });
 });

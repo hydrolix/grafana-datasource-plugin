@@ -18,24 +18,23 @@ import {
   TABLES_SQL,
 } from "../constants";
 
+export const ZERO_TIME_RANGE = {
+  to: dateTime(0),
+  from: dateTime(0),
+  raw: {
+    to: dateTime(0),
+    from: dateTime(0),
+  },
+};
 export const getQueryRunner = (
   ds: DataSource
 ): ((sql: string, timeRange?: TimeRange) => Observable<DataQueryResponse>) => {
-  return (sql: string, timeRange?: TimeRange) =>
-    ds.query({
+  return (sql: string, timeRange?: TimeRange) => {
+    return ds.query({
       requestId: v4(),
       interval: "0",
       intervalMs: 0,
-      range: timeRange
-        ? timeRange
-        : {
-            to: dateTime(0),
-            from: dateTime(0),
-            raw: {
-              to: dateTime(0),
-              from: dateTime(0),
-            },
-          },
+      range: timeRange ? timeRange : ZERO_TIME_RANGE,
       scopedVars: {},
       targets: [
         {
@@ -48,6 +47,7 @@ export const getQueryRunner = (
       app: CoreApp.Unknown,
       startTime: 0,
     });
+  };
 };
 
 export interface MetadataProvider {

@@ -7,13 +7,12 @@ import {
 import { MACROS } from "./macros";
 import { Monaco } from "@grafana/ui";
 import { SQLMonarchLanguage } from "@grafana/plugin-ui/dist/src/components/SQLEditor/standardSql/types";
-import { MetadataProvider } from "./metadataProvider";
 import { SQLCompletionItemProvider } from "@grafana/plugin-ui/dist/src/components/SQLEditor/types";
 import { format } from "sql-formatter";
 import { OPERATORS } from "./operators";
 import { FUNCTIONS } from "./functions";
 import { Props } from "../components/QueryEditor";
-import { applyHotKey } from "./hotKeyApplier";
+import { applyHotKey, updateOptions } from "./editorUtils";
 
 export const languageDefinition: (props: Props) => LanguageDefinition = (
   props: Props
@@ -41,8 +40,8 @@ export const languageDefinition: (props: Props) => LanguageDefinition = (
         supportedMacros: () => MACROS,
         supportedOperators: () => OPERATORS,
       } as SQLCompletionItemProvider;
-      setKeywords(props.datasource.metadataProvider, m, language);
-
+      updateOptions(m);
+      setKeywords(m, language);
       applyHotKey(m, props);
 
       return completionProvider;
@@ -88,11 +87,7 @@ const customStatementPlacement: StatementPlacementProvider = () => [
   },
 ];
 
-const setKeywords = (
-  metadataProvider: MetadataProvider,
-  m: Monaco,
-  language: SQLMonarchLanguage
-) => {
+const setKeywords = (m: Monaco, language: SQLMonarchLanguage) => {
   m.languages
     .getLanguages()
     .map((l) => l.id)
