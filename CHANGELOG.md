@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.5
+
+- **Feature**: Add option to show interpolated SQL in the query editor
+- **Feature**: Add new column type support for ad hoc filter keys
+
 ## 0.1.4
 
 - **Fix**: Resolve issues reported by the Grafana plugin validator to comply with publishing requirements
