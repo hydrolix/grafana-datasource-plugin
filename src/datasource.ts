@@ -141,7 +141,7 @@ export class DataSource extends DataSourceWithBackend<
   public interpolateQuery(
     sql: string,
     request: Partial<DataQueryRequest<HdxQuery>>,
-    round: string
+    round?: string
   ) {
     return applyMacros(sql, {
       adHocFilter: {
@@ -240,8 +240,13 @@ export class DataSource extends DataSourceWithBackend<
     }
 
     let response = await this.metadataProvider.executeQuery(
-      await this.interpolateQuery(sql, { filters: options.filters }, ""),
-      options.timeRange || this.instanceSettings.jsonData.adHocDefaultTimeRange
+      await this.interpolateQuery(sql, {
+        ...this.options,
+        filters: options.filters,
+        range:
+          options.timeRange ||
+          this.instanceSettings.jsonData.adHocDefaultTimeRange,
+      })
     );
     let fields: Field[] = response.data[0]?.fields?.length
       ? response.data[0].fields

@@ -1,11 +1,12 @@
-import { toDataFrame } from "@grafana/data";
+import { DataQueryResponse, toDataFrame } from "@grafana/data";
 import { of } from "rxjs";
-import { getMetadataProvider } from "./metadataProvider";
+import { getKeyMap, getMetadataProvider } from "./metadataProvider";
 import { setupDataSourceMock } from "../__mocks__/datasource";
 import {
   adHocTableVariable,
   adHocTimeColumnVariable,
 } from "../__mocks__/variable";
+import { DESCRIBE1, DESCRIBE2 } from "../__mocks__/tableDescribes";
 
 const FUNCTIONS = ["widthBucket", "tupleConcat"];
 const SCHEMAS = ["schema1", "schema2"];
@@ -13,11 +14,12 @@ const TABLES = ["table1", "table2"];
 const COLUMNS = ["column1", "column2"];
 const KEY_RESPONSE = {
   fields: [
-    { values: ["column1", "column2", "column3", "column4"] },
+    { values: ["column1", "column2", "column3", "column4", "column5"] },
     {
       values: ["String", "Nullable(String)", "Array<String>", "String"],
     },
-    { values: ["", "", "", "ALIAS"] },
+    { values: ["", "", "", "ALIAS", "ALIAS"] },
+    { values: ["", "", "", "`column`", "`column1`"] },
   ],
 };
 
@@ -148,6 +150,7 @@ describe("MetadataProvider", () => {
     expect(actual.map((n) => n)).toEqual([
       { text: "column1", value: "column1" },
       { text: "column2", value: "column2" },
+      { text: "column5", value: "column5" },
     ]);
   });
 
@@ -161,5 +164,51 @@ describe("MetadataProvider", () => {
     await mdp.tableKeys("table");
     await mdp.tableKeys("table");
     expect(queryMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("getKeyMap", () => {
+  const cases = [
+    {
+      name: "summary describe",
+      describe: DESCRIBE2,
+      keys: [
+        "statusCode",
+        "reqHost",
+        "city",
+        "state",
+        "country",
+        "cacheable",
+        "errorCode",
+        "reqMethod",
+        "rspContentType",
+        "proto",
+        "cacheStatus",
+        "cp",
+        "timestamp_min",
+      ],
+    },
+    {
+      name: "summary with parsable alias",
+      describe: DESCRIBE1,
+      keys: ["hour_ts", "sampled_request_path"],
+    },
+  ];
+  it.each(cases)("$name", ({ describe, keys }) => {
+    let response: DataQueryResponse = {
+      data: [
+        {
+          fields: [
+            { values: describe.map((d) => d.name) },
+            { values: describe.map((d) => d.type) },
+            { values: describe.map((d) => d.default_type) },
+            { values: describe.map((d) => d.default_expression) },
+          ],
+        },
+      ],
+    };
+    let expected = keys.map((k) => ({ text: k, value: k }));
+    let result = getKeyMap(response);
+    expect(result).toEqual(expected);
   });
 });
