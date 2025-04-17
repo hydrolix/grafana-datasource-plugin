@@ -77,8 +77,8 @@ export const dateFilter = async (
   let phrase;
   if (context.timeRange) {
     phrase =
-      `${column} >= toDate(${context.timeRange.from.format(DATE_FORMAT)}) ` +
-      `AND ${column} <= toDate(${context.timeRange.to.format(DATE_FORMAT)})`;
+      `${column} >= toDate('${context.timeRange.from.format(DATE_FORMAT)}') ` +
+      `AND ${column} <= toDate('${context.timeRange.to.format(DATE_FORMAT)}')`;
   } else {
     phrase = "1=1";
   }

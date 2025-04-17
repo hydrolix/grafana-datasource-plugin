@@ -24,9 +24,12 @@ import { DEFAULT_QUERY, HdxDataSourceOptions, HdxQuery } from "./types";
 import { from, Observable, switchMap } from "rxjs";
 import { map } from "rxjs/operators";
 import { ErrorMessageBeautifier } from "./errorBeautifier";
-import { getMetadataProvider } from "./editor/metadataProvider";
+import {
+  getMetadataProvider,
+  ZERO_TIME_RANGE,
+} from "./editor/metadataProvider";
 import { getColumnValuesStatement, getTable as getAstTable } from "./ast";
-import { getFirstValidRound } from "./editor/timeRangeUtils";
+import { getFirstValidRound, roundTimeRange } from "./editor/timeRangeUtils";
 import { applyMacros } from "./macros/macrosApplier";
 
 export class DataSource extends DataSourceWithBackend<
@@ -35,6 +38,7 @@ export class DataSource extends DataSourceWithBackend<
 > {
   public readonly metadataProvider = getMetadataProvider(this);
   private readonly beautifier = new ErrorMessageBeautifier();
+  public options: DataQueryRequest<HdxQuery> | undefined;
 
   constructor(
     public instanceSettings: DataSourceInstanceSettings<HdxDataSourceOptions>,
@@ -62,22 +66,27 @@ export class DataSource extends DataSourceWithBackend<
   }
 
   query(request: DataQueryRequest<HdxQuery>): Observable<DataQueryResponse> {
+    if (request.range !== ZERO_TIME_RANGE) {
+      this.options = request;
+    }
     let targets$ = from(
       Promise.all(
-        request.targets.map((t) =>
-          this.applyMacros(t.rawSql, request).then((q) => ({
-            ...t,
-            rawSql: q,
-            round: getFirstValidRound([
-              t.round,
-              this.instanceSettings.jsonData.defaultRound || "",
-            ]),
-            filters: undefined,
-            meta: {
-              timezone: this.resolveTimezone(request),
-            },
-          }))
-        )
+        request.targets
+          .filter((t) => !(t.skipNextRun && t.skipNextRun()))
+          .map((t) =>
+            this.interpolateQuery(t.rawSql, request, t.round).then((q) => ({
+              ...t,
+              rawSql: q,
+              round: getFirstValidRound([
+                t.round,
+                this.instanceSettings.jsonData.defaultRound || "",
+              ]),
+              filters: undefined,
+              meta: {
+                timezone: this.resolveTimezone(request),
+              },
+            }))
+          )
       )
     );
 
@@ -129,11 +138,12 @@ export class DataSource extends DataSourceWithBackend<
     );
   }
 
-  private applyMacros(
+  public interpolateQuery(
     sql: string,
-    request: Partial<DataQueryRequest<HdxQuery>>
+    request: Partial<DataQueryRequest<HdxQuery>>,
+    round?: string
   ) {
-    return applyMacros(sql || "", {
+    return applyMacros(sql, {
       adHocFilter: {
         filters: request.filters,
         keys: () =>
@@ -144,8 +154,11 @@ export class DataSource extends DataSourceWithBackend<
       templateVars: this.templateSrv.getVariables(),
       replaceFn: this.templateSrv.replace.bind(this),
       intervalMs: request.intervalMs,
-      timeRange: request.range,
-    });
+      timeRange:
+        round && request.range
+          ? roundTimeRange(request.range, round)
+          : request.range,
+    }).then((s) => this.templateSrv.replace(s));
   }
 
   getDefaultQuery(_: CoreApp): Partial<HdxQuery> {
@@ -227,8 +240,13 @@ export class DataSource extends DataSourceWithBackend<
     }
 
     let response = await this.metadataProvider.executeQuery(
-      await this.applyMacros(sql, { filters: options.filters }),
-      options.timeRange || this.instanceSettings.jsonData.adHocDefaultTimeRange
+      await this.interpolateQuery(sql, {
+        ...this.options,
+        filters: options.filters,
+        range:
+          options.timeRange ||
+          this.instanceSettings.jsonData.adHocDefaultTimeRange,
+      })
     );
     let fields: Field[] = response.data[0]?.fields?.length
       ? response.data[0].fields

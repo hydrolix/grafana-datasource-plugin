@@ -7,87 +7,332 @@ stages:
   - security
   - publish
 
-include:
-  - local: .gitlab/ci/.gitlab-ci.yml
-  - template: Security/SAST.gitlab-ci.yml
-  - template: Security/Secret-Detection.gitlab-ci.yml
-  - template: Security/Dependency-Scanning.gitlab-ci.yml
+variables:
+  SAST_EXCLUDED_PATHS: "tests"
+  SEARCH_MAX_DEPTH: "5"
+  DS_MAX_DEPTH: "-1"
+  DOCKER_TLS_CERTDIR: "/certs"
+  KUBERNETES_CPU_LIMIT: "12"
+  KUBERNETES_CPU_REQUEST: "12"
+  KUBERNETES_MEMORY_REQUEST: "16Gi"
+  KUBERNETES_MEMORY_LIMIT: "16Gi"
+  KUBERNETES_EPHEMERAL_STORAGE_REQUEST: "16Gi"
+  KUBERNETES_EPHEMERAL_STORAGE_LIMIT: "16Gi"
 
-sast:
+.if-merge-request: &if-merge-request
+  if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_EVENT_TYPE != "merge_train"'
+
+.if-release-merge-request: &if-release-merge-request
+  if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^release[\/\-_].+$/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+
+.if-force-pipeline: &if-force-pipeline
+  if: "$FORCE_PIPELINE"
+
+.if-security-schedule-pipeline: &if-security-schedule-pipeline
+  if: '$CI_PIPELINE_SOURCE == "schedule" && $SECURITY'
+
+.rules:release:
+  rules:
+    - <<: *if-release-merge-request
+
+workflow:
+  rules:
+    - <<: *if-merge-request
+    - <<: *if-force-pipeline
+    - <<: *if-security-schedule-pipeline
+
+.npm-cache-patterns: &npm-cache-patterns
+  - "node_modules/"
+  - "package-lock.json"
+
+.npm-cache-push:
+  cache:
+    - key: npm-$CI_COMMIT_REF_SLUG
+      paths: *npm-cache-patterns
+      policy: push
+
+.npm-cache-pull:
+  cache:
+    - key: npm-$CI_COMMIT_REF_SLUG
+      paths: *npm-cache-patterns
+      policy: pull
+
+prepare-frontend:
+  extends:
+    - .npm-cache-push
+  stage: prepare
+  image: node:22
+  tags: [gitlab-org]
+  script:
+    - npm install
+
+build-frontend:
+  extends:
+    - .npm-cache-pull
+  stage: build
+  image: node:22
+  tags: [gitlab-org]
+  script:
+    - npm run lint
+    - npm run typecheck
+    - npm run build
+  artifacts:
+    paths:
+      - dist/
+    when: on_success
+    expire_in: 1 hour
+
+test-frontend:
+  extends:
+    - .npm-cache-pull
+  stage: test
+  image: node:22
+  tags: [gitlab-org]
   variables:
-    SAST_EXCLUDED_PATHS: "e2e"
-    SEARCH_MAX_DEPTH: "5"
-  stage: security
+    ESLINT_CODE_QUALITY_REPORT: eslint_report.json
+    JEST_JUNIT_OUTPUT_FILE: junit_report.xml
+  script:
+    - npm run test:ci
+  coverage: /^Statements\s*:\s*([^%]+)/
+  artifacts:
+    reports:
+      codequality: eslint_report.json
+      junit: junit_report.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura-coverage.xml
 
-.sast-analyzer:
+build-backend:
+  stage: build
+  image: golang:1.23
   tags: [lke]
+  before_script:
+    - go install github.com/magefile/mage@latest
+  script:
+    - mage
+  artifacts:
+    paths:
+      - dist/
+    when: on_success
+    expire_in: 1 hour
+
+test-backend:
+  stage: test
+  image: golang:1.23
+  services:
+    - name: clickhouse/clickhouse-server:latest
+      alias: ch
+      variables:
+        CLICKHOUSE_SKIP_USER_SETUP: 1
+      entrypoint:
+        - /bin/bash
+        - -c
+        - |
+          sed -i 's|<custom_settings_prefixes>SQL_</custom_settings_prefixes>|<custom_settings_prefixes>hdx_</custom_settings_prefixes>|' $CLICKHOUSE_CONFIG
+          exec /entrypoint.sh "$@"
+  tags: [gitlab-org]
+  variables:
+    CLICKHOUSE_HOSTNAME: ch
+  before_script:
+    - go install gotest.tools/gotestsum@latest
+    - go install github.com/boumenot/gocover-cobertura@latest
+  script:
+    - gotestsum --junitfile junit_report.xml --format testname -- -race -coverprofile=coverage.txt -covermode atomic $(go list ./... | grep -v /testhelpers)
+    - gocover-cobertura < coverage.txt > cobertura-coverage.xml
+    - go tool cover -func coverage.txt
+  coverage: /total:\s+\(statements\)\s+\d+.\d+%/
+  artifacts:
+    reports:
+      junit: junit_report.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: cobertura-coverage.xml
+
+zip:
+  extends:
+    - .npm-cache-pull
+  stage: package
+  image: node:22
+  needs: [build-frontend, build-backend]
+  tags: [gitlab-org]
+  before_script:
+    - apt -qy update && apt -qy install zip
+  script:
+    - PLUGIN_NAME=hydrolix-hydrolix-datasource
+    - PLUGIN_VERSION=$(npm pkg get version | tr -d '"')
+    - ZIP_NAME=$PLUGIN_NAME-$PLUGIN_VERSION.zip
+    - mv dist/ $PLUGIN_NAME/
+    - zip $ZIP_NAME $PLUGIN_NAME -r
+  artifacts:
+    paths:
+      - "*.zip"
+    when: on_success
+    expire_in: 7 days
+
+.e2e-base:
+  stage: e2e
+  parallel:
+    matrix:
+      - E2E_GRAFANA_NAME: ["grafana-enterprise"]
+        E2E_GRAFANA_VERSION: ["10.4.16", "11.5.2"]
+  variables:
+    E2E_IMAGE_NAME: e2e-$E2E_GRAFANA_NAME-$E2E_GRAFANA_VERSION
+    E2E_IMAGE_TAG: $CI_COMMIT_SHA
+    E2E_IMAGE: $CI_REGISTRY/hydrolix/grafana-datasource-plugin/$E2E_IMAGE_NAME:$E2E_IMAGE_TAG
+    E2E_GRAFANA_URL: http://e2e:3000
+    PLAYWRIGHT_JUNIT_OUTPUT_FILE: junit_report.xml
+
+build-e2e-image:
+  extends:
+    - .e2e-base
+    - .npm-cache-pull
+  image: docker:28
+  services:
+    - docker:28-dind
+  needs: [zip]
+  tags: [gitlab-org-docker]
+  script:
+    - unzip "$(ls -1 *.zip | head -n 1)" -d .
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker build -f .gitlab/e2e.Dockerfile -t $E2E_IMAGE --build-arg E2E_GRAFANA_NAME=$E2E_GRAFANA_NAME --build-arg E2E_GRAFANA_VERSION=$E2E_GRAFANA_VERSION .
+    - docker push $E2E_IMAGE
+
+e2e:
+  extends:
+    - .e2e-base
+    - .npm-cache-pull
+  image: mcr.microsoft.com/playwright:v1.50.0-jammy
+  services:
+    - name: $E2E_IMAGE
+      alias: e2e
+    - name: clickhouse/clickhouse-server:latest
+      alias: ch
+      variables:
+        CLICKHOUSE_ALWAYS_RUN_INITDB_SCRIPTS: 1
+        CLICKHOUSE_SKIP_USER_SETUP: 0
+        CLICKHOUSE_USER: testuser
+        CLICKHOUSE_PASSWORD: testpass
+        CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+        TEST_INITDB: |+
+          CREATE DATABASE IF NOT EXISTS e2e;
+          DROP TABLE IF EXISTS e2e.macros;
+          CREATE TABLE e2e.macros
+          (
+          datetime DateTime,
+          date Date,
+          v1 INT
+          ) ENGINE = MergeTree() ORDER BY datetime;
+
+          INSERT INTO e2e.macros (datetime, date, v1) VALUES
+          ('2025-04-09 00:00:00', '2025-04-09', 0),
+          ('2025-04-09 00:10:00', '2025-04-09', 1000),
+          ('2025-04-09 00:20:00', '2025-04-09', 2000),
+          ('2025-04-09 00:30:00', '2025-04-09', 3000),
+          ('2025-04-09 00:40:00', '2025-04-09', 4000),
+          ('2025-04-09 00:50:00', '2025-04-09', 5000),
+          ('2025-04-09 01:00:00', '2025-04-09', 10000),
+          ('2025-04-09 01:10:10', '2025-04-09', 11010),
+          ('2025-04-09 01:10:30', '2025-04-09', 11030),
+          ('2025-04-09 01:11:00', '2025-04-09', 11100),
+          ('2025-04-10 00:10:00', '2025-04-10', 1000),
+          ('2025-04-10 00:20:00', '2025-04-10', 2000),
+          ('2025-04-10 00:30:00', '2025-04-10', 3000);
+
+        TEST_CONFIG: |+
+          <?xml version="1.0" ?>
+          <clickhouse>
+              <max_connections>4096</max_connections>
+              <logger>
+                  <console>1</console>
+              </logger>
+              <timezone>UTC</timezone>
+              <custom_settings_prefixes replace="replace">SQL_,hdx_</custom_settings_prefixes>
+          </clickhouse>
+
+      entrypoint:
+        - /bin/bash
+        - -c
+        - |
+          echo "$TEST_CONFIG" > /etc/clickhouse-server/config.d/tcconfig.xml
+          echo "$TEST_INITDB" > /docker-entrypoint-initdb.d/initdb.sql
+          exec /entrypoint.sh "$@"
+
+  needs: [build-e2e-image, test-frontend, test-backend]
+  tags: [gitlab-org]
+  variables:
+    CLICKHOUSE_HOSTNAME: ch
+    CLICKHOUSE_USERNAME: testuser
+    CLICKHOUSE_PASSWORD: testpass
+  before_script:
+    - npx playwright install
+  script:
+    - npx playwright test --reporter=junit
+  artifacts:
+    when: always
+    paths:
+      - test-results/**/*.png
+      - test-results/**/*.zip
+    reports:
+      junit: junit_report.xml
+
+remove-e2e-image:
+  extends:
+    - .e2e-base
+    - .npm-cache-pull
+  image: registry.gitlab.com/gitlab-ci-utils/curl-jq:latest
+  when: always
+  needs: [e2e]
+  tags: [gitlab-org]
+  script:
+    - .gitlab/remove-image.sh "$CI_JOB_TOKEN" "$CI_PROJECT_ID" "$E2E_IMAGE_NAME" "$E2E_IMAGE_TAG"
+
+publish-gitlab:
+  extends:
+    - .rules:release
+  stage: publish
+  image: registry.gitlab.com/gitlab-ci-utils/curl-jq:latest
+  when: manual
+  needs: [zip, e2e]
+  tags: [gitlab-org]
+  script:
+    - .gitlab/publish-gitlab.sh
+
+publish-aws:
+  extends:
+    - .rules:release
+  stage: publish
+  image: registry.gitlab.com/gitlab-org/cloud-deploy/aws-base:latest
+  when: manual
+  needs: [zip, e2e]
+  tags: [gitlab-org]
+  script:
+    - .gitlab/publish-aws.sh "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY"
 
 semgrep-sast:
+  stage: security
+  tags: [gitlab-org]
   rules:
-    - if: $SECURITY
-    - if: $BLESSING
-      when: never
-    - if: $SANITY
-      when: never
-    - if: $RELEASE_DEBUG
-      when: never
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"
+    - when: always
 
 sobelow-sast:
+  stage: security
+  tags: [gitlab-org]
   rules:
-    - if: $SECURITY
-    - if: $BLESSING
-      when: never
-    - if: $SANITY
-      when: never
-    - if: $RELEASE_DEBUG
-      when: never
-
-.secret-analyzer:
-  tags: [lke]
+    - when: always
 
 secret_detection:
   stage: security
+  tags: [gitlab-org]
   rules:
-    - if: $SECURITY
-    - if: $BLESSING
-      when: never
-    - if: $SANITY
-      when: never
-    - if: $RELEASE_DEBUG
-      when: never
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"
-
-.ds-analyzer:
-  variables:
-    DS_MAX_DEPTH: -1
-  tags: [lke]
+    - when: always
 
 gemnasium-dependency_scanning:
   stage: security
+  tags: [gitlab-org]
   rules:
-    - if: $SECURITY
-    - if: $BLESSING
-      when: never
-    - if: $SANITY
-      when: never
-    - if: $RELEASE_DEBUG
-      when: never
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"
+    - when: always
 
-gemnasium-maven-dependency_scanning:
-  stage: security
-  rules:
-    - when: never
-
-gemnasium-python-dependency_scanning:
-  stage: security
-  rules:
-    - if: $SECURITY
-    - if: $BLESSING
-      when: never
-    - if: $SANITY
-      when: never
-    - if: $RELEASE_DEBUG
-      when: never
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"
+include:
+  - template: Security/SAST.gitlab-ci.yml
+  - template: Security/Secret-Detection.gitlab-ci.yml
+  - template: Security/Dependency-Scanning.gitlab-ci.yml

@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.1.3:
+## 0.1.4
+
+- **Fix**: Resolve issues reported by the Grafana plugin validator to comply with publishing requirements
+
+## 0.1.3
 
 - **Fix**: Rename plugin ID to follow the naming convention
 

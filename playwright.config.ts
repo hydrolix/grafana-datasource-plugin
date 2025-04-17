@@ -23,6 +23,10 @@ export default defineConfig<PluginOptions>({
   retries: process.env.CI ? 2 : 0,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: "html",
+
+  /* test timeout */
+  timeout: 60000,
+
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
@@ -30,6 +34,8 @@ export default defineConfig<PluginOptions>({
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: "on-first-retry",
+
+    screenshot: "only-on-failure",
   },
 
   /* Configure projects for major browsers */
@@ -46,6 +52,8 @@ export default defineConfig<PluginOptions>({
       use: {
         ...devices["Desktop Chrome"],
         storageState: "playwright/.auth/admin.json",
+        viewport: { width: 1280, height: 1280 },
+        timezoneId: "UTC",
       },
       dependencies: ["auth"],
     },
