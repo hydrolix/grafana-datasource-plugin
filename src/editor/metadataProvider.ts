@@ -16,26 +16,25 @@ import {
   SCHEMA_SQL,
   SUPPORTED_TYPES,
   TABLES_SQL,
-} from "./constants";
+} from "../constants";
 
+export const ZERO_TIME_RANGE = {
+  to: dateTime(0),
+  from: dateTime(0),
+  raw: {
+    to: dateTime(0),
+    from: dateTime(0),
+  },
+};
 export const getQueryRunner = (
   ds: DataSource
 ): ((sql: string, timeRange?: TimeRange) => Observable<DataQueryResponse>) => {
-  return (sql: string, timeRange?: TimeRange) =>
-    ds.query({
+  return (sql: string, timeRange?: TimeRange) => {
+    return ds.query({
       requestId: v4(),
       interval: "0",
       intervalMs: 0,
-      range: timeRange
-        ? timeRange
-        : {
-            to: dateTime(0),
-            from: dateTime(0),
-            raw: {
-              to: dateTime(0),
-              from: dateTime(0),
-            },
-          },
+      range: timeRange ? timeRange : ZERO_TIME_RANGE,
       scopedVars: {},
       targets: [
         {
@@ -48,6 +47,7 @@ export const getQueryRunner = (
       app: CoreApp.Unknown,
       startTime: 0,
     });
+  };
 };
 
 export interface MetadataProvider {
@@ -103,21 +103,7 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
               )
             ).pipe(
               map((r) => {
-                let fields = r.data[0]?.fields?.length
-                  ? r.data[0].fields
-                  : [[], []];
-                let columns: string[] = fields[0]?.values;
-                let types: string[] = fields[1]?.values;
-                let defaultTypes: string[] = fields[2]?.values;
-                return columns
-                  .filter(
-                    (c, i) =>
-                      !c.includes("(") &&
-                      (SUPPORTED_TYPES.includes(types[i]) ||
-                        NULLABLE_TYPES.includes(types[i])) &&
-                      defaultTypes[i] !== "ALIAS"
-                  )
-                  .map((k) => ({ text: k, value: k } as AdHocFilterKeys));
+                return getKeyMap(r);
               }),
               tap((k) => (tableKeys[table] = k))
             )
@@ -174,3 +160,47 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
       firstValueFrom(queryRunner(sql, timeRange)),
   };
 };
+
+export const getKeyMap = (r: DataQueryResponse): AdHocFilterKeys[] => {
+  let fields = r.data[0]?.fields?.length ? r.data[0].fields : [[], [], [], []];
+  let columns: string[] = fields[0]?.values;
+  let types: string[] = fields[1]?.values;
+  let defaultTypes: string[] = fields[2]?.values;
+  let defaultExpression: string[] = fields[3]?.values;
+  const aliasRegExp = /`(.*)`/;
+  let definitionByKey: Map<string, KeyDefinition> = new Map(
+    columns.map((c, i) => [
+      c,
+      {
+        name: c,
+        type: types[i],
+        isAlias: defaultTypes[i] === "ALIAS",
+        aliasFor: aliasRegExp.test(defaultExpression[i])
+          ? aliasRegExp.exec(defaultExpression[i])?.[1]!
+          : "",
+      },
+    ])
+  );
+  return columns
+    .filter((c) => {
+      let definition = definitionByKey.get(c)!;
+      let type;
+      if (definition.isAlias) {
+        type = definitionByKey.get(definition.aliasFor)?.type || "";
+      } else {
+        type = definition.type;
+      }
+      return (
+        !c.includes("(") &&
+        (SUPPORTED_TYPES.includes(type) || NULLABLE_TYPES.includes(type))
+      );
+    })
+    .map((k) => ({ text: k, value: k } as AdHocFilterKeys));
+};
+
+interface KeyDefinition {
+  name: string;
+  type: string;
+  isAlias: boolean;
+  aliasFor: string;
+}

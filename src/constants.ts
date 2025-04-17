@@ -31,3 +31,7 @@ export const SUPPORTED_TYPES = [
 ];
 
 export const NULLABLE_TYPES = SUPPORTED_TYPES.map((t) => `Nullable(${t})`);
+
+export const VARIABLE_REGEX = /(?<=\$\{)\w+(?=})|(?<=\$)\w+/;
+
+export const DATE_FORMAT = "YYYY-MM-DD";

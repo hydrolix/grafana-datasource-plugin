@@ -29,3 +29,21 @@ export const applyHotKey = (m: Monaco, props: Props) => {
       .map(applyBinding);
   }
 };
+
+export const updateOptions = (m: Monaco) => {
+  let options = {
+    scrollBeyondLastLine: false,
+  };
+  // @ts-ignore
+  if (m.editor.updateOptions) {
+    // grafana 11.x
+    // @ts-ignore
+    m.editor.updateOptions(options);
+  } else {
+    // grafana 10.x
+    m.editor
+      .getEditors()
+      .filter((e) => e.updateOptions)
+      .map((e) => e.updateOptions(options));
+  }
+};

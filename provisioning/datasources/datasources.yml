@@ -5,6 +5,7 @@ datasources:
     type: "hydrolix-hydrolix-datasource"
     access: proxy
     isDefault: false
+    uid: hydrolix_prv_ds
     orgId: 1
     version: 1
     editable: true
@@ -18,4 +19,3 @@ datasources:
       adHocKeysQuery: "DESCRIBE $${table}"
       adHocValuesQuery: "SELECT $${column}, COUNT($${column}) as count  FROM $${table} WHERE $$__timeFilter($${timeColumn}) AND $$__adHocFilter()  GROUP BY $${column} ORDER BY count DESC LIMIT 100"
     secureJsonData:
-#      password: 'password'
