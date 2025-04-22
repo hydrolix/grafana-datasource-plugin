@@ -74,13 +74,16 @@ export class DataSource extends DataSourceWithBackend<
         request.targets
           .filter((t) => !(t.skipNextRun && t.skipNextRun()))
           .map((t) =>
-            this.interpolateQuery(t.rawSql, request, t.round).then((q) => ({
-              ...t,
-              rawSql: q,
-              round: getFirstValidRound([
+            this.interpolateQuery(
+              t.rawSql,
+              request,
+              getFirstValidRound([
                 t.round,
                 this.instanceSettings.jsonData.defaultRound || "",
-              ]),
+              ])
+            ).then((q) => ({
+              ...t,
+              rawSql: q,
               filters: undefined,
               meta: {
                 timezone: this.resolveTimezone(request),
