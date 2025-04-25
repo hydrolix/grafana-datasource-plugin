@@ -1,6 +1,6 @@
 {
   "name": "hydrolix-datasource",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "scripts": {
     "build": "webpack -c ./.config/webpack/webpack.config.ts --env production",
     "dev": "webpack -w -c ./.config/webpack/webpack.config.ts --env development",
