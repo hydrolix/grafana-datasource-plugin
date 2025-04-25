@@ -161,6 +161,7 @@ zip:
     - PLUGIN_NAME=hydrolix-hydrolix-datasource
     - PLUGIN_VERSION=$(npm pkg get version | tr -d '"')
     - ZIP_NAME=$PLUGIN_NAME-$PLUGIN_VERSION.zip
+    - npx --yes @grafana/sign-plugin@latest
     - mv dist/ $PLUGIN_NAME/
     - zip $ZIP_NAME $PLUGIN_NAME -r
   artifacts:
