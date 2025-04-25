@@ -1,6 +1,6 @@
 {
   "name": "hydrolix-datasource",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "scripts": {
     "build": "webpack -c ./.config/webpack/webpack.config.ts --env production",
     "dev": "webpack -w -c ./.config/webpack/webpack.config.ts --env development",
@@ -17,7 +17,7 @@
   "license": "Apache-2.0",
   "devDependencies": {
     "@grafana/eslint-config": "^8.0.0",
-    "@grafana/plugin-e2e": "^1.17.1",
+    "@grafana/plugin-e2e": "1.18.3",
     "@grafana/tsconfig": "^2.0.0",
     "@playwright/test": "1.50.1",
     "@stylistic/eslint-plugin-ts": "^2.9.0",
