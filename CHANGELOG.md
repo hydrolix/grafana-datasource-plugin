@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6
+
+- **Fix**: Apply default round setting to queries defined in template variables
+
 ## 0.1.5
 
 - **Feature**: Add option to show interpolated SQL in the query editor
