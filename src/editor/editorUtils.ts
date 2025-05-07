@@ -47,3 +47,58 @@ export const updateOptions = (m: Monaco) => {
       .map((e) => e.updateOptions(options));
   }
 };
+
+export const underline = (
+  m: Monaco | null,
+  line: number,
+  start: number,
+  end: number
+): void => {
+  console.log("underline");
+  if (!m) {
+    return;
+  }
+  let decorations = [
+    {
+      range: new m.Range(line, start, line, end),
+      options: { inlineClassName: "myInlineDecoration" },
+    },
+  ];
+
+  // @ts-ignore
+  if (m.editor.createDecorationsCollection) {
+    // grafana 11.x
+    // @ts-ignore
+    m.editor.createDecorationsCollection(decorations);
+  } else {
+    // grafana 10.x
+    m.editor
+      .getEditors()
+      .filter((e) => e.createDecorationsCollection)
+      .map((e) => e.createDecorationsCollection(decorations));
+  }
+};
+
+export const removeUnderline = (m: Monaco | null): void => {
+  console.log("underline");
+  if (!m) {
+    return;
+  }
+  const range = new m.Range(1, 0, Number.MAX_VALUE, Number.MAX_VALUE);
+  // @ts-ignore
+  if (m.editor.createDecorationsCollection) {
+    // grafana 11.x
+    // @ts-ignore
+    m.editor.createDecorationsCollection(decorations);
+  } else {
+    // grafana 10.x
+    m.editor
+      .getEditors()
+      .filter((e) => e.getDecorationsInRange)
+      .map((e) =>
+        e.removeDecorations(
+          e.getDecorationsInRange(range)?.map((d) => d.id) ?? []
+        )
+      );
+  }
+};

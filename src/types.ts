@@ -69,3 +69,18 @@ export interface AdHocFilterKeys {
   value?: string | number;
   group: string;
 }
+
+export interface AstResponse {
+  error: boolean;
+  error_message: string;
+  data: any;
+}
+
+export interface ValidationResult {
+  noQuery?: boolean;
+  validating: boolean;
+  hasErrors: boolean;
+  hasWarnings: boolean;
+  error?: string;
+  warning?: string;
+}

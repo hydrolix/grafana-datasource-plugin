@@ -16,6 +16,7 @@ import {
   InlineField,
   InlineLabel,
   Input,
+  Monaco,
   Select,
   ToolbarButton,
 } from "@grafana/ui";
@@ -24,6 +25,7 @@ import {
   QUERY_DURATION_REGEX,
 } from "../editor/timeRangeUtils";
 import { InterpolatedQuery } from "./InterpolatedQuery";
+import { ValidationBar } from "./ValidationBar";
 
 export type Props = QueryEditorProps<
   DataSource,
@@ -126,17 +128,23 @@ export function QueryEditor(props: Props) {
     invalidDuration.current = !QUERY_DURATION_REGEX.test(round);
     props.onChange({ ...props.query, round: round });
   };
+  let [monaco, setMonaco] = useState<Monaco | null>(null);
 
   return (
     <div>
       <SQLEditor
         query={props.query.rawSql}
         onChange={onQueryTextChange}
-        language={languageDefinition(props)}
+        language={languageDefinition(props, setMonaco)}
       >
         {({ formatQuery }) => {
           return (
             <div>
+              <ValidationBar
+                monaco={monaco}
+                datasource={props.datasource}
+                query={props.query.rawSql}
+              />
               <div
                 style={{
                   display: "flex",
