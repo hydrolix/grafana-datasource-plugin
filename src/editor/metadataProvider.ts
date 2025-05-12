@@ -10,6 +10,7 @@ import { TableDefinition } from "@grafana/plugin-ui/dist/src/components/SQLEdito
 import { DataSource } from "../datasource";
 import { AdHocFilterKeys } from "../types";
 import {
+  AD_HOC_KEY_QUERY,
   COLUMNS_SQL,
   FUNCTIONS_SQL,
   NULLABLE_TYPES,
@@ -92,26 +93,18 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
     | Array<{ id: string; name: string; description: string }>
     | undefined;
   let tableKeysFn: (table: string) => Promise<AdHocFilterKeys[]>;
-  if (ds.instanceSettings.jsonData.adHocKeysQuery) {
-    tableKeysFn = (table: string) =>
-      !tableKeys[table]
-        ? firstValueFrom(
-            queryRunner(
-              ds.instanceSettings.jsonData.adHocKeysQuery!.replaceAll(
-                "${table}",
-                table
-              )
-            ).pipe(
-              map((r) => {
-                return getKeyMap(r);
-              }),
-              tap((k) => (tableKeys[table] = k))
-            )
+  tableKeysFn = (table: string) =>
+    !tableKeys[table]
+      ? firstValueFrom(
+          queryRunner(AD_HOC_KEY_QUERY.replaceAll("${table}", table)).pipe(
+            map((r) => {
+              return getKeyMap(r);
+            }),
+            tap((k) => (tableKeys[table] = k))
           )
-        : Promise.resolve(tableKeys[table]);
-  } else {
-    tableKeysFn = (_) => Promise.resolve([]);
-  }
+        )
+      : Promise.resolve(tableKeys[table]);
+
   return {
     schemas: () =>
       !schemas

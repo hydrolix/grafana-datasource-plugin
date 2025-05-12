@@ -177,9 +177,6 @@ export class DataSource extends DataSourceWithBackend<
   }
 
   async getTagKeys(): Promise<MetricFindValue[]> {
-    if (!this.instanceSettings.jsonData.adHocKeysQuery) {
-      return [];
-    }
     let table = this.adHocFilterTableName();
 
     if (table) {
@@ -202,10 +199,6 @@ export class DataSource extends DataSourceWithBackend<
   async getTagValues(
     options: DataSourceGetTagValuesOptions
   ): Promise<MetricFindValue[]> {
-    if (!this.instanceSettings.jsonData.adHocValuesQuery) {
-      return [];
-    }
-
     let table = this.adHocFilterTableName();
     if (!table) {
       return [];
@@ -231,12 +224,7 @@ export class DataSource extends DataSourceWithBackend<
 
     let sql;
     if (table && timeFilter) {
-      sql = getColumnValuesStatement(
-        options.key,
-        table,
-        timeFilter,
-        this.instanceSettings.jsonData.adHocValuesQuery!
-      );
+      sql = getColumnValuesStatement(options.key, table, timeFilter);
     }
     if (!sql) {
       return [];

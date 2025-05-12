@@ -15,7 +15,6 @@ import {
   SecretInput,
   Stack,
   Switch,
-  TextArea,
   TimeRangeInput,
 } from "@grafana/ui";
 import { ConfigSection } from "@grafana/plugin-ui";
@@ -136,26 +135,6 @@ export function ConfigEditor(props: Props) {
       jsonData: {
         ...options.jsonData,
         adHocDefaultTimeRange: e,
-      },
-    });
-  };
-
-  const onUpdateAdHocKeysQuery = (e: FormEvent<HTMLTextAreaElement>) => {
-    onOptionsChange({
-      ...options,
-      jsonData: {
-        ...options.jsonData,
-        adHocKeysQuery: (e.target as HTMLTextAreaElement).value,
-      },
-    });
-  };
-
-  const onUpdateAdHocValuesQuery = (e: FormEvent<HTMLTextAreaElement>) => {
-    onOptionsChange({
-      ...options,
-      jsonData: {
-        ...options.jsonData,
-        adHocValuesQuery: (e.target as HTMLTextAreaElement).value,
       },
     });
   };
@@ -407,42 +386,6 @@ export function ConfigEditor(props: Props) {
               label={labels.adHocTimeColumnVariable.label}
               aria-label={labels.adHocTimeColumnVariable.label}
             />
-          </Field>
-          <Field
-            data-testid={labels.adHocKeysQuery.testId}
-            label={labels.adHocKeysQuery.label}
-            description={labels.adHocKeysQuery.description}
-          >
-            <div style={{ width: "50em" }}>
-              <TextArea
-                name={"adHocKeysQuery"}
-                cols={40}
-                rows={4}
-                value={jsonData.adHocKeysQuery}
-                onChange={onUpdateAdHocKeysQuery}
-                label={labels.adHocKeysQuery.label}
-                aria-label={labels.adHocKeysQuery.label}
-                placeholder={labels.adHocKeysQuery.placeholder}
-              />
-            </div>
-          </Field>
-          <Field
-            data-testid={labels.adHocValuesQuery.testId}
-            label={labels.adHocValuesQuery.label}
-            description={labels.adHocValuesQuery.description}
-          >
-            <div style={{ width: "50em" }}>
-              <TextArea
-                name={"adHocValuesQuery"}
-                cols={40}
-                rows={4}
-                value={jsonData.adHocValuesQuery}
-                onChange={onUpdateAdHocValuesQuery}
-                label={labels.adHocValuesQuery.label}
-                aria-label={labels.adHocValuesQuery.label}
-                placeholder={labels.adHocValuesQuery.placeholder}
-              />
-            </div>
           </Field>
           <Field
             data-testid={labels.adHocDefaultTimeRange.testId}

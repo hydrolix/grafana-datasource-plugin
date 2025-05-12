@@ -266,10 +266,6 @@ interface ConfigPageLocator {
 
   adHocTimeColumnVariable(): Locator;
 
-  adHocKeysQuery(): Locator;
-
-  adHocValuesQuery(): Locator;
-
   adHocDefaultTimeRangeTimeselect(): Locator;
 
   dialTimeout(): Locator;

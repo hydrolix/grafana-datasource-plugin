@@ -6,6 +6,10 @@ export const COLUMNS_SQL =
   "SELECT name FROM system.columns WHERE database='{schema}' AND table ='{table}'";
 export const FUNCTIONS_SQL = "SELECT name FROM  system.functions";
 
+export const AD_HOC_KEY_QUERY = "DESCRIBE ${table}";
+export const AD_HOC_VALUE_QUERY =
+  "SELECT ${column}, COUNT(${column}) as count  FROM ${table} WHERE $__timeFilter(${timeColumn}) AND $__adHocFilter() GROUP BY ${column} ORDER BY count DESC LIMIT 100";
+
 export const SUPPORTED_TYPES = [
   "DateTime",
   "DateTime64",
