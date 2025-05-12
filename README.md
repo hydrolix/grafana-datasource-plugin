@@ -41,8 +41,6 @@ Following is the list of Hydrolix configuration options:
 | **Default round** (optional)                           | Used when a query does not specify a round value. Aligns `$from` and `$to` to the nearest multiple of this value. For more details, see [Round timestamps](#round-timestamps) |
 | **Ad-hoc filter table variable name** (optional)       | Variable indicating which table to use for ad hoc filter keys                                                                                                                 |
 | **Ad-hoc filter time column variable name** (optional) | Variable indicating which column to use for time filtering in value queries                                                                                                   |
-| **Ad-hoc filter keys query** (optional)                | Query template to retrieve possible keys for ad hoc filters                                                                                                                   |
-| **Ad-hoc filter values query** (optional)              | Query template to retrieve possible values for ad hoc filter keys                                                                                                             |
 | **Ad-hoc filter default time range** (optional)        | Default time range for filtering values for ad hoc filter keys when dashboard time range is not available                                                                     |
 | **Dial timeout** (optional)                            | Connection timeout in seconds                                                                                                                                                 |
 | **Query timeout** (optional)                           | Read timeout in seconds                                                                                                                                                       |
@@ -105,14 +103,7 @@ datasources:
       defaultDatabase: database
       defaultRound: 60s
       adHocTableVariable: table
-      adHocTimeColumnVariable: timeColumn
-      adHocKeysQuery: DESCRIBE $${table}
-      adHocValuesQuery: >
-        SELECT $${column}, COUNT(*) as count FROM $${table}
-        WHERE $$__timeFilter($${timeColumn}) AND $$__adHocFilter()
-        GROUP BY $${column}
-        ORDER BY count DESC
-        LIMIT 100
+      adHocTimeColumnVariable: timestamp
     secureJsonData:
       password: password
 ```
@@ -142,12 +133,12 @@ The editor provides extensive SQL capabilities, featuring:
 To simplify syntax and to allow for dynamic parts, like date range filters, the query can contain macros.
 
 | Macro                                        | Description                                                                                                           | Output example                                                                                        |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| -------------------------------------------- |-----------------------------------------------------------------------------------------------------------------------| ----------------------------------------------------------------------------------------------------- |
 | `$__dateFilter(column)`                      | Generates a condition to filter data (using the provided column) based on the panel's date range                      | `date >= toDate('2022-10-21') AND date <= toDate('2022-10-23')`                                       |
 | `$__timeFilter(column)`                      | Generates a condition to filter data (using the provided column) based on the panel's time range in seconds           | `time >= toDateTime(1415792726) AND time <= toDateTime(1447328726)`                                   |
 | `$__timeFilter_ms(column)`                   | Generates a condition to filter data (using the provided column) based on the panel's time range in milliseconds      | `time >= fromUnixTimestamp64Milli(1415792726123) AND time <= fromUnixTimestamp64Milli(1447328726456)` |
 | `$__dateTimeFilter(dateColumn, timeColumn)`  | Combines `$__dateFilter()` and `$__timeFilter()` for filtering with separate date and time columns                    | `$__dateFilter(dateColumn) AND $__timeFilter(timeColumn)`                                             |
-| `$__adHocFilter`                             | Replaced with a condition to filter data based on the ad hoc query                                                    | `statusCode = '200'`                                                                                  |
+| `$__adHocFilter`                             | Replaced with a condition to filter data based on the applied ad hoc filters                                          | `statusCode = '200'`                                                                                  |
 | `$__fromTime`                                | Replaced with the panel's start time, cast as `DateTime`                                                              | `toDateTime(1415792726)`                                                                              |
 | `$__toTime`                                  | Replaced with the panel's end time, cast as `DateTime`                                                                | `toDateTime(1447328726)`                                                                              |
 | `$__fromTime_ms`                             | Replaced with the panel's start time, cast as `DateTime64(3)` (millisecond precision)                                 | `fromUnixTimestamp64Milli(1415792726123)`                                                             |
@@ -192,8 +183,6 @@ To enable ad hoc filters, both the data source and the dashboard must be configu
      filter keys and values.
    - **Ad-hoc filter time column variable name**: the name of a dashboard variable that defines the time column used
      for time filtering in value queries.
-   - **Ad-hoc filter keys query**: a query template for listing possible keys.
-   - **Ad-hoc filter values query**: a query template for listing possible values.
    - **Ad-hoc filter default time range**: a default time range to use when the dashboard’s time range is unavailable.
 
 2. In the target dashboard, create two variables using the exact names defined in the data source settings:
@@ -202,39 +191,6 @@ To enable ad hoc filters, both the data source and the dashboard must be configu
 
 > **Note:** Ad hoc filters will not work unless both the data source and the dashboard are configured correctly. Be sure
 > to match variable names precisely.
-
-#### Query templates
-
-These templates are used to dynamically generate the list of available keys and values for filtering.
-
-**Keys query:**
-
-```sql
-DESCRIBE ${table}
-```
-
-**Values query:**
-
-```sql
-SELECT ${column}, COUNT(${column}) AS count
-FROM ${table}
-WHERE $__timeFilter(${timeColumn}) AND $__adHocFilter()
-GROUP BY ${column}
-ORDER BY count DESC
-LIMIT 100
-```
-
-In the query templates, certain placeholders are dynamically replaced with real values at runtime. Here is what each
-variable represents:
-
-| Name            | Description                                                                                                                        |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `${table}`      | Table from which the ad hoc keys and values are pulled                                                                             |
-| `${column}`     | Specific column selected by the user as a filter key. This value comes from the list of available fields returned by the key query |
-| `${timeColumn}` | Column used for applying the time filter                                                                                           |
-
-> For more details about ad hoc filters, see
-> Grafana’s [Ad hoc filters documentation](https://grafana.com/docs/grafana/latest/dashboards/variables/add-template-variables/#add-ad-hoc-filters).
 
 ### Round timestamps
 

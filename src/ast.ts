@@ -1,3 +1,5 @@
+import { AD_HOC_VALUE_QUERY } from "./constants";
+
 export function getTable(sql: string): string {
   const tableRegex = /FROM\s+(\S*)\s/;
   let match = tableRegex.exec(sql);
@@ -10,13 +12,11 @@ export function getTable(sql: string): string {
 export function getColumnValuesStatement(
   column: string,
   table: string,
-  timeColumn: string,
-  sqlTemplate: string
+  timeColumn: string
 ): string {
   // return `SELECT DISTINCT ${column} FROM ${getTable(sql)} WHERE $__timeFilter(${timeColumn}) AND $__adHocFilter() LIMIT 100`;
   // return `SELECT DISTINCT ${column}, COUNT(${column}) as count  FROM ${getTable(sql)} WHERE $__timeFilter(${timeColumn}) AND $__adHocFilter()  GROUP BY ${column} ORDER BY count DESC LIMIT 100`;
-  return sqlTemplate
-    .replaceAll("${column}", column)
+  return AD_HOC_VALUE_QUERY.replaceAll("${column}", column)
     .replaceAll("${table}", table)
     .replaceAll("${timeColumn}", timeColumn);
 }
