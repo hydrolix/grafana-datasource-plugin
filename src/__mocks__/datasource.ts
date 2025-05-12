@@ -18,8 +18,6 @@ export const MockDataSourceInstanceSettings: DataSourceInstanceSettings<HdxDataS
   {
     jsonData: {
       defaultDatabase: "sample",
-      adHocKeysQuery: "adHocKeysQuery",
-      adHocValuesQuery: "adHocValuesQuery",
       adHocTableVariable: "table",
       adHocTimeColumnVariable: "timefilter",
     },
