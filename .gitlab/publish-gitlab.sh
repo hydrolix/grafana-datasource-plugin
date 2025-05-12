@@ -7,8 +7,8 @@ if [ -z "$ZIP_NAME" ]; then
     exit 1
 fi
 
-PACKAGE_NAME=$(echo "$ZIP_NAME" | sed -E 's/(.*)-[^-]+\.zip/\1/')
-PACKAGE_VERSION=$(echo "$ZIP_NAME" | sed -E 's/.*-([0-9]+\.[0-9]+\.[0-9]+)\.zip/\1/')
+PACKAGE_NAME="${ZIP_NAME%-*.*.zip}"
+PACKAGE_VERSION=$(echo "$ZIP_NAME" | sed -E 's/^.*-([0-9]+\.[0-9]+\.[0-9]+[^/]*)\.zip$/\1/')
 
 if [ -z "$PACKAGE_NAME" ] || [ -z "$PACKAGE_VERSION" ]; then
     echo "Failed to extract package name or version"
