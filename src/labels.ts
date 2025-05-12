@@ -86,7 +86,7 @@ export default {
           testId: "data-testid hdx_adHocTableVariable",
           label: "Ad-hoc filter table variable name",
           description:
-            "Dashboard variable name to specify the table for retrieving ad-hoc filter keys",
+            "Dashboard variable name to specify the table for retrieving ad-hoc filter keys and values",
         },
         adHocTimeColumnVariable: {
           testId: "data-testid hdx_adHocTimeColumnVariable",

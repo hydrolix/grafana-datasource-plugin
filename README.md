@@ -26,7 +26,7 @@ You can configure the Hydrolix data source directly within Grafana or via config
 Following is the list of Hydrolix configuration options:
 
 | Name                                                   | Description                                                                                                                                                                   |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ------------------------------------------------------ |-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Name**                                               | The name used to reference this data source in panels and queries                                                                                                             |
 | **Default**                                            | Toggle to set this Hydrolix data source as the default in panels and visualizations                                                                                           |
 | **Server address**                                     | The IP address or hostname of your Hydrolix instance                                                                                                                          |
@@ -39,7 +39,7 @@ Following is the list of Hydrolix configuration options:
 | **Username**, **Password**                             | Credentials for connecting to your Hydrolix instance                                                                                                                          |
 | **Default database** (optional)                        | Used when no database is explicitly included in the query                                                                                                                     |
 | **Default round** (optional)                           | Used when a query does not specify a round value. Aligns `$from` and `$to` to the nearest multiple of this value. For more details, see [Round timestamps](#round-timestamps) |
-| **Ad-hoc filter table variable name** (optional)       | Variable indicating which table to use for ad hoc filter keys                                                                                                                 |
+| **Ad-hoc filter table variable name** (optional)       | Variable indicating which table to use for ad hoc filter keys and values                                                                                                      |
 | **Ad-hoc filter time column variable name** (optional) | Variable indicating which column to use for time filtering in value queries                                                                                                   |
 | **Ad-hoc filter default time range** (optional)        | Default time range for filtering values for ad hoc filter keys when dashboard time range is not available                                                                     |
 | **Dial timeout** (optional)                            | Connection timeout in seconds                                                                                                                                                 |
