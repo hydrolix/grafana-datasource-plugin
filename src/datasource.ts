@@ -20,7 +20,13 @@ import {
   logWarning,
   TemplateSrv,
 } from "@grafana/runtime";
-import { DEFAULT_QUERY, HdxDataSourceOptions, HdxQuery } from "./types";
+import {
+  AstResponse,
+  DEFAULT_QUERY,
+  HdxDataSourceOptions,
+  HdxQuery,
+  SelectQuery,
+} from "./types";
 import { from, Observable, switchMap } from "rxjs";
 import { map } from "rxjs/operators";
 import { ErrorMessageBeautifier } from "./errorBeautifier";
@@ -28,7 +34,7 @@ import {
   getMetadataProvider,
   ZERO_TIME_RANGE,
 } from "./editor/metadataProvider";
-import { getColumnValuesStatement, getTable as getAstTable } from "./ast";
+import { getColumnValuesStatement } from "./ast";
 import { getFirstValidRound, roundTimeRange } from "./editor/timeRangeUtils";
 import { applyMacros } from "./macros/macrosApplier";
 
@@ -74,21 +80,32 @@ export class DataSource extends DataSourceWithBackend<
         request.targets
           .filter((t) => !(t.skipNextRun && t.skipNextRun()))
           .map((t) =>
-            this.interpolateQuery(
-              t.rawSql,
-              request,
-              getFirstValidRound([
-                t.round,
-                this.instanceSettings.jsonData.defaultRound || "",
-              ])
-            ).then((q) => ({
-              ...t,
-              rawSql: q,
-              filters: undefined,
-              meta: {
-                timezone: this.resolveTimezone(request),
-              },
-            }))
+            this.getAst(t.rawSql).then(async (ast) => {
+              let q: string | undefined;
+              try {
+                q = await this.interpolateQuery(
+                  t.rawSql,
+                  request,
+                  getFirstValidRound([
+                    t.round,
+                    this.instanceSettings.jsonData.defaultRound || "",
+                  ]),
+                  ast.data
+                );
+              } catch (e: any) {
+                console.error(e);
+                throw new Error(`cannot interpolate query, ${e?.message}`);
+              }
+
+              return {
+                ...t,
+                rawSql: q,
+                filters: undefined,
+                meta: {
+                  timezone: this.resolveTimezone(request),
+                },
+              };
+            })
           )
       )
     );
@@ -144,19 +161,22 @@ export class DataSource extends DataSourceWithBackend<
   public interpolateQuery(
     sql: string,
     request: Partial<DataQueryRequest<HdxQuery>>,
-    round?: string
+    round?: string,
+    ast?: SelectQuery
   ) {
     return applyMacros(sql, {
       adHocFilter: {
         filters: request.filters,
-        keys: () =>
+        ast,
+        keys: (table: string) =>
           this.metadataProvider
-            .tableKeys(this.getTable(sql))
+            .tableKeys(table)
             .then((arr) => arr.map((k) => k.text)),
       },
       templateVars: this.templateSrv.getVariables(),
       replaceFn: this.templateSrv.replace.bind(this),
       intervalMs: request.intervalMs,
+      query: sql,
       timeRange:
         round && request.range
           ? roundTimeRange(request.range, round)
@@ -189,14 +209,24 @@ export class DataSource extends DataSourceWithBackend<
     }
   }
 
-  getTable(sql: string): string {
-    let astTable = getAstTable(sql);
-    const varRegex = /\$\{(.*)}/;
-    if (varRegex.test(astTable)) {
-      return this.templateSrv.replace(astTable);
-    } else {
-      return astTable;
-    }
+  async getAst(query: string): Promise<AstResponse> {
+    return new Promise((resolve) =>
+      setTimeout(
+        () =>
+          this.postResource("ast", {
+            data: { query },
+          }).then((a: any) => {
+            let queryAst: SelectQuery = a.data?.length ? a.data[0] : null;
+            return resolve({
+              error: a.error,
+              error_message: a.error_message,
+              data: queryAst,
+              originalSql: query,
+            });
+          }),
+        150
+      )
+    );
   }
 
   async getTagValues(

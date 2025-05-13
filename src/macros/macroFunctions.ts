@@ -1,15 +1,35 @@
 import { AdHocVariableFilter } from "@grafana/data";
 import { Context } from "macros/macrosApplier";
 import { DATE_FORMAT, VARIABLE_REGEX } from "../constants";
+import { traverseTree } from "../ast";
 
 export const adHocFilter = async (
   _: string[],
-  context: Context
+  context: Context,
+  index?: number
 ): Promise<string> => {
   let condition;
+  let tableName;
+  if (context.adHocFilter?.ast) {
+    let ast = context.adHocFilter?.ast;
+    let node = traverseTree(ast, (node) => {
+      return (
+        node.Where &&
+        traverseTree(
+          node.Where,
+          (n) => n.Name === "$__adHocFilter" && n.NamePos === index
+        )
+      );
+    });
+    let tableNode = node?.From?.Expr?.Table;
+    let start = tableNode?.TablePos;
+    let end = tableNode?.TableEnd;
+    tableName = context.query.substring(start, end);
+    console.log(`found ${tableName} at index ${index}`);
+  }
 
-  if (context.adHocFilter?.filters?.length) {
-    let keys = await context.adHocFilter.keys();
+  if (context.adHocFilter?.filters?.length && tableName) {
+    let keys = await context.adHocFilter.keys(tableName);
     condition = context.adHocFilter.filters
       .filter((f) => keys.includes(f.key))
       .map(getFilterExpression)
@@ -20,7 +40,6 @@ export const adHocFilter = async (
   }
   return condition;
 };
-
 export const getFilterExpression = (filter: AdHocVariableFilter): string => {
   let key = filter.key;
   if (filter.value === "null") {

@@ -7,7 +7,12 @@ import React, {
 } from "react";
 import { QueryEditorProps, SelectableValue } from "@grafana/data";
 import { DataSource } from "../datasource";
-import { HdxDataSourceOptions, HdxQuery, QueryType } from "../types";
+import {
+  AstResponse,
+  HdxDataSourceOptions,
+  HdxQuery,
+  QueryType,
+} from "../types";
 import { SQLEditor } from "@grafana/plugin-ui";
 import { languageDefinition } from "../editor/languageDefinition";
 import {
@@ -26,6 +31,7 @@ import {
 } from "../editor/timeRangeUtils";
 import { InterpolatedQuery } from "./InterpolatedQuery";
 import { ValidationBar } from "./ValidationBar";
+import { useDebounce } from "react-use";
 
 export type Props = QueryEditorProps<
   DataSource,
@@ -72,6 +78,10 @@ export function QueryEditor(props: Props) {
   const [interpolatedSql, setInterpolatedSql] = useState("");
   const [interpolatingErrorMessage, setInterpolatingErrorMessage] =
     useState("");
+  let [monaco, setMonaco] = useState<Monaco | null>(null);
+
+  let [debouncedSql, setDebouncedSql] = useState<string>("");
+  let [astResponse, setAstResponse] = useState<AstResponse | null>(null);
 
   const dryRun = useCallback(() => {
     if (!dryRunTriggered && props.query.rawSql) {
@@ -91,15 +101,16 @@ export function QueryEditor(props: Props) {
 
   useMemo(async () => {
     if (showSql) {
-      if (props.datasource.options) {
+      if (props.datasource.options && astResponse) {
         try {
           let interpolatedQuery = await props.datasource.interpolateQuery(
-            props.query.rawSql,
+            astResponse.originalSql,
             props.datasource.options,
             getFirstValidRound([
               props.query.round,
               props.datasource.instanceSettings.jsonData.defaultRound || "",
-            ])
+            ]),
+            astResponse.data
           );
           setInterpolatingErrorMessage("");
           setInterpolatedSql(interpolatedQuery);
@@ -116,7 +127,7 @@ export function QueryEditor(props: Props) {
         dryRun();
       }
     }
-  }, [props.datasource, props.query, dryRun, showSql]);
+  }, [props.datasource, props.query, dryRun, showSql, astResponse]);
 
   const onQueryTextChange = (queryText: string) => {
     props.onChange({ ...props.query, rawSql: queryText });
@@ -128,7 +139,18 @@ export function QueryEditor(props: Props) {
     invalidDuration.current = !QUERY_DURATION_REGEX.test(round);
     props.onChange({ ...props.query, round: round });
   };
-  let [monaco, setMonaco] = useState<Monaco | null>(null);
+
+  useDebounce(
+    () => {
+      setDebouncedSql(props.query.rawSql);
+    },
+    300,
+    [props.query.rawSql]
+  );
+  useMemo(async () => {
+    let astResponse: AstResponse = await props.datasource.getAst(debouncedSql);
+    setAstResponse(astResponse);
+  }, [debouncedSql, props.datasource]);
 
   return (
     <div>
@@ -142,7 +164,7 @@ export function QueryEditor(props: Props) {
             <div>
               <ValidationBar
                 monaco={monaco}
-                datasource={props.datasource}
+                astResponse={astResponse}
                 query={props.query.rawSql}
               />
               <div

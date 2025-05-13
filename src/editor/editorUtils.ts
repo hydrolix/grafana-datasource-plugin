@@ -54,7 +54,6 @@ export const underline = (
   start: number,
   end: number
 ): void => {
-  console.log("underline");
   if (!m) {
     return;
   }
@@ -80,7 +79,6 @@ export const underline = (
 };
 
 export const removeUnderline = (m: Monaco | null): void => {
-  console.log("underline");
   if (!m) {
     return;
   }

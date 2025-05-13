@@ -71,6 +71,7 @@ export interface AdHocFilterKeys {
 }
 
 export interface AstResponse {
+  originalSql: string;
   error: boolean;
   error_message: string;
   data: any;
@@ -83,4 +84,54 @@ export interface ValidationResult {
   hasWarnings: boolean;
   error?: string;
   warning?: string;
+}
+
+export interface SelectQuery {
+  SelectItems: SelectItem[];
+  From: Expr;
+  Where: Expr;
+  GroupBy: GroupBy;
+  OrderBy: OrderBy;
+  Settings: Settings;
+}
+
+export interface Settings {
+  Items: Expr[];
+}
+export interface SelectItem {
+  Expr: Expr;
+  Modifiers: [];
+  Alias: Alias;
+}
+interface OrderBy {
+  Items: Expr[];
+}
+interface GroupBy {
+  AggregateType: string;
+  Expr: Expr;
+}
+export interface Alias {
+  Name: string;
+}
+export interface ColumnExprList {
+  HasDistinct: boolean;
+  Items: Expr[];
+}
+export interface Params {
+  Items: ColumnExprList;
+}
+export interface TableIdentifier {}
+
+export interface Expr {
+  Expr: Expr;
+  Name: string;
+  Literal: string;
+  Alias: Alias;
+  Direction: string;
+  Params: Params;
+  LeftExpr: Expr;
+  RightExpr: Expr;
+  Table: Expr;
+  Database: Expr;
+  Operation: string;
 }

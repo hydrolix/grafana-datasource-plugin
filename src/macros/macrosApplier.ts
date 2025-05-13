@@ -23,7 +23,8 @@ import {
 const macroFunctions: {
   [macro: string]: (
     params: string[],
-    context: Context
+    context: Context,
+    index: number
   ) => Promise<string> | string;
 } = {
   adHocFilter,
@@ -44,7 +45,7 @@ const macroFunctions: {
 
 export const applyMacros = async (sql: string, context: Context) => {
   return await Object.keys(macroFunctions)
-    .sort((x, y) => y.length - x.length)
+    .sort((x, y) => (y === "adHocFilter" ? 1 : y.length - x.length))
     .reduce(
       async (sqlPromise, macroName) =>
         await applyMacro(await sqlPromise, macroName, context),
@@ -53,7 +54,9 @@ export const applyMacros = async (sql: string, context: Context) => {
 };
 
 const applyMacro = async (sql: string, macroName: string, context: Context) => {
-  let macrosRe = new RegExp(`\\$__${macroName}(?:\\b\\(\\s*\\)|\\b)`);
+  let macrosRe = new RegExp(
+    `\\$__${macroName}(?:\\b\\(\\s*\\)|\\b)(?!(.|\\r\\n|\\r|\\n)*${macroName})`
+  );
   while (macrosRe.test(sql)) {
     let match = macrosRe.exec(sql);
     if (!match) {
@@ -62,11 +65,11 @@ const applyMacro = async (sql: string, macroName: string, context: Context) => {
     let argsIndex = match.index + `$__${macroName}`.length;
     let params = parseMacroArgs(sql, argsIndex);
     let hasParams = params && params.length > 0 && params[0] !== "";
-    let phrase = await macroFunctions[macroName](params, context);
+    let phrase = await macroFunctions[macroName](params, context, match.index);
     if (hasParams) {
       sql = sql.replace(`${match[0]}(${params.join(",")})`, phrase);
     } else {
-      sql = sql.replace(match[0], phrase);
+      sql = sql.replace(macrosRe, phrase);
     }
   }
   return sql;
@@ -105,20 +108,21 @@ export interface Context {
   adHocFilter?: AdHocFilterContext;
   templateVars: TypedVariableModel[];
   replaceFn: (s: string) => string;
-
+  query: string;
   intervalMs?: number;
   timeRange?: TimeRange;
 }
 
 interface AdHocFilterContext {
   filters?: AdHocVariableFilter[];
-  keys: () => Promise<string[]>;
+  ast?: any;
+  keys: (table: string) => Promise<string[]>;
 }
 
 export const emptyContext: Context = {
   templateVars: [],
   replaceFn: (s) => s,
-
+  query: "",
   timeRange: {
     from: dateTime().subtract("5m"),
     to: dateTime(),

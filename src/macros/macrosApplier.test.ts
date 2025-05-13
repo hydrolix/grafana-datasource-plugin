@@ -1,6 +1,7 @@
 import { emptyContext, parseMacroArgs, applyMacros } from "./macrosApplier";
 import { dateTime, TimeRange, TypedVariableModel } from "@grafana/data";
 import { getFilterExpression } from "./macroFunctions";
+import { adHocQueryAST } from "../__mocks__/ast";
 
 describe("macros base applier", () => {
   it("apply with one macro", async () => {
@@ -149,7 +150,9 @@ describe("$__adHocFilter", () => {
       adHocFilter: {
         ...context.adHocFilter,
         filters: [{ key: "column1", operator: "=", value: "value" }],
+        ast: adHocQueryAST,
       },
+      query: SQL_WITH_FILTER,
     });
     expect(actual).toEqual(
       "SELECT column1, columnt2 FROM table WHERE column1 = 'value'"
@@ -164,7 +167,9 @@ describe("$__adHocFilter", () => {
           { key: "column1", operator: "=", value: "value" },
           { key: "column2", operator: "<", value: "value2" },
         ],
+        ast: adHocQueryAST,
       },
+      query: SQL_WITH_FILTER,
     });
     expect(actual).toEqual(
       "SELECT column1, columnt2 FROM table WHERE column1 = 'value' AND column2 < 'value2'"
@@ -180,7 +185,9 @@ describe("$__adHocFilter", () => {
           { key: "column2", operator: "<", value: "value2" },
           { key: "column3", operator: "=", value: "value3" },
         ],
+        ast: adHocQueryAST,
       },
+      query: SQL_WITH_FILTER,
     });
     expect(actual).toEqual(
       "SELECT column1, columnt2 FROM table WHERE column1 = 'value' AND column2 < 'value2'"

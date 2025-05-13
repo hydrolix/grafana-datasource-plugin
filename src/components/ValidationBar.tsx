@@ -3,17 +3,16 @@ import React, { useCallback, useMemo, useState } from "react";
 import { css } from "@emotion/css";
 import { AstResponse, ValidationResult } from "../types";
 import { removeUnderline, underline } from "../editor/editorUtils";
-import { useDebounce } from "react-use";
-import { DataSource } from "../datasource";
 import "./ValidationBar.css";
+import { validateQuery } from "../editor/queryValidation";
 
 interface Props {
   monaco: Monaco | null;
-  datasource: DataSource;
+  astResponse: AstResponse | null;
   query: string;
 }
 
-export function ValidationBar({ monaco, datasource, query }: Props) {
+export function ValidationBar({ monaco, query, astResponse }: Props) {
   let [validationResult, setValidationResult] = useState<ValidationResult>({
     noQuery: true,
     validating: false,
@@ -30,29 +29,31 @@ export function ValidationBar({ monaco, datasource, query }: Props) {
   const removeUnderlineError = useCallback(() => {
     removeUnderline(monaco);
   }, [monaco]);
+  const [precessedSql, setPrecessedSql] = useState("");
+  const processAst = useCallback(() => {
+    if (!astResponse) {
+      return;
+    }
+    removeUnderlineError();
+    setPrecessedSql(astResponse.originalSql);
+    if (astResponse?.originalSql !== query && !validationResult.validating) {
+      setValidationResult({
+        noQuery: true,
+        validating: false,
+        hasWarnings: false,
+        hasErrors: false,
+      });
+    }
 
-  const ast = useCallback(
-    async (query: string) => {
+    if (astResponse.originalSql !== query) {
       setValidationResult({
         validating: true,
         hasWarnings: false,
         hasErrors: false,
       });
-      removeUnderlineError();
-      let astResponse: AstResponse = await new Promise((resolve) =>
-        setTimeout(
-          () =>
-            datasource
-              .postResource("ast", {
-                data: { query },
-              })
-              .then((a) => resolve(a as AstResponse)),
-          1000
-        )
-      );
+    } else {
       if (astResponse.error) {
         const fullMessage = astResponse.error_message;
-        console.log(fullMessage);
         const errorRegExp = /^line\s(\d*):(\d*)/;
 
         const [message, _, arrows] = fullMessage.split("\n");
@@ -77,25 +78,35 @@ export function ValidationBar({ monaco, datasource, query }: Props) {
           });
         }
       } else {
-        setValidationResult({
-          noQuery: !astResponse.data,
-          validating: false,
-          hasWarnings: false,
-          hasErrors: false,
-        });
-        console.log("ast", astResponse.data);
+        if (!astResponse.data) {
+          setValidationResult({
+            noQuery: true,
+            validating: false,
+            hasWarnings: false,
+            hasErrors: false,
+          });
+        } else {
+          setValidationResult(validateQuery(astResponse.data));
+        }
       }
-    },
-    [datasource, underlineError, removeUnderlineError]
-  );
-
-  useDebounce(
-    async () => {
-      ast(query);
-    },
-    500,
-    [query]
-  );
+    }
+  }, [
+    validationResult,
+    query,
+    astResponse,
+    underlineError,
+    removeUnderlineError,
+  ]);
+  if (precessedSql !== astResponse?.originalSql) {
+    processAst();
+  }
+  if (precessedSql !== query && !validationResult.validating) {
+    setValidationResult({
+      ...validationResult,
+      validating: true,
+    });
+    removeUnderlineError();
+  }
 
   const theme = useTheme2();
   const styles = useMemo(() => {
@@ -133,12 +144,9 @@ export function ValidationBar({ monaco, datasource, query }: Props) {
       `,
     };
   }, [theme]);
-  let style = {};
-  // if (!showTools && validationResult === undefined) {
-  //   style = { height: 0, padding: 0, visibility: "hidden" };
-  // }
+
   return (
-    <div className={styles.container} style={style}>
+    <div className={styles.container}>
       {!validationResult.noQuery && (
         <>
           {validationResult.validating && (
@@ -150,7 +158,7 @@ export function ValidationBar({ monaco, datasource, query }: Props) {
             !validationResult.hasErrors &&
             !validationResult.hasWarnings && (
               <div className={styles.valid}>
-                <Icon name="check" /> This query is valid
+                <Icon name="check" /> No errors found
               </div>
             )}
           {!validationResult.validating && validationResult.hasErrors && (

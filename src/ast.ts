@@ -1,12 +1,33 @@
-export function getTable(sql: string): string {
-  const tableRegex = /FROM\s+(\S*)\s/;
-  let match = tableRegex.exec(sql);
-  if (match) {
-    return match[1];
+export const traverseTree = (
+  tree: any,
+  predicate: (node: any) => boolean
+): any => {
+  if (predicate(tree)) {
+    return tree;
+  } else {
+    for (const key in tree) {
+      if (tree.hasOwnProperty(key) && tree[key]) {
+        if (isObject(tree[key])) {
+          const node = traverseTree(tree[key], predicate);
+          if (node) {
+            return node;
+          }
+        } else if (Array.isArray(tree[key])) {
+          for (const el of tree[key]) {
+            const node = traverseTree(el, predicate);
+            if (node) {
+              return node;
+            }
+          }
+        }
+      }
+    }
   }
-  return "";
-}
+};
 
+export const isObject = (value: any): boolean => {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+};
 export function getColumnValuesStatement(
   column: string,
   table: string,
