@@ -294,8 +294,6 @@ publish-gitlab:
   when: manual
   needs: [zip, e2e]
   tags: [gitlab-org]
-  before_script:
-    - .gitlab/set-version.sh
   script:
     - .gitlab/publish-gitlab.sh
 
@@ -305,8 +303,6 @@ publish-aws:
   when: manual
   needs: [zip, e2e]
   tags: [gitlab-org]
-  before_script:
-    - .gitlab/set-version.sh
   script:
     - .gitlab/publish-aws.sh "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY"
 
