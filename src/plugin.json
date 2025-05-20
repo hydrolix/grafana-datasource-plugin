@@ -28,7 +28,12 @@
         "url": "https://github.com/hydrolix/grafana-datasource-plugin/blob/main/LICENSE"
       }
     ],
-    "screenshots": [],
+    "screenshots": [
+      {
+        "name": "Hydrolix-powered dashboard with ad hoc filter",
+        "path": "img/screenshot.png"
+      }
+    ],
     "version": "%VERSION%",
     "updated": "%TODAY%"
   },

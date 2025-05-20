@@ -7,7 +7,6 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/sqlds/v4"
 	"github.com/hydrolix/plugin/pkg/plugin"
-	"github.com/hydrolix/plugin/pkg/testhelpers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"testing"
@@ -15,7 +14,7 @@ import (
 
 type DatasourceTestSuite struct {
 	suite.Suite
-	testhelpers.DsTestSuite
+	DsTestSuite
 }
 
 func (s *DatasourceTestSuite) SetupSuite() {

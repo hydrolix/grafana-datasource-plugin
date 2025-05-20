@@ -1,4 +1,4 @@
-package testhelpers
+package plugin_test
 
 import (
 	"context"
