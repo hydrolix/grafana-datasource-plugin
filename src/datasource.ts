@@ -25,6 +25,7 @@ import {
   DEFAULT_QUERY,
   HdxDataSourceOptions,
   HdxQuery,
+  InterpolationResult,
   SelectQuery,
 } from "./types";
 import { from, Observable, switchMap } from "rxjs";
@@ -37,6 +38,7 @@ import {
 import { getColumnValuesStatement } from "./ast";
 import { getFirstValidRound, roundTimeRange } from "./editor/timeRangeUtils";
 import { applyMacros } from "./macros/macrosApplier";
+import { validateQuery } from "./editor/queryValidation";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -79,34 +81,34 @@ export class DataSource extends DataSourceWithBackend<
       Promise.all(
         request.targets
           .filter((t) => !(t.skipNextRun && t.skipNextRun()))
-          .map((t) =>
-            this.getAst(t.rawSql).then(async (ast) => {
-              let q: string | undefined;
-              try {
-                q = await this.interpolateQuery(
-                  t.rawSql,
-                  request,
-                  getFirstValidRound([
-                    t.round,
-                    this.instanceSettings.jsonData.defaultRound || "",
-                  ]),
-                  ast.data
-                );
-              } catch (e: any) {
-                console.error(e);
-                throw new Error(`cannot interpolate query, ${e?.message}`);
-              }
+          .map(async (t) => {
+            let q: string | undefined;
+            try {
+              q =
+                (
+                  await this.interpolateQuery(
+                    t.rawSql,
+                    request,
+                    getFirstValidRound([
+                      t.round,
+                      this.instanceSettings.jsonData.defaultRound || "",
+                    ])
+                  )
+                ).interpolatedSql || "";
+            } catch (e: any) {
+              console.error(e);
+              throw new Error(`cannot interpolate query, ${e?.message}`);
+            }
 
-              return {
-                ...t,
-                rawSql: q,
-                filters: undefined,
-                meta: {
-                  timezone: this.resolveTimezone(request),
-                },
-              };
-            })
-          )
+            return {
+              ...t,
+              rawSql: q,
+              filters: undefined,
+              meta: {
+                timezone: this.resolveTimezone(request),
+              },
+            };
+          })
       )
     );
 
@@ -158,30 +160,69 @@ export class DataSource extends DataSourceWithBackend<
     );
   }
 
-  public interpolateQuery(
+  public async interpolateQuery(
     sql: string,
     request: Partial<DataQueryRequest<HdxQuery>>,
-    round?: string,
-    ast?: SelectQuery
-  ) {
-    return applyMacros(sql, {
-      adHocFilter: {
-        filters: request.filters,
-        ast,
-        keys: (table: string) =>
-          this.metadataProvider
-            .tableKeys(table)
-            .then((arr) => arr.map((k) => k.text)),
-      },
-      templateVars: this.templateSrv.getVariables(),
-      replaceFn: this.templateSrv.replace.bind(this),
-      intervalMs: request.intervalMs,
-      query: sql,
-      timeRange:
-        round && request.range
-          ? roundTimeRange(request.range, round)
-          : request.range,
-    }).then((s) => this.templateSrv.replace(s));
+    round?: string
+  ): Promise<InterpolationResult> {
+    let astResponse;
+    try {
+      astResponse = await this.getAst(sql);
+
+      let s = await applyMacros(sql, {
+        adHocFilter: {
+          filters: request.filters,
+          ast: astResponse.data,
+          keys: (table: string) =>
+            this.metadataProvider
+              .tableKeys(table)
+              .then((arr) => arr.map((k) => k.text)),
+        },
+        templateVars: this.templateSrv.getVariables(),
+        replaceFn: this.templateSrv.replace.bind(this),
+        intervalMs: request.intervalMs,
+        query: sql,
+        timeRange:
+          round && request.range
+            ? roundTimeRange(request.range, round)
+            : request.range,
+      });
+      let interpolatedSql = this.templateSrv.replace(s);
+      if (astResponse.error) {
+        return {
+          originalSql: sql,
+          interpolatedSql: interpolatedSql,
+          hasError: true,
+          hasWarning: false,
+          error: astResponse.error_message || "Unknown Error",
+        };
+      }
+      if (!astResponse.data) {
+        return {
+          originalSql: sql,
+          interpolatedSql: interpolatedSql,
+          hasError: false,
+          hasWarning: false,
+        };
+      }
+      let validationResult = validateQuery(astResponse.data);
+      return {
+        originalSql: sql,
+        interpolatedSql: interpolatedSql,
+        hasError: !!validationResult?.error,
+        hasWarning: !!validationResult?.warning,
+        error: validationResult?.error,
+        warning: validationResult?.warning,
+      };
+    } catch (e: any) {
+      console.error(e);
+      return {
+        originalSql: sql,
+        hasError: true,
+        hasWarning: false,
+        error: e.message || "Unknown Error",
+      };
+    }
   }
 
   getDefaultQuery(_: CoreApp): Partial<HdxQuery> {
@@ -214,7 +255,12 @@ export class DataSource extends DataSourceWithBackend<
       setTimeout(
         () =>
           this.postResource("ast", {
-            data: { query },
+            data: {
+              query: query
+                ?.replaceAll("{", "(")
+                ?.replaceAll("}", ")")
+                ?.replaceAll(":", "_"),
+            },
           }).then((a: any) => {
             let queryAst: SelectQuery = a.data?.length ? a.data[0] : null;
             return resolve({
@@ -224,7 +270,7 @@ export class DataSource extends DataSourceWithBackend<
               originalSql: query,
             });
           }),
-        150
+        1000
       )
     );
   }
@@ -273,13 +319,15 @@ export class DataSource extends DataSourceWithBackend<
     }
 
     let response = await this.metadataProvider.executeQuery(
-      await this.interpolateQuery(sql, {
-        ...this.options,
-        filters: options.filters,
-        range:
-          options.timeRange ||
-          this.instanceSettings.jsonData.adHocDefaultTimeRange,
-      })
+      (
+        await this.interpolateQuery(sql, {
+          ...this.options,
+          filters: options.filters,
+          range:
+            options.timeRange ||
+            this.instanceSettings.jsonData.adHocDefaultTimeRange,
+        })
+      ).interpolatedSql || ""
     );
     let fields: Field[] = response.data[0]?.fields?.length
       ? response.data[0].fields

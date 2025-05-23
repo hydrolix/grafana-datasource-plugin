@@ -12,9 +12,6 @@ const fromWithoutWhere = (ast: any): ValidationResult | null => {
   );
   if (errorNode) {
     return {
-      validating: false,
-      hasErrors: false,
-      hasWarnings: true,
       warning: "No WHERE clause for select query",
     };
   }
@@ -32,9 +29,5 @@ export const validateQuery = (ast: any): ValidationResult => {
       return result;
     }
   }
-  return {
-    validating: false,
-    hasErrors: false,
-    hasWarnings: false,
-  };
+  return {};
 };

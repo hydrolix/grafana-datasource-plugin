@@ -8,9 +8,9 @@ import React, {
 import { QueryEditorProps, SelectableValue } from "@grafana/data";
 import { DataSource } from "../datasource";
 import {
-  AstResponse,
   HdxDataSourceOptions,
   HdxQuery,
+  InterpolationResult,
   QueryType,
 } from "../types";
 import { SQLEditor } from "@grafana/plugin-ui";
@@ -32,6 +32,10 @@ import {
 import { InterpolatedQuery } from "./InterpolatedQuery";
 import { ValidationBar } from "./ValidationBar";
 import { useDebounce } from "react-use";
+import {
+  SHOW_INTERPOLATED_QUERY_ERRORS,
+  SHOW_VALIDATION_BAR,
+} from "../constants";
 
 export type Props = QueryEditorProps<
   DataSource,
@@ -75,13 +79,13 @@ export function QueryEditor(props: Props) {
 
   const [showSql, setShowSql] = useState(false);
   const [dryRunTriggered, setDryRunTriggered] = useState(false);
-  const [interpolatedSql, setInterpolatedSql] = useState("");
-  const [interpolatingErrorMessage, setInterpolatingErrorMessage] =
-    useState("");
+  const [interpolationResult, setInterpolationResult] =
+    useState<InterpolationResult>({
+      hasError: false,
+      hasWarning: false,
+    });
+  useState("");
   let [monaco, setMonaco] = useState<Monaco | null>(null);
-
-  let [debouncedSql, setDebouncedSql] = useState<string>("");
-  let [astResponse, setAstResponse] = useState<AstResponse | null>(null);
 
   const dryRun = useCallback(() => {
     if (!dryRunTriggered && props.query.rawSql) {
@@ -99,36 +103,6 @@ export function QueryEditor(props: Props) {
     }
   }, [props, dryRunTriggered]);
 
-  useMemo(async () => {
-    if (showSql) {
-      if (props.datasource.options && astResponse) {
-        try {
-          let interpolatedQuery = await props.datasource.interpolateQuery(
-            astResponse.originalSql,
-            props.datasource.options,
-            getFirstValidRound([
-              props.query.round,
-              props.datasource.instanceSettings.jsonData.defaultRound || "",
-            ]),
-            astResponse.data
-          );
-          setInterpolatingErrorMessage("");
-          setInterpolatedSql(interpolatedQuery);
-        } catch (e) {
-          let message;
-          if (e instanceof Error) {
-            message = e.message;
-          } else {
-            message = "Unknown Error";
-          }
-          setInterpolatingErrorMessage(message);
-        }
-      } else {
-        dryRun();
-      }
-    }
-  }, [props.datasource, props.query, dryRun, showSql, astResponse]);
-
   const onQueryTextChange = (queryText: string) => {
     props.onChange({ ...props.query, rawSql: queryText });
   };
@@ -141,17 +115,28 @@ export function QueryEditor(props: Props) {
   };
 
   useDebounce(
-    () => {
-      setDebouncedSql(props.query.rawSql);
+    async () => {
+      if (showSql || SHOW_VALIDATION_BAR) {
+        if (props.datasource.options) {
+          let interpolatedQuery = await props.datasource.interpolateQuery(
+            props.query.rawSql,
+            props.datasource.options,
+            getFirstValidRound([
+              props.query.round,
+              props.datasource.instanceSettings.jsonData.defaultRound || "",
+            ])
+          );
+          setInterpolationResult(interpolatedQuery);
+        } else {
+          dryRun();
+        }
+      }
     },
     300,
-    [props.query.rawSql]
+    [props.query.rawSql, showSql]
   );
-  useMemo(async () => {
-    let astResponse: AstResponse = await props.datasource.getAst(debouncedSql);
-    setAstResponse(astResponse);
-  }, [debouncedSql, props.datasource]);
-
+  // eslint-disable-next-line eqeqeq
+  let dirty = interpolationResult?.originalSql != props.query.rawSql;
   return (
     <div>
       <SQLEditor
@@ -162,11 +147,13 @@ export function QueryEditor(props: Props) {
         {({ formatQuery }) => {
           return (
             <div>
-              <ValidationBar
-                monaco={monaco}
-                astResponse={astResponse}
-                query={props.query.rawSql}
-              />
+              {SHOW_VALIDATION_BAR && (
+                <ValidationBar
+                  monaco={monaco}
+                  interpolationResult={interpolationResult}
+                  query={props.query.rawSql}
+                />
+              )}
               <div
                 style={{
                   display: "flex",
@@ -229,9 +216,11 @@ export function QueryEditor(props: Props) {
         }}
       </SQLEditor>
       <InterpolatedQuery
-        sql={interpolatedSql}
-        error={interpolatingErrorMessage}
+        sql={interpolationResult.interpolatedSql ?? ""}
+        error={interpolationResult.error ?? ""}
         showSQL={showSql}
+        dirty={dirty}
+        showErrors={SHOW_INTERPOLATED_QUERY_ERRORS}
       />
     </div>
   );

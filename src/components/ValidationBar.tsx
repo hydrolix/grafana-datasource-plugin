@@ -1,24 +1,18 @@
 import { Icon, Monaco, Spinner, useTheme2 } from "@grafana/ui";
 import React, { useCallback, useMemo, useState } from "react";
 import { css } from "@emotion/css";
-import { AstResponse, ValidationResult } from "../types";
+import { InterpolationResult } from "../types";
 import { removeUnderline, underline } from "../editor/editorUtils";
 import "./ValidationBar.css";
-import { validateQuery } from "../editor/queryValidation";
 
 interface Props {
   monaco: Monaco | null;
-  astResponse: AstResponse | null;
+  interpolationResult: InterpolationResult | null;
   query: string;
 }
 
-export function ValidationBar({ monaco, query, astResponse }: Props) {
-  let [validationResult, setValidationResult] = useState<ValidationResult>({
-    noQuery: true,
-    validating: false,
-    hasErrors: false,
-    hasWarnings: false,
-  });
+export function ValidationBar({ monaco, query, interpolationResult }: Props) {
+  let [validating, setValidating] = useState<boolean>(false);
 
   const underlineError = useCallback(
     (line: number, start: number, end: number) => {
@@ -29,84 +23,33 @@ export function ValidationBar({ monaco, query, astResponse }: Props) {
   const removeUnderlineError = useCallback(() => {
     removeUnderline(monaco);
   }, [monaco]);
-  const [precessedSql, setPrecessedSql] = useState("");
-  const processAst = useCallback(() => {
-    if (!astResponse) {
-      return;
-    }
-    removeUnderlineError();
-    setPrecessedSql(astResponse.originalSql);
-    if (astResponse?.originalSql !== query && !validationResult.validating) {
-      setValidationResult({
-        noQuery: true,
-        validating: false,
-        hasWarnings: false,
-        hasErrors: false,
-      });
-    }
 
-    if (astResponse.originalSql !== query) {
-      setValidationResult({
-        validating: true,
-        hasWarnings: false,
-        hasErrors: false,
-      });
-    } else {
-      if (astResponse.error) {
-        const fullMessage = astResponse.error_message;
-        const errorRegExp = /^line\s(\d*):(\d*)/;
+  useMemo(() => {
+    if (interpolationResult?.hasError) {
+      const fullMessage = interpolationResult.error ?? "";
+      const errorRegExp = /^line\s(\d*):(\d*)/;
 
-        const [message, _, arrows] = fullMessage.split("\n");
-        const match = errorRegExp.exec(message);
-        if (match) {
-          const line = parseInt(match[1], 10) + 1;
-          const start = parseInt(match[2], 10) + 1;
-          const end = start + arrows.trim().length + 1;
-          underlineError(line, start, end);
-          setValidationResult({
-            validating: false,
-            hasWarnings: false,
-            hasErrors: true,
-            error: message,
-          });
-        } else {
-          setValidationResult({
-            validating: false,
-            hasWarnings: false,
-            hasErrors: true,
-            error: fullMessage,
-          });
-        }
+      const [message, _, arrows] = fullMessage.split("\n");
+      const match = errorRegExp.exec(message);
+      if (match) {
+        const line = parseInt(match[1], 10) + 1;
+        const start = parseInt(match[2], 10) + 1;
+        const end = start + arrows.trim().length + 1;
+        underlineError(line, start, end);
       } else {
-        if (!astResponse.data) {
-          setValidationResult({
-            noQuery: true,
-            validating: false,
-            hasWarnings: false,
-            hasErrors: false,
-          });
-        } else {
-          setValidationResult(validateQuery(astResponse.data));
-        }
+        removeUnderlineError();
       }
     }
   }, [
-    validationResult,
-    query,
-    astResponse,
-    underlineError,
+    interpolationResult?.error,
+    interpolationResult?.hasError,
     removeUnderlineError,
+    underlineError,
   ]);
-  if (precessedSql !== astResponse?.originalSql) {
-    processAst();
-  }
-  if (precessedSql !== query && !validationResult.validating) {
-    setValidationResult({
-      ...validationResult,
-      validating: true,
-    });
-    removeUnderlineError();
-  }
+
+  useMemo(() => {
+    setValidating(interpolationResult?.originalSql !== query);
+  }, [query, interpolationResult?.originalSql]);
 
   const theme = useTheme2();
   const styles = useMemo(() => {
@@ -147,30 +90,31 @@ export function ValidationBar({ monaco, query, astResponse }: Props) {
 
   return (
     <div className={styles.container}>
-      {!validationResult.noQuery && (
+      {interpolationResult?.interpolatedSql && (
         <>
-          {validationResult.validating && (
+          {validating && (
             <div className={styles.info}>
               <Spinner inline={true} size={12} /> Validating query...
             </div>
           )}
-          {!validationResult.validating &&
-            !validationResult.hasErrors &&
-            !validationResult.hasWarnings && (
+          {!validating &&
+            !interpolationResult.hasError &&
+            !interpolationResult.hasWarning && (
               <div className={styles.valid}>
                 <Icon name="check" /> No errors found
               </div>
             )}
-          {!validationResult.validating && validationResult.hasErrors && (
+          {!validating && interpolationResult.hasError && (
             <div className={styles.error}>
-              <Icon name="exclamation-circle" /> {validationResult.error}
+              <Icon name="exclamation-circle" /> {interpolationResult.error}
             </div>
           )}
-          {!validationResult.validating &&
-            !validationResult.hasErrors &&
-            validationResult.hasWarnings && (
+          {!validating &&
+            !interpolationResult.hasError &&
+            interpolationResult.hasWarning && (
               <div className={styles.warning}>
-                <Icon name="exclamation-triangle" /> {validationResult.warning}
+                <Icon name="exclamation-triangle" />{" "}
+                {interpolationResult.warning}
               </div>
             )}
         </>

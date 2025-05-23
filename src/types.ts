@@ -77,11 +77,16 @@ export interface AstResponse {
   data: any;
 }
 
+export interface InterpolationResult {
+  originalSql?: string;
+  interpolatedSql?: string;
+  hasError: boolean;
+  hasWarning: boolean;
+  error?: string;
+  warning?: string;
+}
+
 export interface ValidationResult {
-  noQuery?: boolean;
-  validating: boolean;
-  hasErrors: boolean;
-  hasWarnings: boolean;
   error?: string;
   warning?: string;
 }

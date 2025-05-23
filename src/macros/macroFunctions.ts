@@ -25,7 +25,6 @@ export const adHocFilter = async (
     let start = tableNode?.TablePos;
     let end = tableNode?.TableEnd;
     tableName = context.query.substring(start, end);
-    console.log(`found ${tableName} at index ${index}`);
   }
 
   if (context.adHocFilter?.filters?.length && tableName) {

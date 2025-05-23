@@ -82,21 +82,37 @@ export const removeUnderline = (m: Monaco | null): void => {
   if (!m) {
     return;
   }
-  const range = new m.Range(1, 0, Number.MAX_VALUE, Number.MAX_VALUE);
+  //const range = new m.Range(1, 0, Number.MAX_VALUE, Number.MAX_VALUE);
   // @ts-ignore
-  if (m.editor.createDecorationsCollection) {
+  if (m.editor.getDecorationsInRange) {
     // grafana 11.x
     // @ts-ignore
-    m.editor.createDecorationsCollection(decorations);
+    const range = m.editor.getModel().getFullModelRange();
+    // @ts-ignore
+    m.editor.removeDecorations(
+      // @ts-ignore
+      m.editor
+        // @ts-ignore
+        .getDecorationsInRange(range)
+        // @ts-ignore
+        ?.filter((d) => d.options.inlineClassName === "myInlineDecoration")
+        // @ts-ignore
+        ?.map((d) => d.id) ?? []
+    );
   } else {
     // grafana 10.x
     m.editor
       .getEditors()
       .filter((e) => e.getDecorationsInRange)
-      .map((e) =>
-        e.removeDecorations(
-          e.getDecorationsInRange(range)?.map((d) => d.id) ?? []
-        )
-      );
+      .map((e) => {
+        // @ts-ignore
+        const range = e.getModel().getFullModelRange();
+        return e.removeDecorations(
+          e
+            .getDecorationsInRange(range)
+            ?.filter((d) => d.options.inlineClassName === "myInlineDecoration")
+            .map((d) => d.id) ?? []
+        );
+      });
   }
 };

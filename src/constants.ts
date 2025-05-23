@@ -1,3 +1,5 @@
+export const SHOW_VALIDATION_BAR = false;
+export const SHOW_INTERPOLATED_QUERY_ERRORS = true;
 export const SCHEMA_SQL =
   "SELECT DISTINCT database as project FROM system.tables WHERE engine = 'TurbineStorage' AND (project != 'sample_project' AND project != 'hdx' AND total_rows > 0)";
 export const TABLES_SQL =
