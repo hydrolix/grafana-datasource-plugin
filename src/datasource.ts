@@ -37,7 +37,7 @@ import {
 } from "./editor/metadataProvider";
 import { getColumnValuesStatement } from "./ast";
 import { getFirstValidRound, roundTimeRange } from "./editor/timeRangeUtils";
-import { applyMacros } from "./macros/macrosApplier";
+import { applyAdHocMacro, applyBaseMacros } from "./macros/macrosApplier";
 import { validateQuery } from "./editor/queryValidation";
 
 export class DataSource extends DataSourceWithBackend<
@@ -165,11 +165,24 @@ export class DataSource extends DataSourceWithBackend<
     request: Partial<DataQueryRequest<HdxQuery>>,
     round?: string
   ): Promise<InterpolationResult> {
-    let astResponse;
+    let macroContext = {
+      templateVars: this.templateSrv.getVariables(),
+      replaceFn: this.templateSrv.replace.bind(this),
+      intervalMs: request.intervalMs,
+      query: sql,
+      timeRange:
+        round && request.range
+          ? roundTimeRange(request.range, round)
+          : request.range,
+    };
+    let baseMacrosApplied = await applyBaseMacros(sql, macroContext);
+    let variablesReplaced = this.templateSrv.replace(baseMacrosApplied);
     try {
-      astResponse = await this.getAst(sql);
+      let astResponse = await this.getAst(variablesReplaced);
 
-      let s = await applyMacros(sql, {
+      let interpolatedSql = await applyAdHocMacro(variablesReplaced, {
+        ...macroContext,
+        query: variablesReplaced,
         adHocFilter: {
           filters: request.filters,
           ast: astResponse.data,
@@ -178,16 +191,8 @@ export class DataSource extends DataSourceWithBackend<
               .tableKeys(table)
               .then((arr) => arr.map((k) => k.text)),
         },
-        templateVars: this.templateSrv.getVariables(),
-        replaceFn: this.templateSrv.replace.bind(this),
-        intervalMs: request.intervalMs,
-        query: sql,
-        timeRange:
-          round && request.range
-            ? roundTimeRange(request.range, round)
-            : request.range,
       });
-      let interpolatedSql = this.templateSrv.replace(s);
+
       if (astResponse.error) {
         return {
           originalSql: sql,
@@ -248,28 +253,17 @@ export class DataSource extends DataSourceWithBackend<
   }
 
   async getAst(query: string): Promise<AstResponse> {
-    return new Promise((resolve) =>
-      setTimeout(
-        () =>
-          this.postResource("ast", {
-            data: {
-              query: query
-                ?.replaceAll("{", "(")
-                ?.replaceAll("}", ")")
-                ?.replaceAll(":", "_"),
-            },
-          }).then((a: any) => {
-            let queryAst: SelectQuery = a.data?.length ? a.data[0] : null;
-            return resolve({
-              error: a.error,
-              error_message: a.error_message,
-              data: queryAst,
-              originalSql: query,
-            });
-          }),
-        1000
-      )
-    );
+    return this.postResource("ast", {
+      data: { query },
+    }).then((a: any) => {
+      let queryAst: SelectQuery = a.data?.length ? a.data[0] : null;
+      return {
+        error: a.error,
+        error_message: a.error_message,
+        data: queryAst,
+        originalSql: query,
+      };
+    });
   }
 
   async getTagValues(

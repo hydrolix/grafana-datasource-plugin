@@ -1,9 +1,4 @@
-import {
-  AdHocVariableFilter,
-  dateTime,
-  TimeRange,
-  TypedVariableModel,
-} from "@grafana/data";
+import { dateTime } from "@grafana/data";
 import {
   adHocFilter,
   conditionalAll,
@@ -19,15 +14,9 @@ import {
   toTime,
   toTime_ms,
 } from "./macroFunctions";
+import { Context, MacroFunctionMap } from "../types";
 
-const macroFunctions: {
-  [macro: string]: (
-    params: string[],
-    context: Context,
-    index: number
-  ) => Promise<string> | string;
-} = {
-  adHocFilter,
+const macroFunctions: MacroFunctionMap = {
   conditionalAll,
   dateFilter,
   timeFilter,
@@ -42,18 +31,37 @@ const macroFunctions: {
   dateTimeFilter,
   dt: dateTimeFilter,
 };
+export const applyBaseMacros = async (sql: string, context: Context) =>
+  applyMacros(sql, context, macroFunctions);
 
-export const applyMacros = async (sql: string, context: Context) => {
-  return await Object.keys(macroFunctions)
-    .sort((x, y) => (y === "adHocFilter" ? 1 : y.length - x.length))
+export const applyAdHocMacro = async (sql: string, context: Context) =>
+  applyMacros(sql, context, { adHocFilter });
+
+const applyMacros = async (
+  sql: string,
+  context: Context,
+  macroFunctionMap: MacroFunctionMap
+) => {
+  return await Object.keys(macroFunctionMap)
+    .sort((x, y) => y.length - x.length)
     .reduce(
       async (sqlPromise, macroName) =>
-        await applyMacro(await sqlPromise, macroName, context),
+        await applyMacro(
+          await sqlPromise,
+          macroName,
+          context,
+          macroFunctionMap
+        ),
       Promise.resolve(sql)
     );
 };
 
-const applyMacro = async (sql: string, macroName: string, context: Context) => {
+const applyMacro = async (
+  sql: string,
+  macroName: string,
+  context: Context,
+  macroFunctionMap: MacroFunctionMap
+) => {
   let macrosRe = new RegExp(
     `\\$__${macroName}(?:\\b\\(\\s*\\)|\\b)(?!(.|\\r\\n|\\r|\\n)*${macroName})`
   );
@@ -65,7 +73,11 @@ const applyMacro = async (sql: string, macroName: string, context: Context) => {
     let argsIndex = match.index + `$__${macroName}`.length;
     let params = parseMacroArgs(sql, argsIndex);
     let hasParams = params && params.length > 0 && params[0] !== "";
-    let phrase = await macroFunctions[macroName](params, context, match.index);
+    let phrase = await macroFunctionMap[macroName](
+      params,
+      context,
+      match.index
+    );
     if (hasParams) {
       sql = sql.replace(`${match[0]}(${params.join(",")})`, phrase);
     } else {
@@ -103,21 +115,6 @@ export const parseMacroArgs = (query: string, argsIndex: number): string[] => {
   }
   return [];
 };
-
-export interface Context {
-  adHocFilter?: AdHocFilterContext;
-  templateVars: TypedVariableModel[];
-  replaceFn: (s: string) => string;
-  query: string;
-  intervalMs?: number;
-  timeRange?: TimeRange;
-}
-
-interface AdHocFilterContext {
-  filters?: AdHocVariableFilter[];
-  ast?: any;
-  keys: (table: string) => Promise<string[]>;
-}
 
 export const emptyContext: Context = {
   templateVars: [],

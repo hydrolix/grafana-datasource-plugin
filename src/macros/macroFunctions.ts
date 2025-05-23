@@ -1,7 +1,7 @@
 import { AdHocVariableFilter } from "@grafana/data";
-import { Context } from "macros/macrosApplier";
 import { DATE_FORMAT, VARIABLE_REGEX } from "../constants";
 import { traverseTree } from "../ast";
+import { Context } from "types";
 
 export const adHocFilter = async (
   _: string[],

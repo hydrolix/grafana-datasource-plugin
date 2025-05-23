@@ -1,4 +1,9 @@
-import { DataSourceJsonData, TimeRange } from "@grafana/data";
+import {
+  AdHocVariableFilter,
+  DataSourceJsonData,
+  TimeRange,
+  TypedVariableModel,
+} from "@grafana/data";
 import { DataQuery } from "@grafana/schema";
 
 export interface HdxQuery extends DataQuery {
@@ -137,4 +142,27 @@ export interface Expr {
   Table: Expr;
   Database: Expr;
   Operation: string;
+}
+
+export interface MacroFunctionMap {
+  [macro: string]: (
+    params: string[],
+    context: Context,
+    index: number
+  ) => Promise<string> | string;
+}
+
+export interface Context {
+  adHocFilter?: AdHocFilterContext;
+  templateVars: TypedVariableModel[];
+  replaceFn: (s: string) => string;
+  query: string;
+  intervalMs?: number;
+  timeRange?: TimeRange;
+}
+
+interface AdHocFilterContext {
+  filters?: AdHocVariableFilter[];
+  ast?: any;
+  keys: (table: string) => Promise<string[]>;
 }
