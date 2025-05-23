@@ -44,6 +44,7 @@ export type Props = QueryEditorProps<
 >;
 
 export function QueryEditor(props: Props) {
+  console.log("QueryEditor", props);
   const queryTypeOptions = useMemo<Array<SelectableValue<number>>>(
     () =>
       Object.keys(QueryType)
@@ -114,6 +115,20 @@ export function QueryEditor(props: Props) {
     props.onChange({ ...props.query, round: round });
   };
 
+  // track variable change and refresh interpolated query
+  const [variables, setVariables] = useState<string>("");
+  const variablesString = props.datasource.templateSrv
+    .getVariables()
+    .map((v: any) => (v?.current?.value ? v?.current?.value : v?.filters))
+    .map((v: any) => (Array.isArray(v) ? v : [v]))
+    .flat()
+    .map((v) => (typeof v === "object" ? Object.values(v).join(",") : v))
+    .join(":");
+
+  if (variables !== variablesString) {
+    setVariables(variablesString);
+  }
+
   useDebounce(
     async () => {
       if (showSql || SHOW_VALIDATION_BAR) {
@@ -133,7 +148,7 @@ export function QueryEditor(props: Props) {
       }
     },
     300,
-    [props.query.rawSql, showSql]
+    [props.query.rawSql, showSql, variables]
   );
   // eslint-disable-next-line eqeqeq
   let dirty = interpolationResult?.originalSql != props.query.rawSql;
