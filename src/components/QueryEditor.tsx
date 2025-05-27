@@ -134,7 +134,10 @@ export function QueryEditor(props: Props) {
         if (props.datasource.options) {
           let interpolatedQuery = await props.datasource.interpolateQuery(
             props.query.rawSql,
-            props.datasource.options,
+            {
+              ...props.datasource.options,
+              filters: props.datasource.filters,
+            },
             getFirstValidRound([
               props.query.round,
               props.datasource.instanceSettings.jsonData.defaultRound || "",

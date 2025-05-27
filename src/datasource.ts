@@ -1,4 +1,5 @@
 import {
+  AdHocVariableFilter,
   CoreApp,
   DataFrame,
   DataQueryError,
@@ -47,6 +48,7 @@ export class DataSource extends DataSourceWithBackend<
   public readonly metadataProvider = getMetadataProvider(this);
   private readonly beautifier = new ErrorMessageBeautifier();
   public options: DataQueryRequest<HdxQuery> | undefined;
+  public filters: AdHocVariableFilter[] | undefined;
 
   constructor(
     public instanceSettings: DataSourceInstanceSettings<HdxDataSourceOptions>,
@@ -76,6 +78,9 @@ export class DataSource extends DataSourceWithBackend<
   query(request: DataQueryRequest<HdxQuery>): Observable<DataQueryResponse> {
     if (request.range !== ZERO_TIME_RANGE) {
       this.options = request;
+    }
+    if (request.app === CoreApp.Dashboard) {
+      this.filters = request.filters;
     }
     let targets$ = from(
       Promise.all(
@@ -175,6 +180,7 @@ export class DataSource extends DataSourceWithBackend<
           ? roundTimeRange(request.range, round)
           : request.range,
     };
+    console.log("interpolate query filters", request.filters, request);
     let baseMacrosApplied = await applyBaseMacros(sql, macroContext);
     let variablesReplaced = this.templateSrv.replace(baseMacrosApplied);
     try {

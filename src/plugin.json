@@ -6,6 +6,7 @@
   "metrics": true,
   "backend": true,
   "alerting": true,
+  "multiValueFilterOperators": true,
   "executable": "gpx_plugin",
   "info": {
     "description": "Hydrolix data source for Grafana",

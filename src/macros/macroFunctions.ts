@@ -27,7 +27,6 @@ export const adHocFilter = async (
     let end = tableNode?.TableEnd;
     tableName = context.query.substring(start, end);
   }
-  console.log("adHocFilter", tableName, index);
   if (context.adHocFilter?.filters?.length && tableName) {
     let keys = await context.adHocFilter.keys(tableName);
     condition = context.adHocFilter.filters
@@ -43,7 +42,12 @@ export const adHocFilter = async (
 
 export const getFilterExpression = (filter: AdHocVariableFilter): string => {
   let key = filter.key;
-  if (filter.value === "null") {
+  if (filter.operator === "=|" || filter.operator === "!=|") {
+    // @ts-ignore
+    return `${key} ${filter.operator === "!=|" ? "NOT" : ""} IN (${filter.values
+      .map((v: any) => `'${v}'`)
+      .join(", ")})`;
+  } else if (filter.value?.toLowerCase() === "null") {
     if (filter.operator === "=") {
       return `${key} IS NULL`;
     } else if (filter.operator === "!=") {
