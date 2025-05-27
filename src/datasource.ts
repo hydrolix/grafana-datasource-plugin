@@ -94,7 +94,7 @@ export class DataSource extends DataSourceWithBackend<
                       this.instanceSettings.jsonData.defaultRound || "",
                     ])
                   )
-                ).interpolatedSql || "";
+                ).finalSql || "";
             } catch (e: any) {
               console.error(e);
               throw new Error(`cannot interpolate query, ${e?.message}`);
@@ -214,6 +214,7 @@ export class DataSource extends DataSourceWithBackend<
       return {
         originalSql: sql,
         interpolatedSql: interpolatedSql,
+        finalSql: interpolatedSql,
         hasError: !!validationResult?.error,
         hasWarning: !!validationResult?.warning,
         error: validationResult?.error,
@@ -223,6 +224,7 @@ export class DataSource extends DataSourceWithBackend<
       console.error(e);
       return {
         originalSql: sql,
+        interpolatedSql: variablesReplaced,
         hasError: true,
         hasWarning: false,
         error: e.message || "Unknown Error",
@@ -253,6 +255,14 @@ export class DataSource extends DataSourceWithBackend<
   }
 
   async getAst(query: string): Promise<AstResponse> {
+    if (query.toUpperCase().startsWith("DESCRIBE")) {
+      return {
+        error: false,
+        error_message: "",
+        data: { describe: query },
+        originalSql: query,
+      };
+    }
     return this.postResource("ast", {
       data: { query },
     }).then((a: any) => {

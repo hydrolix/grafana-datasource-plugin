@@ -17,7 +17,8 @@ export const adHocFilter = async (
         node.Where &&
         traverseTree(
           node.Where,
-          (n) => n.Name === "$__adHocFilter" && n.NamePos === index
+          (n) => n.Name === "$__adHocFilter" && n.NamePos === index,
+          (n) => n.Where
         )
       );
     });
@@ -26,7 +27,7 @@ export const adHocFilter = async (
     let end = tableNode?.TableEnd;
     tableName = context.query.substring(start, end);
   }
-
+  console.log("adHocFilter", tableName, index);
   if (context.adHocFilter?.filters?.length && tableName) {
     let keys = await context.adHocFilter.keys(tableName);
     condition = context.adHocFilter.filters
@@ -39,6 +40,7 @@ export const adHocFilter = async (
   }
   return condition;
 };
+
 export const getFilterExpression = (filter: AdHocVariableFilter): string => {
   let key = filter.key;
   if (filter.value === "null") {

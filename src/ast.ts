@@ -2,21 +2,24 @@ import { AD_HOC_VALUE_QUERY } from "./constants";
 
 export const traverseTree = (
   tree: any,
-  predicate: (node: any) => boolean
+  predicate: (node: any) => boolean,
+  skipPredicate?: (node: any) => boolean
 ): any => {
-  if (predicate(tree)) {
+  if (skipPredicate && skipPredicate(tree)) {
+    return null;
+  } else if (predicate(tree)) {
     return tree;
   } else {
     for (const key in tree) {
       if (tree.hasOwnProperty(key) && tree[key]) {
         if (isObject(tree[key])) {
-          const node = traverseTree(tree[key], predicate);
+          const node = traverseTree(tree[key], predicate, skipPredicate);
           if (node) {
             return node;
           }
         } else if (Array.isArray(tree[key])) {
           for (const el of tree[key]) {
-            const node = traverseTree(el, predicate);
+            const node = traverseTree(el, predicate, skipPredicate);
             if (node) {
               return node;
             }

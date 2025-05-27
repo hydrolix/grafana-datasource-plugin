@@ -44,7 +44,6 @@ export type Props = QueryEditorProps<
 >;
 
 export function QueryEditor(props: Props) {
-  console.log("QueryEditor", props);
   const queryTypeOptions = useMemo<Array<SelectableValue<number>>>(
     () =>
       Object.keys(QueryType)

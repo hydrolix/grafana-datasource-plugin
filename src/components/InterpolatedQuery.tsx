@@ -14,7 +14,8 @@ export function InterpolatedQuery({
   dirty: boolean;
   showErrors: boolean;
 }) {
-  let borderColor = dirty ? "#421701" : "#002f0d";
+  let readyColor = error ? "#800202" : "#002f0d";
+  let borderColor = dirty ? "#421701" : readyColor;
   let icon: IconName = dirty ? "spinner" : "copy";
   let iconTooltip: PopoverContent = dirty ? "processing" : "copy to clipboard";
   return (
@@ -27,7 +28,7 @@ export function InterpolatedQuery({
               position: "relative",
               minHeight: 80,
               color: "red",
-              borderColor: "red",
+              borderColor: readyColor,
             }}
           >
             {showErrors ? error : ""}
