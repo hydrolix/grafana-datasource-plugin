@@ -169,25 +169,26 @@ export class DataSource extends DataSourceWithBackend<
     request: Partial<DataQueryRequest<HdxQuery>>,
     round?: string
   ): Promise<InterpolationResult> {
-    let macroContext = {
-      templateVars: this.templateSrv.getVariables(),
-      replaceFn: this.templateSrv.replace.bind(this),
-      intervalMs: request.intervalMs,
-      query: sql,
-      timeRange:
-        round && request.range
-          ? roundTimeRange(request.range, round)
-          : request.range,
-    };
-    console.log("interpolate query filters", request.filters, request);
-    let baseMacrosApplied = await applyBaseMacros(sql, macroContext);
-    let variablesReplaced = this.templateSrv.replace(baseMacrosApplied);
+    let interpolatedSql = sql;
     try {
-      let astResponse = await this.getAst(variablesReplaced);
+      let macroContext = {
+        templateVars: this.templateSrv.getVariables(),
+        replaceFn: this.templateSrv.replace.bind(this),
+        intervalMs: request.intervalMs,
+        query: sql,
+        timeRange:
+          round && request.range
+            ? roundTimeRange(request.range, round)
+            : request.range,
+      };
+      interpolatedSql = await applyBaseMacros(sql, macroContext);
+      interpolatedSql = this.templateSrv.replace(interpolatedSql);
 
-      let interpolatedSql = await applyAdHocMacro(variablesReplaced, {
+      let astResponse = await this.getAst(interpolatedSql);
+
+      interpolatedSql = await applyAdHocMacro(interpolatedSql, {
         ...macroContext,
-        query: variablesReplaced,
+        query: interpolatedSql,
         adHocFilter: {
           filters: request.filters,
           ast: astResponse.data,
@@ -229,7 +230,7 @@ export class DataSource extends DataSourceWithBackend<
       console.error(e);
       return {
         originalSql: sql,
-        interpolatedSql: variablesReplaced,
+        interpolatedSql: interpolatedSql,
         hasError: true,
         hasWarning: false,
         error: e.message || "Unknown Error",
