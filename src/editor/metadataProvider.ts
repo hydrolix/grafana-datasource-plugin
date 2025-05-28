@@ -98,7 +98,13 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
       ? firstValueFrom(
           queryRunner(AD_HOC_KEY_QUERY.replaceAll("${table}", table)).pipe(
             map((r) => {
-              return getKeyMap(r);
+              try {
+                return getKeyMap(r);
+              } catch (e: any) {
+                throw new Error(
+                  `Cannot apply ad hoc filters: unable to resolve filterable columns for "${table}"`
+                );
+              }
             }),
             tap((k) => (tableKeys[table] = k))
           )

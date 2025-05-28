@@ -87,27 +87,27 @@ export class DataSource extends DataSourceWithBackend<
         request.targets
           .filter((t) => !(t.skipNextRun && t.skipNextRun()))
           .map(async (t) => {
-            let q: string | undefined;
+            let interpolationResult: InterpolationResult;
             try {
-              q =
-                (
-                  await this.interpolateQuery(
-                    t.rawSql,
-                    request,
-                    getFirstValidRound([
-                      t.round,
-                      this.instanceSettings.jsonData.defaultRound || "",
-                    ])
-                  )
-                ).finalSql || "";
+              interpolationResult = await this.interpolateQuery(
+                t.rawSql,
+                request,
+                getFirstValidRound([
+                  t.round,
+                  this.instanceSettings.jsonData.defaultRound || "",
+                ])
+              );
             } catch (e: any) {
               console.error(e);
               throw new Error(`cannot interpolate query, ${e?.message}`);
             }
+            if (interpolationResult.hasError) {
+              throw new Error(interpolationResult.error);
+            }
 
             return {
               ...t,
-              rawSql: q,
+              rawSql: interpolationResult.finalSql ?? "",
               filters: undefined,
               meta: {
                 timezone: this.resolveTimezone(request),
@@ -116,7 +116,6 @@ export class DataSource extends DataSourceWithBackend<
           })
       )
     );
-
     return targets$.pipe(
       switchMap((targets) =>
         super

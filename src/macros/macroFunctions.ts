@@ -27,7 +27,12 @@ export const adHocFilter = async (
     let end = tableNode?.TableEnd;
     tableName = context.query.substring(start, end);
   }
-  if (context.adHocFilter?.filters?.length && tableName) {
+  if (!tableName) {
+    throw new Error(
+      `Cannot apply ad hoc filters: unable to resolve tableName for ad-hoc filter at index ${index}`
+    );
+  }
+  if (context.adHocFilter?.filters?.length) {
     let keys = await context.adHocFilter.keys(tableName);
     condition = context.adHocFilter.filters
       .filter((f) => keys.includes(f.key))
