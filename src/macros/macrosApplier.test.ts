@@ -128,19 +128,20 @@ describe("macros interpolation", () => {
     expect(actual).toEqual(interpolated);
   });
 });
+const SQL_WITH_FILTER =
+  "SELECT column1, columnt2 FROM table WHERE $__adHocFilter()";
+const SQL_WITHOUT_FILTER = "SELECT column1, columnt2 FROM table";
 
 const context = {
   ...emptyContext,
+  query: SQL_WITH_FILTER,
   adHocFilter: {
     filters: [],
+    ast: adHocQueryAST,
     keys: () => Promise.resolve(["column1", "column2"]),
   },
 };
 describe("$__adHocFilter", () => {
-  const SQL_WITH_FILTER =
-    "SELECT column1, columnt2 FROM table WHERE $__adHocFilter()";
-  const SQL_WITHOUT_FILTER = "SELECT column1, columnt2 FROM table";
-
   test("apply to query without macros", async () => {
     const actual = await applyAdHocMacro(SQL_WITHOUT_FILTER, context);
     expect(actual).toEqual(SQL_WITHOUT_FILTER);

@@ -7,18 +7,18 @@ services:
       args:
         development: true
 
-#  clickhouse-server:
-#    image: clickhouse/clickhouse-server:latest
-#    container_name: clickhouse-server
-#    ports:
-#      - 8123:8123
-#      - 9000:9000
-#    environment:
-#      CLICKHOUSE_ALWAYS_RUN_INITDB_SCRIPTS: 1
-#      CLICKHOUSE_SKIP_USER_SETUP: 0
-#      CLICKHOUSE_USER: testuser
-#      CLICKHOUSE_PASSWORD: testpass
-#      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
-#    volumes:
-#      - ${PWD}/testdata/containers/initdb.sql:/docker-entrypoint-initdb.d/initdb.sql
-#      - ${PWD}/testdata/containers/tcconfig.xml:/etc/clickhouse-server/config.d/tcconfig.xml
+  clickhouse-server:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse-server
+    ports:
+      - 8123:8123
+      - 9000:9000
+    environment:
+      CLICKHOUSE_ALWAYS_RUN_INITDB_SCRIPTS: 1
+      CLICKHOUSE_SKIP_USER_SETUP: 0
+      CLICKHOUSE_USER: testuser
+      CLICKHOUSE_PASSWORD: testpass
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - ${PWD}/testdata/containers/initdb.sql:/docker-entrypoint-initdb.d/initdb.sql
+      - ${PWD}/testdata/containers/tcconfig.xml:/etc/clickhouse-server/config.d/tcconfig.xml

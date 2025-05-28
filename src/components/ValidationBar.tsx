@@ -1,8 +1,7 @@
 import { Icon, Monaco, Spinner, useTheme2 } from "@grafana/ui";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { css } from "@emotion/css";
 import { InterpolationResult } from "../types";
-import { removeUnderline, underline } from "../editor/editorUtils";
 import "./ValidationBar.css";
 
 interface Props {
@@ -13,39 +12,6 @@ interface Props {
 
 export function ValidationBar({ monaco, query, interpolationResult }: Props) {
   let [validating, setValidating] = useState<boolean>(false);
-
-  const underlineError = useCallback(
-    (line: number, start: number, end: number) => {
-      underline(monaco, line, start, end);
-    },
-    [monaco]
-  );
-  const removeUnderlineError = useCallback(() => {
-    removeUnderline(monaco);
-  }, [monaco]);
-
-  useMemo(() => {
-    if (interpolationResult?.hasError) {
-      const fullMessage = interpolationResult.error ?? "";
-      const errorRegExp = /^line\s(\d*):(\d*)/;
-
-      const [message, _, arrows] = fullMessage.split("\n");
-      const match = errorRegExp.exec(message);
-      if (match) {
-        const line = parseInt(match[1], 10) + 1;
-        const start = parseInt(match[2], 10) + 1;
-        const end = start + arrows.trim().length + 1;
-        underlineError(line, start, end);
-      } else {
-        removeUnderlineError();
-      }
-    }
-  }, [
-    interpolationResult?.error,
-    interpolationResult?.hasError,
-    removeUnderlineError,
-    underlineError,
-  ]);
 
   useMemo(() => {
     setValidating(interpolationResult?.originalSql !== query);

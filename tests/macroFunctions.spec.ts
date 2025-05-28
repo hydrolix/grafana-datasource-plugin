@@ -34,7 +34,8 @@ test.beforeEach(async ({ dashboardPage, createDataSourceConfigPage }) => {
 [
   {
     name: "fromTime",
-    query: "select * from e2e.macros where datetime >= $__fromTime",
+    query:
+      "select * from e2e.macros where datetime >= $__fromTime and datetime <= $__toTime",
     from: "2025-04-10 00:20:00",
     to: "2025-04-10 23:59:59",
     expected: [
@@ -44,7 +45,8 @@ test.beforeEach(async ({ dashboardPage, createDataSourceConfigPage }) => {
   },
   {
     name: "fromTime_ms",
-    query: "select * from e2e.macros where datetime >= $__fromTime_ms",
+    query:
+      "select * from e2e.macros where datetime >= $__fromTime_ms and datetime <= $__toTime_ms",
     from: "2025-04-10 00:20:00",
     to: "2025-04-10 23:59:59",
     expected: [
@@ -116,7 +118,7 @@ test.beforeEach(async ({ dashboardPage, createDataSourceConfigPage }) => {
     query:
       "select $__timeInterval(datetime) as datetime, max(date) as date, max(v1) as v1 from e2e.macros where $__timeFilter_ms(datetime) group by datetime",
     from: "2025-04-09 00:00:00",
-    to: "2025-04-19 23:59:59",
+    to: "2025-04-10 23:59:59",
     maxDataPoints: 400,
     expected: [
       ["2025-04-09 00:00:00", "2025-04-09 00:00:00", "2000"],
@@ -170,11 +172,11 @@ test.beforeEach(async ({ dashboardPage, createDataSourceConfigPage }) => {
 ].forEach(({ name, query, from, to, expected, maxDataPoints, round }) => {
   test(`testing ${name}`, async () => {
     await queryTextSet("A", query, panelEditPage);
-    //TODO: replace it with playwright timerange's 'set' function when it's fixed
-    await timerangeSet(
-      { from, to, zone: "Coordinated Universal Time" },
-      panelEditPage
-    );
+    await panelEditPage.timeRange.set({
+      from,
+      to,
+      zone: "Coordinated Universal Time",
+    });
 
     if (maxDataPoints) {
       // set interval to 30m for TimeInterval
