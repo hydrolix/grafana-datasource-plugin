@@ -118,7 +118,7 @@ test.beforeEach(async ({ dashboardPage, createDataSourceConfigPage }) => {
     query:
       "select $__timeInterval(datetime) as datetime, max(date) as date, max(v1) as v1 from e2e.macros where $__timeFilter_ms(datetime) group by datetime",
     from: "2025-04-09 00:00:00",
-    to: "2025-04-10 23:59:59",
+    to: "2025-04-19 23:59:59",
     maxDataPoints: 400,
     expected: [
       ["2025-04-09 00:00:00", "2025-04-09 00:00:00", "2000"],
