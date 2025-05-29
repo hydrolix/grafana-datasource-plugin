@@ -184,7 +184,11 @@ export class DataSource extends DataSourceWithBackend<
       interpolatedSql = await applyBaseMacros(sql, macroContext);
       interpolatedSql = this.templateSrv.replace(interpolatedSql);
 
-      let astResponse = await this.getAst(interpolatedSql);
+      let astResponse = await this.getAst(
+        // this workaround is needed since ast parser doesn't recognise millisecond as a valid time unit
+        // should be removed when PR https://github.com/AfterShip/clickhouse-sql-parser/pull/166 is applied
+        interpolatedSql.replaceAll(" millisecond)", " second)")
+      );
 
       interpolatedSql = await applyAdHocMacro(interpolatedSql, {
         ...macroContext,

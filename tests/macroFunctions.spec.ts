@@ -162,7 +162,7 @@ test.beforeEach(async ({ dashboardPage, createDataSourceConfigPage }) => {
     name: "round",
     query: "select * from e2e.macros where $__timeFilter_ms(datetime)",
     from: "2025-04-10 00:20:30",
-    to: "2025-04-11 00:29:30",
+    to: "2025-04-11 00:01:30",
     round: "2m",
     expected: [
       ["2025-04-10 00:20:00", "2025-04-10", "2000"],
