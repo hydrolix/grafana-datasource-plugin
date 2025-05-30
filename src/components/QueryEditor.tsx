@@ -150,7 +150,7 @@ export function QueryEditor(props: Props) {
       }
     },
     300,
-    [props.query.rawSql, showSql, variables]
+    [props.query.rawSql, props.query.round, showSql, variables]
   );
   // eslint-disable-next-line eqeqeq
   let dirty = interpolationResult?.originalSql != props.query.rawSql;
