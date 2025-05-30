@@ -49,7 +49,7 @@ export const getFilterExpression = (filter: AdHocVariableFilter): string => {
   let key = filter.key;
   if (filter.operator === "=|" || filter.operator === "!=|") {
     // @ts-ignore
-    return `${key} ${filter.operator === "!=|" ? "NOT" : ""} IN (${filter.values
+    return `${key} ${filter.operator === "!=|" ? "NOT " : ""}IN (${filter.values
       .map((v: any) => `'${v}'`)
       .join(", ")})`;
   } else if (filter.value?.toLowerCase() === "null") {
