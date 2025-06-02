@@ -183,15 +183,24 @@ export class DataSource extends DataSourceWithBackend<
       };
       interpolatedSql = await applyBaseMacros(sql, macroContext);
       interpolatedSql = this.templateSrv.replace(interpolatedSql);
-
-      let astResponse = await this.getAst(
-        // this workaround is needed since ast parser doesn't recognise millisecond as a valid time unit
-        // should be removed when PR https://github.com/AfterShip/clickhouse-sql-parser/pull/166 is applied
-        interpolatedSql.replaceAll(" millisecond)", " second)")
-      );
+      let astResponse;
+      try {
+        astResponse = await this.getAst(
+          // this workaround is needed since ast parser doesn't recognise millisecond as a valid time unit
+          // should be removed when PR https://github.com/AfterShip/clickhouse-sql-parser/pull/166 is applied
+          interpolatedSql.replaceAll(" millisecond)", " second)")
+        );
+      } catch (e: any) {
+        console.error(e);
+        astResponse = {
+          originalSql: interpolatedSql,
+          error: true,
+          error_message: "Unknown ast parsing error",
+          data: null,
+        };
+      }
 
       try {
-        console.log(0);
         interpolatedSql = await applyAdHocMacro(interpolatedSql, {
           ...macroContext,
           query: interpolatedSql,
@@ -205,18 +214,16 @@ export class DataSource extends DataSourceWithBackend<
           },
         });
       } catch (e: any) {
-        console.log(1);
         return {
           originalSql: sql,
           interpolatedSql: interpolatedSql,
           hasError: true,
           hasWarning: false,
           error: astResponse.error
-            ? this.wrapSyntaxError(astResponse.error_message)
+            ? this.wrapSyntaxError(astResponse.error_message, interpolatedSql)
             : e.message,
         };
       }
-      console.log(2);
       if (!astResponse.data) {
         return {
           originalSql: sql,
@@ -248,9 +255,9 @@ export class DataSource extends DataSourceWithBackend<
     }
   }
 
-  wrapSyntaxError(error_message: string) {
-    if (!error_message) {
-      return "Unknown Error";
+  wrapSyntaxError(error_message: string, query: string) {
+    if (!error_message || error_message === "Unknown Error") {
+      return `Cannot apply ad hoc filter: unknown error occurred while parsing query '${query}'`;
     }
     const fullMessage = error_message;
     console.log(fullMessage);

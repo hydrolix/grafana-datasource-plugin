@@ -2,11 +2,17 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	clickhouse "github.com/AfterShip/clickhouse-sql-parser/parser"
 	"net/http"
 )
 
 func AST(rw http.ResponseWriter, req *http.Request) {
+	defer func() {
+		if r := recover(); r != nil {
+			sendError(rw, errors.New("Unknown Error"))
+		}
+	}()
 	var astRequest ASTRequest
 	if err := json.NewDecoder(req.Body).Decode(&astRequest); err != nil {
 		sendError(rw, err)
