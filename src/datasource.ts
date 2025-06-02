@@ -101,7 +101,7 @@ export class DataSource extends DataSourceWithBackend<
               console.error(e);
               throw new Error(`cannot interpolate query, ${e?.message}`);
             }
-            if (interpolationResult.hasError) {
+            if (!interpolationResult.finalSql && interpolationResult.hasError) {
               throw new Error(interpolationResult.error);
             }
 
@@ -190,32 +190,38 @@ export class DataSource extends DataSourceWithBackend<
         interpolatedSql.replaceAll(" millisecond)", " second)")
       );
 
-      interpolatedSql = await applyAdHocMacro(interpolatedSql, {
-        ...macroContext,
-        query: interpolatedSql,
-        adHocFilter: {
-          filters: request.filters,
-          ast: astResponse.data,
-          keys: (table: string) =>
-            this.metadataProvider
-              .tableKeys(table)
-              .then((arr) => arr.map((k) => k.text)),
-        },
-      });
-
-      if (astResponse.error) {
+      try {
+        console.log(0);
+        interpolatedSql = await applyAdHocMacro(interpolatedSql, {
+          ...macroContext,
+          query: interpolatedSql,
+          adHocFilter: {
+            filters: request.filters,
+            ast: astResponse.data,
+            keys: (table: string) =>
+              this.metadataProvider
+                .tableKeys(table)
+                .then((arr) => arr.map((k) => k.text)),
+          },
+        });
+      } catch (e: any) {
+        console.log(1);
         return {
           originalSql: sql,
           interpolatedSql: interpolatedSql,
           hasError: true,
           hasWarning: false,
-          error: astResponse.error_message || "Unknown Error",
+          error: astResponse.error
+            ? this.wrapSyntaxError(astResponse.error_message)
+            : e.message,
         };
       }
+      console.log(2);
       if (!astResponse.data) {
         return {
           originalSql: sql,
           interpolatedSql: interpolatedSql,
+          finalSql: interpolatedSql,
           hasError: false,
           hasWarning: false,
         };
@@ -239,6 +245,25 @@ export class DataSource extends DataSourceWithBackend<
         hasWarning: false,
         error: e.message || "Unknown Error",
       };
+    }
+  }
+
+  wrapSyntaxError(error_message: string) {
+    if (!error_message) {
+      return "Unknown Error";
+    }
+    const fullMessage = error_message;
+    console.log(fullMessage);
+    const errorRegExp = /^line\s(\d*):(\d*) (.*)$/;
+
+    const [message] = fullMessage.split("\n");
+    const match = errorRegExp.exec(message);
+    if (match) {
+      return `Cannot apply ad-hoc filter because of syntax error at line ${
+        +match[1] + 1
+      }: ${match[3]}`;
+    } else {
+      return fullMessage;
     }
   }
 
