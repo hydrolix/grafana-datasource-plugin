@@ -3,8 +3,8 @@ x-common-variables: &common-variables
   CLUSTER_NODE: demo.trafficpeak.live
   REDIS_USERNAME: chproxy
   REDIS_PASSWORD:
-  HYDROLIX_USERNAME: vkohut+dev@hydrolix.io
-  HYDROLIX_PASSWORD: DevTest83
+  HYDROLIX_USERNAME:
+  HYDROLIX_PASSWORD:
   GF_INSTALL_PLUGINS: "grafana-clickhouse-datasource 4.8.2"
 volumes:
   prometheus_data: {}
