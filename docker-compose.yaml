@@ -1,24 +1,21 @@
+version: '3.4'
+x-common-variables: &common-variables
+  CLUSTER_NODE: demo.trafficpeak.live
+  REDIS_USERNAME: chproxy
+  REDIS_PASSWORD:
+  HYDROLIX_USERNAME:
+  HYDROLIX_PASSWORD:
+  GF_INSTALL_PLUGINS: "grafana-clickhouse-datasource 4.8.2"
+volumes:
+  prometheus_data: {}
 services:
   grafana:
     extends:
       file: .config/docker-compose-base.yaml
       service: grafana
+    container_name: grafana-dashboards
+    environment: *common-variables
     build:
       args:
-        development: true
+        development: false
 
-  clickhouse-server:
-    image: clickhouse/clickhouse-server:latest
-    container_name: clickhouse-server
-    ports:
-      - 8123:8123
-      - 9000:9000
-    environment:
-      CLICKHOUSE_ALWAYS_RUN_INITDB_SCRIPTS: 1
-      CLICKHOUSE_SKIP_USER_SETUP: 0
-      CLICKHOUSE_USER: testuser
-      CLICKHOUSE_PASSWORD: testpass
-      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
-    volumes:
-      - ${PWD}/testdata/containers/initdb.sql:/docker-entrypoint-initdb.d/initdb.sql
-      - ${PWD}/testdata/containers/tcconfig.xml:/etc/clickhouse-server/config.d/tcconfig.xml

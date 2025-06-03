@@ -1,15 +1,40 @@
 import { AdHocVariableFilter } from "@grafana/data";
-import { Context } from "macros/macrosApplier";
 import { DATE_FORMAT, VARIABLE_REGEX } from "../constants";
+import { traverseTree } from "../ast";
+import { Context } from "types";
 
 export const adHocFilter = async (
   _: string[],
-  context: Context
+  context: Context,
+  index?: number
 ): Promise<string> => {
   let condition;
-
   if (context.adHocFilter?.filters?.length) {
-    let keys = await context.adHocFilter.keys();
+    let tableName;
+    if (context.adHocFilter?.ast) {
+      let ast = context.adHocFilter?.ast;
+      let node = traverseTree(ast, (node) => {
+        return (
+          node.Where &&
+          traverseTree(
+            node.Where,
+            (n) => n.Name === "$__adHocFilter" && n.NamePos === index,
+            (n) => n.Where
+          )
+        );
+      });
+      let tableNode = node?.From?.Expr?.Table;
+      let start = tableNode?.TablePos;
+      let end = tableNode?.TableEnd;
+      tableName = context.query.substring(start, end);
+    }
+    if (!tableName) {
+      throw new Error(
+        `Cannot apply ad hoc filters: unable to resolve tableName for ad-hoc filter at index ${index}`
+      );
+    }
+
+    let keys = await context.adHocFilter.keys(tableName);
     condition = context.adHocFilter.filters
       .filter((f) => keys.includes(f.key))
       .map(getFilterExpression)
@@ -23,7 +48,12 @@ export const adHocFilter = async (
 
 export const getFilterExpression = (filter: AdHocVariableFilter): string => {
   let key = filter.key;
-  if (filter.value === "null") {
+  if (filter.operator === "=|" || filter.operator === "!=|") {
+    // @ts-ignore
+    return `${key} ${filter.operator === "!=|" ? "NOT " : ""}IN (${filter.values
+      .map((v: any) => `'${v}'`)
+      .join(", ")})`;
+  } else if (filter.value?.toLowerCase() === "null") {
     if (filter.operator === "=") {
       return `${key} IS NULL`;
     } else if (filter.operator === "!=") {

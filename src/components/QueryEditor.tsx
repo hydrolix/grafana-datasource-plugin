@@ -7,7 +7,12 @@ import React, {
 } from "react";
 import { QueryEditorProps, SelectableValue } from "@grafana/data";
 import { DataSource } from "../datasource";
-import { HdxDataSourceOptions, HdxQuery, QueryType } from "../types";
+import {
+  HdxDataSourceOptions,
+  HdxQuery,
+  InterpolationResult,
+  QueryType,
+} from "../types";
 import { SQLEditor } from "@grafana/plugin-ui";
 import { languageDefinition } from "../editor/languageDefinition";
 import {
@@ -16,6 +21,7 @@ import {
   InlineField,
   InlineLabel,
   Input,
+  Monaco,
   Select,
   ToolbarButton,
 } from "@grafana/ui";
@@ -24,6 +30,12 @@ import {
   QUERY_DURATION_REGEX,
 } from "../editor/timeRangeUtils";
 import { InterpolatedQuery } from "./InterpolatedQuery";
+import { ValidationBar } from "./ValidationBar";
+import { useDebounce } from "react-use";
+import {
+  SHOW_INTERPOLATED_QUERY_ERRORS,
+  SHOW_VALIDATION_BAR,
+} from "../constants";
 
 export type Props = QueryEditorProps<
   DataSource,
@@ -67,9 +79,13 @@ export function QueryEditor(props: Props) {
 
   const [showSql, setShowSql] = useState(false);
   const [dryRunTriggered, setDryRunTriggered] = useState(false);
-  const [interpolatedSql, setInterpolatedSql] = useState("");
-  const [interpolatingErrorMessage, setInterpolatingErrorMessage] =
-    useState("");
+  const [interpolationResult, setInterpolationResult] =
+    useState<InterpolationResult>({
+      hasError: false,
+      hasWarning: false,
+    });
+  useState("");
+  let [monaco, setMonaco] = useState<Monaco | null>(null);
 
   const dryRun = useCallback(() => {
     if (!dryRunTriggered && props.query.rawSql) {
@@ -87,35 +103,6 @@ export function QueryEditor(props: Props) {
     }
   }, [props, dryRunTriggered]);
 
-  useMemo(async () => {
-    if (showSql) {
-      if (props.datasource.options) {
-        try {
-          let interpolatedQuery = await props.datasource.interpolateQuery(
-            props.query.rawSql,
-            props.datasource.options,
-            getFirstValidRound([
-              props.query.round,
-              props.datasource.instanceSettings.jsonData.defaultRound || "",
-            ])
-          );
-          setInterpolatingErrorMessage("");
-          setInterpolatedSql(interpolatedQuery);
-        } catch (e) {
-          let message;
-          if (e instanceof Error) {
-            message = e.message;
-          } else {
-            message = "Unknown Error";
-          }
-          setInterpolatingErrorMessage(message);
-        }
-      } else {
-        dryRun();
-      }
-    }
-  }, [props.datasource, props.query, dryRun, showSql]);
-
   const onQueryTextChange = (queryText: string) => {
     props.onChange({ ...props.query, rawSql: queryText });
   };
@@ -127,16 +114,63 @@ export function QueryEditor(props: Props) {
     props.onChange({ ...props.query, round: round });
   };
 
+  // track variable change and refresh interpolated query
+  const [variables, setVariables] = useState<string>("");
+  const variablesString = props.datasource.templateSrv
+    .getVariables()
+    .map((v: any) => (v?.current?.value ? v?.current?.value : v?.filters))
+    .map((v: any) => (Array.isArray(v) ? v : [v]))
+    .flat()
+    .map((v) => (typeof v === "object" ? Object.values(v).join(",") : v))
+    .join(":");
+
+  if (variables !== variablesString) {
+    setVariables(variablesString);
+  }
+
+  useDebounce(
+    async () => {
+      if (showSql || SHOW_VALIDATION_BAR) {
+        if (props.datasource.options) {
+          let interpolatedQuery = await props.datasource.interpolateQuery(
+            props.query.rawSql,
+            {
+              ...props.datasource.options,
+              filters: props.datasource.filters,
+            },
+            getFirstValidRound([
+              props.query.round,
+              props.datasource.instanceSettings.jsonData.defaultRound || "",
+            ])
+          );
+          setInterpolationResult(interpolatedQuery);
+        } else {
+          dryRun();
+        }
+      }
+    },
+    300,
+    [props.query.rawSql, props.query.round, showSql, variables]
+  );
+  // eslint-disable-next-line eqeqeq
+  let dirty = interpolationResult?.originalSql != props.query.rawSql;
   return (
     <div>
       <SQLEditor
         query={props.query.rawSql}
         onChange={onQueryTextChange}
-        language={languageDefinition(props)}
+        language={languageDefinition(props, setMonaco)}
       >
         {({ formatQuery }) => {
           return (
             <div>
+              {SHOW_VALIDATION_BAR && (
+                <ValidationBar
+                  monaco={monaco}
+                  interpolationResult={interpolationResult}
+                  query={props.query.rawSql}
+                />
+              )}
               <div
                 style={{
                   display: "flex",
@@ -199,9 +233,11 @@ export function QueryEditor(props: Props) {
         }}
       </SQLEditor>
       <InterpolatedQuery
-        sql={interpolatedSql}
-        error={interpolatingErrorMessage}
+        sql={interpolationResult.interpolatedSql ?? ""}
+        error={interpolationResult.error ?? ""}
         showSQL={showSql}
+        dirty={dirty}
+        showErrors={SHOW_INTERPOLATED_QUERY_ERRORS}
       />
     </div>
   );

@@ -82,24 +82,11 @@ export default {
           description:
             "Used to filter possible ad-hoc filter values when the dashboard time range is unavailable",
         },
-        adHocKeysQuery: {
-          testId: "data-testid hdx_adHocKeysQuery",
-          label: "Ad-hoc filter keys query",
-          description: "Used to retrieve possible keys for ad-hoc filters",
-          placeholder: "",
-        },
-        adHocValuesQuery: {
-          testId: "data-testid hdx_adHocValuesQuery",
-          label: "Ad-hoc filter values query",
-          description:
-            "Used to retrieve possible values for ad-hoc filter keys",
-          placeholder: "",
-        },
         adHocTableVariable: {
           testId: "data-testid hdx_adHocTableVariable",
           label: "Ad-hoc filter table variable name",
           description:
-            "Dashboard variable name to specify the table for retrieving ad-hoc filter keys",
+            "Dashboard variable name to specify the table for retrieving ad-hoc filter keys and values",
         },
         adHocTimeColumnVariable: {
           testId: "data-testid hdx_adHocTimeColumnVariable",
