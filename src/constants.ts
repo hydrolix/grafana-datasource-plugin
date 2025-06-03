@@ -1,3 +1,5 @@
+export const SHOW_VALIDATION_BAR = false;
+export const SHOW_INTERPOLATED_QUERY_ERRORS = false;
 export const SCHEMA_SQL =
   "SELECT DISTINCT database as project FROM system.tables WHERE engine = 'TurbineStorage' AND (project != 'sample_project' AND project != 'hdx' AND total_rows > 0)";
 export const TABLES_SQL =
@@ -5,6 +7,10 @@ export const TABLES_SQL =
 export const COLUMNS_SQL =
   "SELECT name FROM system.columns WHERE database='{schema}' AND table ='{table}'";
 export const FUNCTIONS_SQL = "SELECT name FROM  system.functions";
+
+export const AD_HOC_KEY_QUERY = "DESCRIBE ${table}";
+export const AD_HOC_VALUE_QUERY =
+  "SELECT ${column}, COUNT(${column}) as count  FROM ${table} WHERE $__timeFilter(${timeColumn}) AND $__adHocFilter() GROUP BY ${column} ORDER BY count DESC LIMIT 100";
 
 export const SUPPORTED_TYPES = [
   "DateTime",

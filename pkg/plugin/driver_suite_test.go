@@ -6,14 +6,13 @@ import (
 	"testing"
 
 	"github.com/hydrolix/plugin/pkg/plugin"
-	"github.com/hydrolix/plugin/pkg/testhelpers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 )
 
 type ConnectivityTestSuite struct {
 	suite.Suite
-	testhelpers.DsTestSuite
+	DsTestSuite
 }
 
 func (s *ConnectivityTestSuite) SetupSuite() {

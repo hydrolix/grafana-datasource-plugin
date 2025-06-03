@@ -9,7 +9,6 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
 	"github.com/hydrolix/plugin/pkg/converters"
 	"github.com/hydrolix/plugin/pkg/plugin"
-	"github.com/hydrolix/plugin/pkg/testhelpers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -17,7 +16,7 @@ import (
 
 type ConvertersTestSuite struct {
 	suite.Suite
-	testhelpers.DsTestSuite
+	DsTestSuite
 }
 
 func (s *ConvertersTestSuite) SetupSuite() {

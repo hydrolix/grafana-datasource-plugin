@@ -1,16 +1,22 @@
-import { emptyContext, parseMacroArgs, applyMacros } from "./macrosApplier";
+import {
+  emptyContext,
+  parseMacroArgs,
+  applyBaseMacros,
+  applyAdHocMacro,
+} from "./macrosApplier";
 import { dateTime, TimeRange, TypedVariableModel } from "@grafana/data";
 import { getFilterExpression } from "./macroFunctions";
+import { adHocQueryAST } from "../__mocks__/ast";
 
 describe("macros base applier", () => {
   it("apply with one macro", async () => {
-    let result = await applyMacros("query with $__interval_s()", {
+    let result = await applyBaseMacros("query with $__interval_s()", {
       ...emptyContext,
     });
     expect(result).toBe("query with 1");
   });
   it("apply with multiple macro", async () => {
-    let result = await applyMacros(
+    let result = await applyBaseMacros(
       "query with $__interval_s() $__interval_s() $__interval_s()",
       {
         ...emptyContext,
@@ -19,20 +25,20 @@ describe("macros base applier", () => {
     expect(result).toBe("query with 1 1 1");
   });
   it("apply with no macro", async () => {
-    let result = await applyMacros("query with", {
+    let result = await applyBaseMacros("query with", {
       ...emptyContext,
     });
     expect(result).toBe("query with");
   });
   it("apply with no existing macro", async () => {
-    let result = await applyMacros("query with $__test", {
+    let result = await applyBaseMacros("query with $__test", {
       ...emptyContext,
     });
     expect(result).toBe("query with $__test");
   });
 
   it("apply without query", async () => {
-    let result = await applyMacros("", {
+    let result = await applyBaseMacros("", {
       ...emptyContext,
     });
     expect(result).toBe("");
@@ -108,7 +114,7 @@ describe("macros interpolation", () => {
   ];
 
   it.each(cases)("$name", async ({ origin, interpolated }) => {
-    const actual = await applyMacros(origin, {
+    const actual = await applyBaseMacros(origin, {
       ...emptyContext,
       timeRange: {
         from: dateTime("2025-02-12T11:45:26.123Z"),
@@ -122,41 +128,44 @@ describe("macros interpolation", () => {
     expect(actual).toEqual(interpolated);
   });
 });
+const SQL_WITH_FILTER =
+  "SELECT column1, columnt2 FROM table WHERE $__adHocFilter()";
+const SQL_WITHOUT_FILTER = "SELECT column1, columnt2 FROM table";
 
 const context = {
   ...emptyContext,
+  query: SQL_WITH_FILTER,
   adHocFilter: {
     filters: [],
+    ast: adHocQueryAST,
     keys: () => Promise.resolve(["column1", "column2"]),
   },
 };
 describe("$__adHocFilter", () => {
-  const SQL_WITH_FILTER =
-    "SELECT column1, columnt2 FROM table WHERE $__adHocFilter()";
-  const SQL_WITHOUT_FILTER = "SELECT column1, columnt2 FROM table";
-
   test("apply to query without macros", async () => {
-    const actual = await applyMacros(SQL_WITHOUT_FILTER, context);
+    const actual = await applyAdHocMacro(SQL_WITHOUT_FILTER, context);
     expect(actual).toEqual(SQL_WITHOUT_FILTER);
   });
   test("apply without filters", async () => {
-    const actual = await applyMacros(SQL_WITH_FILTER, context);
+    const actual = await applyAdHocMacro(SQL_WITH_FILTER, context);
     expect(actual).toEqual("SELECT column1, columnt2 FROM table WHERE 1=1");
   });
   test("apply with filter", async () => {
-    const actual = await applyMacros(SQL_WITH_FILTER, {
+    const actual = await applyAdHocMacro(SQL_WITH_FILTER, {
       ...context,
       adHocFilter: {
         ...context.adHocFilter,
         filters: [{ key: "column1", operator: "=", value: "value" }],
+        ast: adHocQueryAST,
       },
+      query: SQL_WITH_FILTER,
     });
     expect(actual).toEqual(
       "SELECT column1, columnt2 FROM table WHERE column1 = 'value'"
     );
   });
   test("apply with filters", async () => {
-    const actual = await applyMacros(SQL_WITH_FILTER, {
+    const actual = await applyAdHocMacro(SQL_WITH_FILTER, {
       ...context,
       adHocFilter: {
         ...context.adHocFilter,
@@ -164,14 +173,16 @@ describe("$__adHocFilter", () => {
           { key: "column1", operator: "=", value: "value" },
           { key: "column2", operator: "<", value: "value2" },
         ],
+        ast: adHocQueryAST,
       },
+      query: SQL_WITH_FILTER,
     });
     expect(actual).toEqual(
       "SELECT column1, columnt2 FROM table WHERE column1 = 'value' AND column2 < 'value2'"
     );
   });
   test("apply and skip invalid column", async () => {
-    const actual = await applyMacros(SQL_WITH_FILTER, {
+    const actual = await applyAdHocMacro(SQL_WITH_FILTER, {
       ...context,
       adHocFilter: {
         ...context.adHocFilter,
@@ -180,14 +191,16 @@ describe("$__adHocFilter", () => {
           { key: "column2", operator: "<", value: "value2" },
           { key: "column3", operator: "=", value: "value3" },
         ],
+        ast: adHocQueryAST,
       },
+      query: SQL_WITH_FILTER,
     });
     expect(actual).toEqual(
       "SELECT column1, columnt2 FROM table WHERE column1 = 'value' AND column2 < 'value2'"
     );
   });
   test("apply with all invalid columns", async () => {
-    const actual = await applyMacros(SQL_WITH_FILTER, {
+    const actual = await applyAdHocMacro(SQL_WITH_FILTER, {
       ...context,
       adHocFilter: {
         ...context.adHocFilter,
@@ -307,7 +320,7 @@ describe("$__conditionalAll", () => {
   ];
 
   test.each(cases)("$name", async ({ query, variables, expected }) => {
-    const actual = await applyMacros(query, {
+    const actual = await applyBaseMacros(query, {
       ...emptyContext,
       templateVars: variables,
     });
@@ -316,7 +329,7 @@ describe("$__conditionalAll", () => {
 
   test("should fail with 1 param", async () => {
     const t = () =>
-      applyMacros(
+      applyBaseMacros(
         "select foo from table where $__conditionalAll(bar in ($bar));",
         {
           ...emptyContext,
@@ -330,7 +343,7 @@ describe("$__conditionalAll", () => {
 
 describe("$__dateFilter", () => {
   it("should apply macros", async () => {
-    let result = await applyMacros(
+    let result = await applyBaseMacros(
       "SELECT * FROM table WHERE $__dateFilter(date)",
       {
         ...emptyContext,
@@ -350,7 +363,7 @@ describe("$__dateFilter", () => {
   });
 
   it("should apply without timerange", async () => {
-    let result = await applyMacros(
+    let result = await applyBaseMacros(
       "SELECT * FROM table WHERE $__dateFilter(date)",
       {
         ...emptyContext,
@@ -362,7 +375,7 @@ describe("$__dateFilter", () => {
 
   it("should fail on macros with no params", async () => {
     let t = async () =>
-      await applyMacros("SELECT * FROM table WHERE $__dateFilter()", {
+      await applyBaseMacros("SELECT * FROM table WHERE $__dateFilter()", {
         ...emptyContext,
       });
     await expect(t()).rejects.toThrow(
@@ -373,7 +386,7 @@ describe("$__dateFilter", () => {
 
 describe("$__dateTimeFilter", () => {
   it("should apply macros", async () => {
-    let result = await applyMacros(
+    let result = await applyBaseMacros(
       "SELECT * FROM table WHERE $__dateTimeFilter(date, time)",
       {
         ...emptyContext,
@@ -393,7 +406,7 @@ describe("$__dateTimeFilter", () => {
   });
 
   it("should apply without timerange", async () => {
-    let result = await applyMacros(
+    let result = await applyBaseMacros(
       "SELECT * FROM table WHERE $__dateTimeFilter(date, time)",
       {
         ...emptyContext,
@@ -405,16 +418,19 @@ describe("$__dateTimeFilter", () => {
 
   it("should fail on macros with no params", async () => {
     let t = async () =>
-      await applyMacros("SELECT * FROM table WHERE $__dateTimeFilter(date)", {
-        ...emptyContext,
-      });
+      await applyBaseMacros(
+        "SELECT * FROM table WHERE $__dateTimeFilter(date)",
+        {
+          ...emptyContext,
+        }
+      );
     await expect(t()).rejects.toThrow(
       "Macro $__dateTimeFilter should contain 2 parameters"
     );
   });
 
   it("should apply short macros", async () => {
-    let result = await applyMacros(
+    let result = await applyBaseMacros(
       "SELECT * FROM table WHERE $__dt(date, time)",
       {
         ...emptyContext,
@@ -436,7 +452,7 @@ describe("$__dateTimeFilter", () => {
 
 describe("$__fromTime", () => {
   it("should apply macros", async () => {
-    let result = await applyMacros("SELECT $__fromTime()", {
+    let result = await applyBaseMacros("SELECT $__fromTime()", {
       ...emptyContext,
       timeRange: {
         from: dateTime("2022-10-21T19:23:44"),
@@ -452,7 +468,7 @@ describe("$__fromTime", () => {
 
   it("should apply without timerange", async () => {
     let t = async () =>
-      await applyMacros("SELECT $__fromTime()", {
+      await applyBaseMacros("SELECT $__fromTime()", {
         ...emptyContext,
         timeRange: null as unknown as TimeRange,
       });
@@ -462,7 +478,7 @@ describe("$__fromTime", () => {
 
 describe("$__fromTime_ms", () => {
   it("should apply macros", async () => {
-    let result = await applyMacros("SELECT $__fromTime_ms()", {
+    let result = await applyBaseMacros("SELECT $__fromTime_ms()", {
       ...emptyContext,
       timeRange: {
         from: dateTime("2022-10-21T19:23:44"),
@@ -478,7 +494,7 @@ describe("$__fromTime_ms", () => {
 
   it("should apply without timerange", async () => {
     let t = async () =>
-      await applyMacros("SELECT $__fromTime_ms()", {
+      await applyBaseMacros("SELECT $__fromTime_ms()", {
         ...emptyContext,
         timeRange: null as unknown as TimeRange,
       });
@@ -488,7 +504,7 @@ describe("$__fromTime_ms", () => {
 
 describe("$__interval_s", () => {
   it("should apply macros", async () => {
-    let result = await applyMacros("SELECT $__interval_s()", {
+    let result = await applyBaseMacros("SELECT $__interval_s()", {
       ...emptyContext,
       intervalMs: 30000,
     });
@@ -496,7 +512,7 @@ describe("$__interval_s", () => {
   });
 
   it("should apply with 0", async () => {
-    let result = await applyMacros("SELECT $__interval_s()", {
+    let result = await applyBaseMacros("SELECT $__interval_s()", {
       ...emptyContext,
       intervalMs: 0,
     });
@@ -504,7 +520,7 @@ describe("$__interval_s", () => {
   });
 
   it("should apply with null", async () => {
-    let result = await applyMacros("SELECT $__interval_s()", {
+    let result = await applyBaseMacros("SELECT $__interval_s()", {
       ...emptyContext,
     });
     expect(result).toBe("SELECT 1");
@@ -513,7 +529,7 @@ describe("$__interval_s", () => {
 
 describe("$__timeInterval", () => {
   it("should apply macros", async () => {
-    let result = await applyMacros("SELECT $__timeInterval(column)", {
+    let result = await applyBaseMacros("SELECT $__timeInterval(column)", {
       ...emptyContext,
       intervalMs: 30000,
     });
@@ -523,7 +539,7 @@ describe("$__timeInterval", () => {
   });
 
   it("should apply macros with no interval", async () => {
-    let result = await applyMacros("SELECT $__timeInterval(column)", {
+    let result = await applyBaseMacros("SELECT $__timeInterval(column)", {
       ...emptyContext,
     });
     expect(result).toBe(
@@ -533,7 +549,7 @@ describe("$__timeInterval", () => {
 
   it("should fail on macros with no params", async () => {
     let t = async () =>
-      await applyMacros("SELECT $__timeInterval()", {
+      await applyBaseMacros("SELECT $__timeInterval()", {
         ...emptyContext,
       });
     await expect(t()).rejects.toThrow(
@@ -544,7 +560,7 @@ describe("$__timeInterval", () => {
 
 describe("$__timeFilter", () => {
   it("should apply macros", async () => {
-    let result = await applyMacros(
+    let result = await applyBaseMacros(
       "SELECT * FROM table WHERE $__timeFilter(date)",
       {
         ...emptyContext,
@@ -564,7 +580,7 @@ describe("$__timeFilter", () => {
   });
 
   it("should apply without timerange", async () => {
-    let result = await applyMacros(
+    let result = await applyBaseMacros(
       "SELECT * FROM table WHERE $__timeFilter(date)",
       {
         ...emptyContext,
@@ -576,7 +592,7 @@ describe("$__timeFilter", () => {
 
   it("should fail on macros with no params", async () => {
     let t = async () =>
-      await applyMacros("SELECT * FROM table WHERE $__timeFilter()", {
+      await applyBaseMacros("SELECT * FROM table WHERE $__timeFilter()", {
         ...emptyContext,
       });
     await expect(t()).rejects.toThrow(
@@ -587,7 +603,7 @@ describe("$__timeFilter", () => {
 
 describe("$__timeFilter_ms", () => {
   it("should apply macros", async () => {
-    let result = await applyMacros(
+    let result = await applyBaseMacros(
       "SELECT * FROM table WHERE $__timeFilter_ms(date)",
       {
         ...emptyContext,
@@ -607,7 +623,7 @@ describe("$__timeFilter_ms", () => {
   });
 
   it("$__timeFilter_ms", async () => {
-    let result = await applyMacros(
+    let result = await applyBaseMacros(
       "SELECT * FROM table WHERE $__timeFilter_ms(date)",
       {
         ...emptyContext,
@@ -619,7 +635,7 @@ describe("$__timeFilter_ms", () => {
 
   it("should fail on macros with no params", async () => {
     let t = async () =>
-      await applyMacros("SELECT * FROM table WHERE $__timeFilter_ms()", {
+      await applyBaseMacros("SELECT * FROM table WHERE $__timeFilter_ms()", {
         ...emptyContext,
       });
     await expect(t()).rejects.toThrow(
@@ -630,7 +646,7 @@ describe("$__timeFilter_ms", () => {
 
 describe("$__timeInterval_ms", () => {
   it("should apply macros", async () => {
-    let result = await applyMacros("SELECT $__timeInterval_ms(column)", {
+    let result = await applyBaseMacros("SELECT $__timeInterval_ms(column)", {
       ...emptyContext,
       intervalMs: 30000,
     });
@@ -639,7 +655,7 @@ describe("$__timeInterval_ms", () => {
     );
   });
   it("should apply macros with no interval", async () => {
-    let result = await applyMacros("SELECT $__timeInterval_ms(column)", {
+    let result = await applyBaseMacros("SELECT $__timeInterval_ms(column)", {
       ...emptyContext,
     });
     expect(result).toBe(
@@ -649,7 +665,7 @@ describe("$__timeInterval_ms", () => {
 
   it("should fail on macros with no params", async () => {
     let t = async () =>
-      await applyMacros("SELECT $__timeInterval_ms()", {
+      await applyBaseMacros("SELECT $__timeInterval_ms()", {
         ...emptyContext,
       });
     await expect(t()).rejects.toThrow(
@@ -660,7 +676,7 @@ describe("$__timeInterval_ms", () => {
 
 describe("$__toTime", () => {
   it("should apply macros", async () => {
-    let result = await applyMacros("SELECT $__toTime()", {
+    let result = await applyBaseMacros("SELECT $__toTime()", {
       ...emptyContext,
       timeRange: {
         from: dateTime("2022-10-21T19:23:44"),
@@ -676,7 +692,7 @@ describe("$__toTime", () => {
 
   it("should apply without timerange", async () => {
     let t = async () =>
-      await applyMacros("SELECT $__toTime()", {
+      await applyBaseMacros("SELECT $__toTime()", {
         ...emptyContext,
         timeRange: null as unknown as TimeRange,
       });
@@ -686,7 +702,7 @@ describe("$__toTime", () => {
 
 describe("$__toTime_ms", () => {
   it("should apply macros", async () => {
-    let result = await applyMacros("SELECT $__toTime_ms()", {
+    let result = await applyBaseMacros("SELECT $__toTime_ms()", {
       ...emptyContext,
       timeRange: {
         from: dateTime("2022-10-21T19:23:44"),
@@ -702,7 +718,7 @@ describe("$__toTime_ms", () => {
 
   it("should apply without timerange", async () => {
     let t = async () =>
-      await applyMacros("SELECT $__toTime_ms()", {
+      await applyBaseMacros("SELECT $__toTime_ms()", {
         ...emptyContext,
         timeRange: null as unknown as TimeRange,
       });

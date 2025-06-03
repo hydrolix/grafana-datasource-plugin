@@ -3,6 +3,7 @@ module github.com/hydrolix/plugin
 go 1.23.6
 
 require (
+	github.com/AfterShip/clickhouse-sql-parser v0.4.8
 	github.com/ClickHouse/clickhouse-go/v2 v2.33.1
 	github.com/docker/go-connections v0.5.0
 	github.com/grafana/grafana-plugin-sdk-go v0.274.0

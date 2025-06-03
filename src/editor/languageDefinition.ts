@@ -14,8 +14,12 @@ import { FUNCTIONS } from "./functions";
 import { Props } from "../components/QueryEditor";
 import { applyHotKey, updateOptions } from "./editorUtils";
 
-export const languageDefinition: (props: Props) => LanguageDefinition = (
-  props: Props
+export const languageDefinition: (
+  props: Props,
+  setMonaco: (value: Monaco | null) => void
+) => LanguageDefinition = (
+  props: Props,
+  setMonaco: (value: Monaco | null) => void
 ) => {
   return {
     id: "sql",
@@ -43,6 +47,7 @@ export const languageDefinition: (props: Props) => LanguageDefinition = (
       updateOptions(m);
       setKeywords(m, language);
       applyHotKey(m, props);
+      setMonaco(m);
 
       return completionProvider;
     },

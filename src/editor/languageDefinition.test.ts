@@ -23,7 +23,7 @@ describe("language definition", () => {
     jest.clearAllMocks();
   });
   it("should format queries", () => {
-    let ld = languageDefinition(props);
+    let ld = languageDefinition(props, (_) => {});
     let formated = ld.formatter!("SELECT 1");
     expect(formated).toBe("SELECT\n  1");
   });
@@ -66,7 +66,7 @@ describe("language definition", () => {
         ],
       },
     } as unknown as Monaco;
-    const completionItemProvider = languageDefinition(props)
+    const completionItemProvider = languageDefinition(props, (_) => {})
       .completionProvider!(MONACO_10, SQL_LANGUAGE);
     it("should get functions", () => {
       let result = completionItemProvider.supportedFunctions!();
@@ -110,7 +110,7 @@ describe("language definition", () => {
       expect(result.length).toBe(1);
     });
     it("should not fail on grafana 11", () => {
-      const result = languageDefinition(props).completionProvider!(
+      const result = languageDefinition(props, (_) => {}).completionProvider!(
         MONACO_11,
         SQL_LANGUAGE
       );

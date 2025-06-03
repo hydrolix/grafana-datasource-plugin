@@ -1,4 +1,9 @@
-import { DataSourceJsonData, TimeRange } from "@grafana/data";
+import {
+  AdHocVariableFilter,
+  DataSourceJsonData,
+  TimeRange,
+  TypedVariableModel,
+} from "@grafana/data";
 import { DataQuery } from "@grafana/schema";
 
 export interface HdxQuery extends DataQuery {
@@ -46,8 +51,6 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   adHocDefaultTimeRange?: TimeRange;
   adHocTableVariable?: string;
   adHocTimeColumnVariable?: string;
-  adHocKeysQuery?: string;
-  adHocValuesQuery?: string;
   dialTimeout?: string;
   queryTimeout?: string;
 }
@@ -68,4 +71,99 @@ export interface AdHocFilterKeys {
   text: string;
   value?: string | number;
   group: string;
+}
+
+export interface AstResponse {
+  originalSql: string;
+  error: boolean;
+  error_message: string;
+  data: any;
+}
+
+export interface InterpolationResult {
+  originalSql?: string;
+  interpolatedSql?: string;
+  finalSql?: string;
+  hasError: boolean;
+  hasWarning: boolean;
+  error?: string;
+  warning?: string;
+}
+
+export interface ValidationResult {
+  error?: string;
+  warning?: string;
+}
+
+export interface SelectQuery {
+  SelectItems: SelectItem[];
+  From: Expr;
+  Where: Expr;
+  GroupBy: GroupBy;
+  OrderBy: OrderBy;
+  Settings: Settings;
+}
+
+export interface Settings {
+  Items: Expr[];
+}
+export interface SelectItem {
+  Expr: Expr;
+  Modifiers: [];
+  Alias: Alias;
+}
+interface OrderBy {
+  Items: Expr[];
+}
+interface GroupBy {
+  AggregateType: string;
+  Expr: Expr;
+}
+export interface Alias {
+  Name: string;
+}
+export interface ColumnExprList {
+  HasDistinct: boolean;
+  Items: Expr[];
+}
+export interface Params {
+  Items: ColumnExprList;
+}
+export interface TableIdentifier {}
+
+export interface Expr {
+  Expr: Expr;
+  Name: string;
+  Literal: string;
+  Alias: Alias;
+  Direction: string;
+  Params: Params;
+  LeftExpr: Expr;
+  RightExpr: Expr;
+  Table: Expr;
+  Database: Expr;
+  Operation: string;
+}
+
+export interface MacroFunctionMap {
+  [macro: string]: (
+    params: string[],
+    context: Context,
+    index: number
+  ) => Promise<string> | string;
+}
+
+export interface Context {
+  adHocFilter?: AdHocFilterContext;
+  templateVars: TypedVariableModel[];
+  replaceFn: (s: string) => string;
+  query: string;
+  intervalMs?: number;
+  timeRange?: TimeRange;
+}
+
+interface AdHocFilterContext {
+  filters?: AdHocVariableFilter[];
+  ast?: any;
+  keys: (table: string) => Promise<string[]>;
 }

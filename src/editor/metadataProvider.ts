@@ -10,6 +10,7 @@ import { TableDefinition } from "@grafana/plugin-ui/dist/src/components/SQLEdito
 import { DataSource } from "../datasource";
 import { AdHocFilterKeys } from "../types";
 import {
+  AD_HOC_KEY_QUERY,
   COLUMNS_SQL,
   FUNCTIONS_SQL,
   NULLABLE_TYPES,
@@ -92,26 +93,24 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
     | Array<{ id: string; name: string; description: string }>
     | undefined;
   let tableKeysFn: (table: string) => Promise<AdHocFilterKeys[]>;
-  if (ds.instanceSettings.jsonData.adHocKeysQuery) {
-    tableKeysFn = (table: string) =>
-      !tableKeys[table]
-        ? firstValueFrom(
-            queryRunner(
-              ds.instanceSettings.jsonData.adHocKeysQuery!.replaceAll(
-                "${table}",
-                table
-              )
-            ).pipe(
-              map((r) => {
+  tableKeysFn = (table: string) =>
+    !tableKeys[table]
+      ? firstValueFrom(
+          queryRunner(AD_HOC_KEY_QUERY.replaceAll("${table}", table)).pipe(
+            map((r) => {
+              try {
                 return getKeyMap(r);
-              }),
-              tap((k) => (tableKeys[table] = k))
-            )
+              } catch (e: any) {
+                throw new Error(
+                  `Cannot apply ad hoc filters: unable to resolve filterable columns for "${table}"`
+                );
+              }
+            }),
+            tap((k) => (tableKeys[table] = k))
           )
-        : Promise.resolve(tableKeys[table]);
-  } else {
-    tableKeysFn = (_) => Promise.resolve([]);
-  }
+        )
+      : Promise.resolve(tableKeys[table]);
+
   return {
     schemas: () =>
       !schemas
@@ -162,40 +161,46 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
 };
 
 export const getKeyMap = (r: DataQueryResponse): AdHocFilterKeys[] => {
-  let fields = r.data[0]?.fields?.length ? r.data[0].fields : [[], [], [], []];
-  let columns: string[] = fields[0]?.values;
-  let types: string[] = fields[1]?.values;
-  let defaultTypes: string[] = fields[2]?.values;
-  let defaultExpression: string[] = fields[3]?.values;
-  const aliasRegExp = /`(.*)`/;
-  let definitionByKey: Map<string, KeyDefinition> = new Map(
-    columns.map((c, i) => [
-      c,
-      {
-        name: c,
-        type: types[i],
-        isAlias: defaultTypes[i] === "ALIAS",
-        aliasFor: aliasRegExp.test(defaultExpression[i])
-          ? aliasRegExp.exec(defaultExpression[i])?.[1]!
-          : "",
-      },
-    ])
-  );
-  return columns
-    .filter((c) => {
-      let definition = definitionByKey.get(c)!;
-      let type;
-      if (definition.isAlias) {
-        type = definitionByKey.get(definition.aliasFor)?.type || "";
-      } else {
-        type = definition.type;
-      }
-      return (
-        !c.includes("(") &&
-        (SUPPORTED_TYPES.includes(type) || NULLABLE_TYPES.includes(type))
-      );
-    })
-    .map((k) => ({ text: k, value: k } as AdHocFilterKeys));
+  try {
+    let fields = r.data[0]?.fields?.length
+      ? r.data[0].fields
+      : [[], [], [], []];
+    let columns: string[] = fields[0]?.values;
+    let types: string[] = fields[1]?.values;
+    let defaultTypes: string[] = fields[2]?.values;
+    let defaultExpression: string[] = fields[3]?.values;
+    const aliasRegExp = /`(.*)`/;
+    let definitionByKey: Map<string, KeyDefinition> = new Map(
+      columns.map((c, i) => [
+        c,
+        {
+          name: c,
+          type: types[i],
+          isAlias: defaultTypes[i] === "ALIAS",
+          aliasFor: aliasRegExp.test(defaultExpression[i])
+            ? aliasRegExp.exec(defaultExpression[i])?.[1]!
+            : "",
+        },
+      ])
+    );
+    return columns
+      .filter((c) => {
+        let definition = definitionByKey.get(c)!;
+        let type;
+        if (definition.isAlias) {
+          type = definitionByKey.get(definition.aliasFor)?.type || "";
+        } else {
+          type = definition.type;
+        }
+        return (
+          !c.includes("(") &&
+          (SUPPORTED_TYPES.includes(type) || NULLABLE_TYPES.includes(type))
+        );
+      })
+      .map((k) => ({ text: k, value: k } as AdHocFilterKeys));
+  } catch (e: any) {
+    throw new Error("can not get columns for ad-hoc filter", e.message);
+  }
 };
 
 interface KeyDefinition {

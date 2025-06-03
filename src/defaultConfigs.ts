@@ -14,7 +14,4 @@ export default {
     raw: { from: "now-5m", to: "now" },
   },
   path: "/query",
-  adHocKeysQuery: "DESCRIBE ${table}",
-  adHocValuesQuery:
-    "SELECT ${column}, COUNT(${column}) as count  FROM ${table} WHERE $__timeFilter(${timeColumn}) AND $__adHocFilter()  GROUP BY ${column} ORDER BY count DESC LIMIT 100",
 };
