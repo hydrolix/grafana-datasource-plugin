@@ -4,16 +4,49 @@ datasources:
   - name: "Hydrolix"
     type: "hydrolix-hydrolix-datasource"
     access: proxy
-    isDefault: false
-    uid: hydrolix_prv_ds
+    isDefault: true
     orgId: 1
     version: 1
-    editable: true
+    editable: false
+    uid: P5F37BC6C98DC765D
     jsonData:
-      username: "default"
       protocol: "http"
+      host: demo.trafficpeak.live
       port: 443
-      useDefaultPort: true
       secure: true
       path: "/query"
+      username: "${HYDROLIX_USERNAME}"
+      defaultDatabase: akamai
+      defaultRound: 1m
+      adHocTableVariable: table
+      adHocTimeColumnVariable: timestamp
     secureJsonData:
+      password: '${HYDROLIX_PASSWORD}'
+  - name: "ClickHouse"
+    type: "grafana-clickhouse-datasource"
+    access: proxy
+    isDefault: false
+    orgId: 1
+    version: 1
+    editable: false
+    uid: PDEE91DDB90597936
+    jsonData:
+      protocol: "native"
+      host: demo.trafficpeak.live
+      port: 9440
+      secure: true
+      username: "${HYDROLIX_USERNAME}"
+      defaultDatabase: akamai
+    secureJsonData:
+      password: '${HYDROLIX_PASSWORD}'
+  - name: "Prometheus"
+    type: "prometheus"
+    access: proxy
+    isDefault: false
+    orgId: 1
+    version: 1
+    editable: false
+    url: http://prometheus:9090
+    uid: PBFA97CFB590B2093
+    jsonData:
+      timeInterval: 5s

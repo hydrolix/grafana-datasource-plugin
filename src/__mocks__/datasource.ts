@@ -5,7 +5,7 @@ import {
   ScopedVars,
 } from "@grafana/data";
 import { DataSource } from "../datasource";
-import { HdxDataSourceOptions } from "../types";
+import { AstResponse, HdxDataSourceOptions } from "../types";
 import {
   DataSourceWithBackend,
   getBackendSrv,
@@ -54,6 +54,13 @@ const queryMock = jest.fn().mockReturnValue(of({ data: [] }));
 jest
   .spyOn(DataSourceWithBackend.prototype, "query")
   .mockImplementation((args) => queryMock(args));
+jest.spyOn(DataSource.prototype, "getAst").mockReturnValue(
+  Promise.resolve({
+    originalSql: "",
+    error: false,
+    data: {},
+  } as AstResponse)
+);
 
 const separatorMap = new Map<string, string>([
   ["pipe", "|"],
