@@ -37,6 +37,9 @@ import {
   SHOW_VALIDATION_BAR,
 } from "../constants";
 
+// @ts-ignore
+import styles from "../styles.module.css";
+
 export type Props = QueryEditorProps<
   DataSource,
   HdxQuery,
@@ -195,6 +198,7 @@ export function QueryEditor(props: Props) {
                   />
                 </InlineField>
                 <InlineField
+                  className={styles.round}
                   error={"invalid duration"}
                   invalid={invalidDuration.current}
                   label={
