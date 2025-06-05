@@ -7,6 +7,7 @@ import {
 import { dateTime, TimeRange, TypedVariableModel } from "@grafana/data";
 import { getFilterExpression } from "./macroFunctions";
 import { adHocQueryAST } from "../__mocks__/ast";
+import { SYNTHETIC_EMPTY, SYNTHETIC_NULL } from "../constants";
 
 describe("macros base applier", () => {
   it("apply with one macro", async () => {
@@ -224,6 +225,15 @@ describe("$__adHocFilter getFilterExpression", () => {
     });
     expect(actual).toEqual("column = 'value'");
   });
+
+  test("eq empty sting expression", async () => {
+    const actual = getFilterExpression({
+      key: "column",
+      operator: "=",
+      value: SYNTHETIC_EMPTY,
+    });
+    expect(actual).toEqual("column = ''");
+  });
   test("lg expression", async () => {
     const actual = getFilterExpression({
       key: "column",
@@ -263,6 +273,36 @@ describe("$__adHocFilter getFilterExpression", () => {
     );
   });
 
+  test("eq synthetic null expression", async () => {
+    const actual = getFilterExpression({
+      key: "column",
+      operator: "=",
+      value: SYNTHETIC_NULL,
+    });
+    expect(actual).toEqual("column IS NULL");
+  });
+
+  test("neq synthetic null expression", async () => {
+    const actual = getFilterExpression({
+      key: "column",
+      operator: "!=",
+      value: SYNTHETIC_NULL,
+    });
+    expect(actual).toEqual("column IS NOT NULL");
+  });
+
+  test("lg synthetic null expression", async () => {
+    const actual = () =>
+      getFilterExpression({
+        key: "column",
+        operator: "<",
+        value: SYNTHETIC_NULL,
+      });
+    expect(actual).toThrow(
+      "column: operator '<' can not be applied to NULL value"
+    );
+  });
+
   test("eq regex expression", async () => {
     const actual = getFilterExpression({
       key: "column",
@@ -279,6 +319,50 @@ describe("$__adHocFilter getFilterExpression", () => {
       value: "REGEX",
     });
     expect(actual).toEqual("toString(column) NOT LIKE 'REGEX'");
+  });
+
+  test("one of expression", async () => {
+    const actual = getFilterExpression({
+      key: "column",
+      operator: "=|",
+      // @ts-ignore
+      values: ["one", "two", "three"],
+    });
+    expect(actual).toEqual("column IN ('one', 'two', 'three')");
+  });
+
+  test("not one of expression", async () => {
+    const actual = getFilterExpression({
+      key: "column",
+      operator: "!=|",
+      // @ts-ignore
+      values: ["one", "two", "three"],
+    });
+    expect(actual).toEqual("column NOT IN ('one', 'two', 'three')");
+  });
+
+  test("one of with null expression", async () => {
+    const actual = getFilterExpression({
+      key: "column",
+      operator: "=|",
+      // @ts-ignore
+      values: ["one", SYNTHETIC_NULL, "two", "three"],
+    });
+    expect(actual).toEqual(
+      "(column IN ('one', 'two', 'three') OR column IS NULL)"
+    );
+  });
+
+  test("not one of with null expression", async () => {
+    const actual = getFilterExpression({
+      key: "column",
+      operator: "!=|",
+      // @ts-ignore
+      values: ["one", "two", "three", SYNTHETIC_NULL],
+    });
+    expect(actual).toEqual(
+      "column NOT IN ('one', 'two', 'three') AND column IS NOT NULL"
+    );
   });
 });
 

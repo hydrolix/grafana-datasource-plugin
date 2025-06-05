@@ -1,5 +1,10 @@
 import { AdHocVariableFilter } from "@grafana/data";
-import { DATE_FORMAT, VARIABLE_REGEX } from "../constants";
+import {
+  DATE_FORMAT,
+  SYNTHETIC_EMPTY,
+  SYNTHETIC_NULL,
+  VARIABLE_REGEX,
+} from "../constants";
 import { traverseTree } from "../ast";
 import { Context } from "types";
 
@@ -47,13 +52,45 @@ export const adHocFilter = async (
 };
 
 export const getFilterExpression = (filter: AdHocVariableFilter): string => {
+  const unwrapSyntheticValue = (s: string) => (s === SYNTHETIC_EMPTY ? "" : s);
+  const getJoinedValues = () => {
+    return [
+      // @ts-ignore
+      filter?.values
+        ?.filter((v: any) => v !== SYNTHETIC_NULL)
+        ?.map((v: any) => `'${unwrapSyntheticValue(v)}'`)
+        ?.join(", "),
+      // @ts-ignore
+      filter.values.find((v: any) => v === SYNTHETIC_NULL),
+    ];
+  };
   let key = filter.key;
-  if (filter.operator === "=|" || filter.operator === "!=|") {
+  if (filter.operator === "=|") {
+    const [joinedValues, hasNull] = getJoinedValues();
+    const condition = [
+      joinedValues ? `${key} IN (${joinedValues})` : "",
+      hasNull ? `${key} IS NULL` : "",
+    ]
+      .filter((v) => v)
+      .join(" OR ");
+    return joinedValues && hasNull ? `(${condition})` : condition;
+  } else if (filter.operator === "!=|") {
+    const [joinedValues, hasNull] = getJoinedValues();
+    return [
+      joinedValues ? `${key} NOT IN (${joinedValues})` : "",
+      hasNull ? `${key} IS NOT NULL` : "",
+    ]
+      .filter((v) => v)
+      .join(" AND ");
+  } else if (filter.operator === "=|" || filter.operator === "!=|") {
     // @ts-ignore
     return `${key} ${filter.operator === "!=|" ? "NOT " : ""}IN (${filter.values
-      .map((v: any) => `'${v}'`)
+      .map((v: any) => `'${unwrapSyntheticValue(v)}'`)
       .join(", ")})`;
-  } else if (filter.value?.toLowerCase() === "null") {
+  } else if (
+    filter.value?.toLowerCase() === "null" ||
+    filter.value === SYNTHETIC_NULL
+  ) {
     if (filter.operator === "=") {
       return `${key} IS NULL`;
     } else if (filter.operator === "!=") {
@@ -64,11 +101,11 @@ export const getFilterExpression = (filter: AdHocVariableFilter): string => {
       );
     }
   } else if (filter.operator === "=~") {
-    return `toString(${key}) LIKE '${filter.value}'`;
+    return `toString(${key}) LIKE '${unwrapSyntheticValue(filter.value)}'`;
   } else if (filter.operator === "!~") {
-    return `toString(${key}) NOT LIKE '${filter.value}'`;
+    return `toString(${key}) NOT LIKE '${unwrapSyntheticValue(filter.value)}'`;
   } else {
-    return `${key} ${filter.operator} '${filter.value}'`;
+    return `${key} ${filter.operator} '${unwrapSyntheticValue(filter.value)}'`;
   }
 };
 

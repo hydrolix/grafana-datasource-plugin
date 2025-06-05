@@ -40,6 +40,7 @@ import { getColumnValuesStatement } from "./ast";
 import { getFirstValidRound, roundTimeRange } from "./editor/timeRangeUtils";
 import { applyAdHocMacro, applyBaseMacros } from "./macros/macrosApplier";
 import { validateQuery } from "./editor/queryValidation";
+import { SYNTHETIC_EMPTY, SYNTHETIC_NULL } from "./constants";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -367,12 +368,30 @@ export class DataSource extends DataSourceWithBackend<
       ? response.data[0].fields
       : [];
     let values: string[] = fields[0]?.values;
-    return values
-      .filter((n) => n !== "")
-      .map((n) => ({
-        text: n ? n : "null",
+
+    return [
+      ...values.filter((v) => v),
+
+      values.filter((v) => v === "").length ? SYNTHETIC_EMPTY : null,
+      values.filter((v) => v === null || v === undefined).length
+        ? SYNTHETIC_NULL
+        : null,
+    ]
+      .filter((v) => v !== null)
+      .map((n: string) => ({
+        text: n,
         value: n,
       }));
+  }
+
+  getNullSafeValue(s: string): string {
+    if (s === "") {
+      return SYNTHETIC_EMPTY;
+    } else if (s === null || s === undefined) {
+      return SYNTHETIC_NULL;
+    } else {
+      return s;
+    }
   }
 
   private adHocFilterTableName() {
