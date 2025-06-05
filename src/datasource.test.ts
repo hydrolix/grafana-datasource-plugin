@@ -162,7 +162,28 @@ describe("HdxDataSource", () => {
       );
       let values = await datasource.getTagValues({ key: "key1", filters: [] });
 
-      expect(values).toEqual([{ text: "null", value: null }]);
+      expect(values).toEqual([{ text: "__null__", value: "__null__" }]);
+    });
+    it("should return empty value", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve(
+          ["key1", "key2", "key3"].map(
+            (k) => ({ text: k, value: k } as AdHocFilterKeys)
+          )
+        )
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: [""] }],
+            }),
+          ],
+        })
+      );
+      let values = await datasource.getTagValues({ key: "key1", filters: [] });
+
+      expect(values).toEqual([{ text: "__empty__", value: "__empty__" }]);
     });
   });
 
