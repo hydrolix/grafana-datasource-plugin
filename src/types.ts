@@ -81,7 +81,8 @@ export interface AstResponse {
 }
 
 export interface InterpolationResult {
-  originalSql?: string;
+  originalSql: string;
+  interpolationId: string;
   interpolatedSql?: string;
   finalSql?: string;
   hasError: boolean;

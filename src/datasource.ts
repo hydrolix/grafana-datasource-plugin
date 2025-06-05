@@ -92,6 +92,7 @@ export class DataSource extends DataSourceWithBackend<
             try {
               interpolationResult = await this.interpolateQuery(
                 t.rawSql,
+                "",
                 request,
                 getFirstValidRound([
                   t.round,
@@ -167,6 +168,7 @@ export class DataSource extends DataSourceWithBackend<
 
   public async interpolateQuery(
     sql: string,
+    interpolationId: string,
     request: Partial<DataQueryRequest<HdxQuery>>,
     round?: string
   ): Promise<InterpolationResult> {
@@ -217,6 +219,7 @@ export class DataSource extends DataSourceWithBackend<
       } catch (e: any) {
         return {
           originalSql: sql,
+          interpolationId,
           interpolatedSql: interpolatedSql,
           hasError: true,
           hasWarning: false,
@@ -228,6 +231,7 @@ export class DataSource extends DataSourceWithBackend<
       if (!astResponse.data) {
         return {
           originalSql: sql,
+          interpolationId,
           interpolatedSql: interpolatedSql,
           finalSql: interpolatedSql,
           hasError: false,
@@ -237,6 +241,7 @@ export class DataSource extends DataSourceWithBackend<
       let validationResult = validateQuery(astResponse.data);
       return {
         originalSql: sql,
+        interpolationId,
         interpolatedSql: interpolatedSql,
         finalSql: interpolatedSql,
         hasError: !!validationResult?.error,
@@ -248,6 +253,7 @@ export class DataSource extends DataSourceWithBackend<
       console.error(e);
       return {
         originalSql: sql,
+        interpolationId,
         interpolatedSql: interpolatedSql,
         hasError: true,
         hasWarning: false,
@@ -355,7 +361,7 @@ export class DataSource extends DataSourceWithBackend<
 
     let response = await this.metadataProvider.executeQuery(
       (
-        await this.interpolateQuery(sql, {
+        await this.interpolateQuery(sql, "", {
           ...this.options,
           filters: options.filters,
           range:
