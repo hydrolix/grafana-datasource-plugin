@@ -376,7 +376,9 @@ export class DataSource extends DataSourceWithBackend<
     let values: string[] = fields[0]?.values;
 
     return [
-      ...values.filter((v) => v),
+      ...values
+        .filter((v) => v)
+        .filter((v) => ![SYNTHETIC_EMPTY, SYNTHETIC_NULL].includes(v)),
 
       values.filter((v) => v === "").length ? SYNTHETIC_EMPTY : null,
       values.filter((v) => v === null || v === undefined).length

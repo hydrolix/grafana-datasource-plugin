@@ -232,7 +232,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       operator: "=",
       value: SYNTHETIC_EMPTY,
     });
-    expect(actual).toEqual("column = ''");
+    expect(actual).toEqual("(column = '' OR column = '__empty__')");
   });
   test("lg expression", async () => {
     const actual = getFilterExpression({
@@ -249,7 +249,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       operator: "=",
       value: "null",
     });
-    expect(actual).toEqual("column IS NULL");
+    expect(actual).toEqual("(column IS NULL OR column = '__null__')");
   });
 
   test("neq null expression", async () => {
@@ -258,7 +258,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       operator: "!=",
       value: "null",
     });
-    expect(actual).toEqual("column IS NOT NULL");
+    expect(actual).toEqual("column IS NOT NULL AND column != '__null__'");
   });
 
   test("lg null expression", async () => {
@@ -279,7 +279,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       operator: "=",
       value: SYNTHETIC_NULL,
     });
-    expect(actual).toEqual("column IS NULL");
+    expect(actual).toEqual("(column IS NULL OR column = '__null__')");
   });
 
   test("neq synthetic null expression", async () => {
@@ -288,7 +288,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       operator: "!=",
       value: SYNTHETIC_NULL,
     });
-    expect(actual).toEqual("column IS NOT NULL");
+    expect(actual).toEqual("column IS NOT NULL AND column != '__null__'");
   });
 
   test("lg synthetic null expression", async () => {
@@ -349,7 +349,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       values: ["one", SYNTHETIC_NULL, "two", "three"],
     });
     expect(actual).toEqual(
-      "(column IN ('one', 'two', 'three') OR column IS NULL)"
+      "(column IN ('one', '__null__', 'two', 'three') OR column IS NULL)"
     );
   });
 
@@ -361,7 +361,55 @@ describe("$__adHocFilter getFilterExpression", () => {
       values: ["one", "two", "three", SYNTHETIC_NULL],
     });
     expect(actual).toEqual(
-      "column NOT IN ('one', 'two', 'three') AND column IS NOT NULL"
+      "column NOT IN ('one', 'two', 'three', '__null__') AND column IS NOT NULL"
+    );
+  });
+
+  test("one of with empty expression", async () => {
+    const actual = getFilterExpression({
+      key: "column",
+      operator: "=|",
+      // @ts-ignore
+      values: ["one", SYNTHETIC_EMPTY, "two", "three"],
+    });
+    expect(actual).toEqual(
+      "column IN ('one', '__empty__', 'two', 'three', '')"
+    );
+  });
+
+  test("not one of with empty expression", async () => {
+    const actual = getFilterExpression({
+      key: "column",
+      operator: "!=|",
+      // @ts-ignore
+      values: ["one", "two", "three", SYNTHETIC_EMPTY],
+    });
+    expect(actual).toEqual(
+      "column NOT IN ('one', 'two', 'three', '__empty__', '')"
+    );
+  });
+
+  test("one of with null and empty expression", async () => {
+    const actual = getFilterExpression({
+      key: "column",
+      operator: "=|",
+      // @ts-ignore
+      values: ["one", SYNTHETIC_EMPTY, "two", "three", SYNTHETIC_NULL],
+    });
+    expect(actual).toEqual(
+      "(column IN ('one', '__empty__', 'two', 'three', '__null__', '') OR column IS NULL)"
+    );
+  });
+
+  test("not one of with null and empty expression", async () => {
+    const actual = getFilterExpression({
+      key: "column",
+      operator: "!=|",
+      // @ts-ignore
+      values: ["one", SYNTHETIC_NULL, "two", "three", SYNTHETIC_EMPTY],
+    });
+    expect(actual).toEqual(
+      "column NOT IN ('one', '__null__', 'two', 'three', '__empty__', '') AND column IS NOT NULL"
     );
   });
 });

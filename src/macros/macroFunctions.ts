@@ -52,16 +52,15 @@ export const adHocFilter = async (
 };
 
 export const getFilterExpression = (filter: AdHocVariableFilter): string => {
-  const unwrapSyntheticValue = (s: string) => (s === SYNTHETIC_EMPTY ? "" : s);
   const getJoinedValues = () => {
+    // @ts-ignore
+    const values = filter?.values;
     return [
-      // @ts-ignore
-      filter?.values
-        ?.filter((v: any) => v !== SYNTHETIC_NULL)
-        ?.map((v: any) => `'${unwrapSyntheticValue(v)}'`)
+      [...values, values.find((v: any) => v === SYNTHETIC_EMPTY) ? "" : null]
+        .filter((v) => v !== null)
+        .map((v) => `'${v}'`)
         ?.join(", "),
-      // @ts-ignore
-      filter.values.find((v: any) => v === SYNTHETIC_NULL),
+      values.find((v: any) => v === SYNTHETIC_NULL),
     ];
   };
   let key = filter.key;
@@ -82,30 +81,35 @@ export const getFilterExpression = (filter: AdHocVariableFilter): string => {
     ]
       .filter((v) => v)
       .join(" AND ");
-  } else if (filter.operator === "=|" || filter.operator === "!=|") {
-    // @ts-ignore
-    return `${key} ${filter.operator === "!=|" ? "NOT " : ""}IN (${filter.values
-      .map((v: any) => `'${unwrapSyntheticValue(v)}'`)
-      .join(", ")})`;
   } else if (
     filter.value?.toLowerCase() === "null" ||
     filter.value === SYNTHETIC_NULL
   ) {
     if (filter.operator === "=") {
-      return `${key} IS NULL`;
+      return `(${key} IS NULL OR ${key} = '${SYNTHETIC_NULL}')`;
     } else if (filter.operator === "!=") {
-      return `${key} IS NOT NULL`;
+      return `${key} IS NOT NULL AND ${key} != '${SYNTHETIC_NULL}'`;
     } else {
       throw new Error(
         `${key}: operator '${filter.operator}' can not be applied to NULL value`
       );
     }
+  } else if (filter.value === "" || filter.value === SYNTHETIC_EMPTY) {
+    if (filter.operator === "=") {
+      return `(${key} = '' OR ${key} = '${SYNTHETIC_EMPTY}')`;
+    } else if (filter.operator === "!=") {
+      return `${key} != '' AND ${key} != '${SYNTHETIC_EMPTY}'`;
+    } else {
+      throw new Error(
+        `${key}: operator '${filter.operator}' can not be applied to __empty__ value`
+      );
+    }
   } else if (filter.operator === "=~") {
-    return `toString(${key}) LIKE '${unwrapSyntheticValue(filter.value)}'`;
+    return `toString(${key}) LIKE '${filter.value}'`;
   } else if (filter.operator === "!~") {
-    return `toString(${key}) NOT LIKE '${unwrapSyntheticValue(filter.value)}'`;
+    return `toString(${key}) NOT LIKE '${filter.value}'`;
   } else {
-    return `${key} ${filter.operator} '${unwrapSyntheticValue(filter.value)}'`;
+    return `${key} ${filter.operator} '${filter.value}'`;
   }
 };
 
