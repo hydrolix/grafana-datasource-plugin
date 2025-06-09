@@ -40,6 +40,7 @@ import { getColumnValuesStatement } from "./ast";
 import { getFirstValidRound, roundTimeRange } from "./editor/timeRangeUtils";
 import { applyAdHocMacro, applyBaseMacros } from "./macros/macrosApplier";
 import { validateQuery } from "./editor/queryValidation";
+import { SYNTHETIC_EMPTY, SYNTHETIC_NULL } from "./constants";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -91,6 +92,7 @@ export class DataSource extends DataSourceWithBackend<
             try {
               interpolationResult = await this.interpolateQuery(
                 t.rawSql,
+                "",
                 request,
                 getFirstValidRound([
                   t.round,
@@ -166,6 +168,7 @@ export class DataSource extends DataSourceWithBackend<
 
   public async interpolateQuery(
     sql: string,
+    interpolationId: string,
     request: Partial<DataQueryRequest<HdxQuery>>,
     round?: string
   ): Promise<InterpolationResult> {
@@ -216,6 +219,7 @@ export class DataSource extends DataSourceWithBackend<
       } catch (e: any) {
         return {
           originalSql: sql,
+          interpolationId,
           interpolatedSql: interpolatedSql,
           hasError: true,
           hasWarning: false,
@@ -227,6 +231,7 @@ export class DataSource extends DataSourceWithBackend<
       if (!astResponse.data) {
         return {
           originalSql: sql,
+          interpolationId,
           interpolatedSql: interpolatedSql,
           finalSql: interpolatedSql,
           hasError: false,
@@ -236,6 +241,7 @@ export class DataSource extends DataSourceWithBackend<
       let validationResult = validateQuery(astResponse.data);
       return {
         originalSql: sql,
+        interpolationId,
         interpolatedSql: interpolatedSql,
         finalSql: interpolatedSql,
         hasError: !!validationResult?.error,
@@ -247,6 +253,7 @@ export class DataSource extends DataSourceWithBackend<
       console.error(e);
       return {
         originalSql: sql,
+        interpolationId,
         interpolatedSql: interpolatedSql,
         hasError: true,
         hasWarning: false,
@@ -354,7 +361,7 @@ export class DataSource extends DataSourceWithBackend<
 
     let response = await this.metadataProvider.executeQuery(
       (
-        await this.interpolateQuery(sql, {
+        await this.interpolateQuery(sql, "", {
           ...this.options,
           filters: options.filters,
           range:
@@ -367,12 +374,32 @@ export class DataSource extends DataSourceWithBackend<
       ? response.data[0].fields
       : [];
     let values: string[] = fields[0]?.values;
-    return values
-      .filter((n) => n !== "")
-      .map((n) => ({
-        text: n ? n : "null",
+
+    return [
+      ...values
+        .filter((v) => v)
+        .filter((v) => ![SYNTHETIC_EMPTY, SYNTHETIC_NULL].includes(v)),
+
+      values.filter((v) => v === "").length ? SYNTHETIC_EMPTY : null,
+      values.filter((v) => v === null || v === undefined).length
+        ? SYNTHETIC_NULL
+        : null,
+    ]
+      .filter((v) => v !== null)
+      .map((n: string) => ({
+        text: n,
         value: n,
       }));
+  }
+
+  getNullSafeValue(s: string): string {
+    if (s === "") {
+      return SYNTHETIC_EMPTY;
+    } else if (s === null || s === undefined) {
+      return SYNTHETIC_NULL;
+    } else {
+      return s;
+    }
   }
 
   private adHocFilterTableName() {
