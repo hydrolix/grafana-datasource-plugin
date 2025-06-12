@@ -40,9 +40,19 @@ export const adHocFilter = async (
     }
 
     let keys = await context.adHocFilter.keys(tableName);
+    let columns = keys.map((key) => key.text);
+    let typeByColumn = keys.reduce((acc, key) => {
+      acc[key.text] = key.type;
+      return acc;
+    }, {} as { [key: string]: string });
     condition = context.adHocFilter.filters
-      .filter((f) => keys.includes(f.key))
-      .map(getFilterExpression)
+      .filter((f) => columns.includes(f.key))
+      .map((f) =>
+        getFilterExpression(
+          f,
+          (typeByColumn[f.key] ?? "").toLowerCase().includes("string")
+        )
+      )
       .join(" AND ");
   }
   if (!condition) {
@@ -51,13 +61,17 @@ export const adHocFilter = async (
   return condition;
 };
 
-export const getFilterExpression = (filter: AdHocVariableFilter): string => {
+export const getFilterExpression = (
+  filter: AdHocVariableFilter,
+  isString: boolean
+): string => {
   const getJoinedValues = () => {
     // @ts-ignore
     const values = filter?.values;
     return [
       [...values, values.find((v: any) => v === SYNTHETIC_EMPTY) ? "" : null]
         .filter((v) => v !== null)
+        .filter((v) => v !== SYNTHETIC_NULL || isString)
         .map((v) => `'${v}'`)
         ?.join(", "),
       values.find((v: any) => v === SYNTHETIC_NULL),
@@ -85,10 +99,14 @@ export const getFilterExpression = (filter: AdHocVariableFilter): string => {
     filter.value?.toLowerCase() === "null" ||
     filter.value === SYNTHETIC_NULL
   ) {
-    if (filter.operator === "=") {
+    if (filter.operator === "=" && isString) {
       return `(${key} IS NULL OR ${key} = '${SYNTHETIC_NULL}')`;
-    } else if (filter.operator === "!=") {
+    } else if (filter.operator === "!=" && isString) {
       return `${key} IS NOT NULL AND ${key} != '${SYNTHETIC_NULL}'`;
+    } else if (filter.operator === "=") {
+      return `${key} IS NULL`;
+    } else if (filter.operator === "!=") {
+      return `${key} IS NOT NULL`;
     } else {
       throw new Error(
         `${key}: operator '${filter.operator}' can not be applied to NULL value`
