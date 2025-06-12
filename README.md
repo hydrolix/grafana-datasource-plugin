@@ -26,7 +26,7 @@ You can configure the Hydrolix data source directly within Grafana or via config
 Following is the list of Hydrolix configuration options:
 
 | Name                                                   | Description                                                                                                                                                                   |
-| ------------------------------------------------------ |-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+|--------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Name**                                               | The name used to reference this data source in panels and queries                                                                                                             |
 | **Default**                                            | Toggle to set this Hydrolix data source as the default in panels and visualizations                                                                                           |
 | **Server address**                                     | The IP address or hostname of your Hydrolix instance                                                                                                                          |
@@ -39,9 +39,9 @@ Following is the list of Hydrolix configuration options:
 | **Username**, **Password**                             | Credentials for connecting to your Hydrolix instance                                                                                                                          |
 | **Default database** (optional)                        | Used when no database is explicitly included in the query                                                                                                                     |
 | **Default round** (optional)                           | Used when a query does not specify a round value. Aligns `$from` and `$to` to the nearest multiple of this value. For more details, see [Round timestamps](#round-timestamps) |
-| **Ad-hoc filter table variable name** (optional)       | Variable indicating which table to use for ad hoc filter keys and values                                                                                                      |
-| **Ad-hoc filter time column variable name** (optional) | Variable indicating which column to use for time filtering in value queries                                                                                                   |
-| **Ad-hoc filter default time range** (optional)        | Default time range for filtering values for ad hoc filter keys when dashboard time range is not available                                                                     |
+| **Ad-hoc filter table variable name** (optional)       | Variable defines which table to use for retrieving ad hoc filter columns and values                                                                                           |
+| **Ad-hoc filter time column variable name** (optional) | Variable defines which column to use for time filtering in ad hoc filters                                                                                                     |
+| **Ad-hoc filter default time range** (optional)        | Default time range for time filtering when dashboard time range is not available                                                                                              |
 | **Dial timeout** (optional)                            | Connection timeout in seconds                                                                                                                                                 |
 | **Query timeout** (optional)                           | Read timeout in seconds                                                                                                                                                       |
 
@@ -160,7 +160,7 @@ ORDER BY time
 
 ### Ad hoc filters
 
-Ad hoc filters allow flexible, key-value filtering dynamically applied across queries. These filters are injected into
+Ad hoc filters allow flexible,  column-value filtering dynamically applied across queries. These filters are injected into
 queries via the `$__adHocFilter` macro, which must be explicitly included in the `WHERE` clause:
 
 ```sql
@@ -179,10 +179,10 @@ To enable ad hoc filters, both the data source and the dashboard must be configu
 
 1. In the data source settings (under _Advanced Settings_):
 
-   - **Ad-hoc filter table variable name**: the name of a dashboard variable that defines the table used for retrieving
-     filter keys and values.
-   - **Ad-hoc filter time column variable name**: the name of a dashboard variable that defines the time column used
-     for time filtering in value queries.
+    - **Ad-hoc filter table variable name**: the name of a dashboard variable that defines the table used to retrieve 
+    - column names and their values for ad hoc filters.
+   - **Ad-hoc filter time column variable name**: the name of a dashboard variable that defines the time column to use
+     for time filtering when retrieving ad hoc filter values.
    - **Ad-hoc filter default time range**: a default time range to use when the dashboard’s time range is unavailable.
 
 2. In the target dashboard, create two variables using the exact names defined in the data source settings:
@@ -191,6 +191,18 @@ To enable ad hoc filters, both the data source and the dashboard must be configu
 
 > **Note:** Ad hoc filters will not work unless both the data source and the dashboard are configured correctly. Be sure
 > to match variable names precisely.
+
+####  Empty and null values
+
+Ad hoc filters support two synthetic values to help identify and query rows with missing or blank data:
+
+- `__null__`: matches rows where the column value is `NULL`
+- `__empty__`: matches rows where the column value is an empty string
+
+These synthetic values appear in the ad hoc filter suggestions only if the underlying data contains `NULL` or empty
+strings for the selected column during the current dashboard time range.
+
+![](https://raw.githubusercontent.com/hydrolix/grafana-datasource-plugin/gifs/docs/ad-hoc-filter-synthetic-values.gif)
 
 ### Round timestamps
 
