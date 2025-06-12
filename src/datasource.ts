@@ -358,7 +358,6 @@ export class DataSource extends DataSourceWithBackend<
     if (!sql) {
       return [];
     }
-
     let response = await this.metadataProvider.executeQuery(
       (
         await this.interpolateQuery(sql, "", {
@@ -374,6 +373,9 @@ export class DataSource extends DataSourceWithBackend<
       ? response.data[0].fields
       : [];
     let values: string[] = fields[0]?.values;
+    if (!values) {
+      return [];
+    }
 
     return [
       ...values
