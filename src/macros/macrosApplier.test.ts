@@ -312,6 +312,24 @@ describe("$__adHocFilter getFilterExpression", () => {
     expect(actual).toEqual("toString(column) LIKE 'REGEX'");
   });
 
+  test("eq regex wildcard expression", async () => {
+    const actual = getFilterExpression({
+      key: "column",
+      operator: "=~",
+      value: "*REGEX*",
+    });
+    expect(actual).toEqual("toString(column) LIKE '%REGEX%'");
+  });
+
+  test("eq regex escaped wildcard expression", async () => {
+    const actual = getFilterExpression({
+      key: "column",
+      operator: "=~",
+      value: "*\\*RE\\*GEX*",
+    });
+    expect(actual).toEqual("toString(column) LIKE '%*RE*GEX%'");
+  });
+
   test("neq regex expression", async () => {
     const actual = getFilterExpression({
       key: "column",

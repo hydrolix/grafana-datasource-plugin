@@ -105,13 +105,16 @@ export const getFilterExpression = (filter: AdHocVariableFilter): string => {
       );
     }
   } else if (filter.operator === "=~") {
-    return `toString(${key}) LIKE '${filter.value}'`;
+    return `toString(${key}) LIKE '${prepareWildcardQuery(filter.value)}'`;
   } else if (filter.operator === "!~") {
-    return `toString(${key}) NOT LIKE '${filter.value}'`;
+    return `toString(${key}) NOT LIKE '${prepareWildcardQuery(filter.value)}'`;
   } else {
     return `${key} ${filter.operator} '${filter.value}'`;
   }
 };
+
+export const prepareWildcardQuery = (v: string) =>
+  v.replaceAll(/(?<!\\)\*/g, "%").replaceAll("\\*", "*");
 
 export const conditionalAll = async (
   params: string[],
