@@ -205,7 +205,7 @@ strings for the selected column during the current dashboard time range.
 If the data contains literal values such as `__null__` or `__empty__`, those will also be matched by the corresponding
 filters.
 
-![](https://raw.githubusercontent.com/hydrolix/grafana-datasource-plugin/gifs/docs/ad-hoc-filter-synthetic-values.gif)
+![](https://raw.githubusercontent.com/hydrolix/grafana-datasource-plugin/gifs/docs/ad-hoc-filter-synthetic-values.webp)
 
 ### Round timestamps
 
