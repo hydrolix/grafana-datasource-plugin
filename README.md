@@ -196,11 +196,14 @@ To enable ad hoc filters, both the data source and the dashboard must be configu
 
 Ad hoc filters support two synthetic values to help identify and query rows with missing or blank data:
 
-- `__null__`: matches rows where the column value is `NULL`
-- `__empty__`: matches rows where the column value is an empty string
+- `__null__`: matches rows where the column value is `NULL`.
+- `__empty__`: matches rows where the column value is an empty string.
 
 These synthetic values appear in the ad hoc filter suggestions only if the underlying data contains `NULL` or empty
 strings for the selected column during the current dashboard time range.
+
+If the data contains literal values such as `__null__` or `__empty__`, those will also be matched by the corresponding
+filters.
 
 ![](https://raw.githubusercontent.com/hydrolix/grafana-datasource-plugin/gifs/docs/ad-hoc-filter-synthetic-values.gif)
 
