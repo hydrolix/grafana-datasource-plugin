@@ -209,39 +209,43 @@ filters.
 
 #### Wildcards
 
-Ad hoc filters support wildcard-based filtering using the `=~` (matches regex) and `!~` (does not match regex) operators.
-When a filter value contains an asterisk (`*`), it is translated into a SQL LIKE condition. 
+Ad hoc filters support wildcard filtering using the `=~` and `!~` operators. These operators allow matching or excluding
+values based on simple patterns that include the `*` wildcard character. Full regular expressions are not supported.
 
-For example, filtering with:
+When a filter value contains `*`, it is translated into a SQL `LIKE` condition. For example, the following filter:
 ```
 message =~ *user*
 ```
 
-will be translated to:
+is translated to:
 
 ```sql
 WHERE message LIKE '%user%'
 ```
 
-> **Note:** If you need to search for a literal asterisk character (`*`), escape it with a backslash: `\*`. 
-> For example, to match the string `*debug*` literally, enter `\*debug\*`.
+To match a literal asterisk (`*`), escape it with a backslash (`\*`). For example, to search for the exact string
+`*debug*`, enter:
+
+```
+\*debug\*
+```
 
 To apply a wildcard filter:
 
-1. On the dashboard, click in the filter field.
-2. Select the column to filter, such as `message`.
-3. Choose the operator `=~` or `!~`.
-4. Type your wildcard pattern, for example `*user*`.
-5. Do not select any suggestion from the dropdown while typing.
-6. While typing, a special option appears at the bottom of the suggestion list showing your current input:
+1. On the dashboard, click inside the filter field. 
+2. Select the column you want to filter, such as `message`. 
+3. Choose the operator `=~` or `!~`. 
+4. Type your full wildcard pattern, for example `*user*`.
+5. Do not select any of the suggested values while typing.
+6. As you type, an option appears at the bottom of the suggestion list:
 
 ```
 Use custom value: *user*
 ```
 
-7. Once your input is complete, click that option to confirm and apply the filter.
+7. Click this option to confirm and apply the filter.
 
-![](https://raw.githubusercontent.com/hydrolix/grafana-datasource-plugin/refs/heads/gifs/docs/ad-hoc-filter-wildcads.gif)
+![](https://raw.githubusercontent.com/hydrolix/grafana-datasource-plugin/refs/heads/gifs/docs/ad-hoc-filter-wildcards.gif)
 
 ### Round timestamps
 
