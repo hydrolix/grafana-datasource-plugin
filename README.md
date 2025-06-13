@@ -212,12 +212,11 @@ filters.
 Ad hoc filters support wildcard filtering using the `=~` and `!~` operators. These operators allow matching or excluding
 values based on simple patterns that include the `*` wildcard character. Full regular expressions are not supported.
 
-To match a literal asterisk (`*`), escape it with a backslash (`\*`). For example, to search for the exact string
-`*debug*`, enter:
+The `*` symbol matches any sequence of characters, including an empty one. For example, `*user*` will match any value
+that contains the substring user, regardless of what comes before or after.
 
-```
-\*debug\*
-```
+To match a literal asterisk (`*`), escape it with a backslash (`\*`). For example, to search for the exact string
+`*debug*`, enter: `\*debug\*`.
 
 To apply a wildcard filter:
 
@@ -226,12 +225,7 @@ To apply a wildcard filter:
 3. Choose the operator `=~` or `!~`. 
 4. Type your full wildcard pattern, for example `*user*`.
 5. Do not select any of the suggested values while typing.
-6. As you type, an option appears at the bottom of the suggestion list:
-
-```
-Use custom value: *user*
-```
-
+6. As you type, an option appears at the bottom of the suggestion list: `Use custom value: *user*`.
 7. Click this option to confirm and apply the filter.
 
 ![](https://raw.githubusercontent.com/hydrolix/grafana-datasource-plugin/refs/heads/gifs/docs/ad-hoc-filter-wildcards.gif)
