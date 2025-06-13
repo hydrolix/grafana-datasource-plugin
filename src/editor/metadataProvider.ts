@@ -199,7 +199,7 @@ export const getKeyMap = (r: DataQueryResponse): AdHocFilterKeys[] => {
       })
       .map((k) => ({ text: k, value: k } as AdHocFilterKeys));
   } catch (e: any) {
-    throw new Error("can not get columns for ad-hoc filter", e.message);
+    throw new Error("can not get columns for ad hoc filter", e.message);
   }
 };
 

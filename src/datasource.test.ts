@@ -92,7 +92,7 @@ describe("HdxDataSource", () => {
     expect(actual.rawSql).toEqual("foo templatedFoo");
   });
 
-  describe("ad-hoc filtering", () => {
+  describe("ad hoc filtering", () => {
     beforeEach(() => {
       jest.clearAllMocks();
     });

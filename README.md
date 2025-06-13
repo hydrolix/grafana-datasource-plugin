@@ -39,9 +39,9 @@ Following is the list of Hydrolix configuration options:
 | **Username**, **Password**                             | Credentials for connecting to your Hydrolix instance                                                                                                                          |
 | **Default database** (optional)                        | Used when no database is explicitly included in the query                                                                                                                     |
 | **Default round** (optional)                           | Used when a query does not specify a round value. Aligns `$from` and `$to` to the nearest multiple of this value. For more details, see [Round timestamps](#round-timestamps) |
-| **Ad-hoc filter table variable name** (optional)       | Variable defines which table to use for retrieving ad hoc filter columns and values                                                                                           |
-| **Ad-hoc filter time column variable name** (optional) | Variable defines which column to use for time filtering in ad hoc filters                                                                                                     |
-| **Ad-hoc filter default time range** (optional)        | Default time range for time filtering when dashboard time range is not available                                                                                              |
+| **Ad hoc filter table variable name** (optional)       | Variable defines which table to use for retrieving ad hoc filter columns and values                                                                                           |
+| **Ad hoc filter time column variable name** (optional) | Variable defines which column to use for time filtering in ad hoc filters                                                                                                     |
+| **Ad hoc filter default time range** (optional)        | Default time range for time filtering when dashboard time range is not available                                                                                              |
 | **Dial timeout** (optional)                            | Connection timeout in seconds                                                                                                                                                 |
 | **Query timeout** (optional)                           | Read timeout in seconds                                                                                                                                                       |
 
@@ -179,11 +179,11 @@ To enable ad hoc filters, both the data source and the dashboard must be configu
 
 1. In the data source settings (under _Advanced Settings_):
 
-   - **Ad-hoc filter table variable name**: the name of a dashboard variable that defines the table used to retrieve column
+   - **Ad hoc filter table variable name**: the name of a dashboard variable that defines the table used to retrieve column
      names and their values for ad hoc filters.
-   - **Ad-hoc filter time column variable name**: the name of a dashboard variable that defines the time column to use for
+   - **Ad hoc filter time column variable name**: the name of a dashboard variable that defines the time column to use for
      time filtering when retrieving ad hoc filter values.
-   - **Ad-hoc filter default time range**: a default time range to use when the dashboard’s time range is unavailable.
+   - **Ad hoc filter default time range**: a default time range to use when the dashboard time range is unavailable.
 
 2. In the target dashboard, create two variables using the exact names defined in the data source settings:
    - A variable for the table name.
