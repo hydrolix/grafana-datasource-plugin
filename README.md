@@ -226,7 +226,7 @@ To apply a wildcard filter:
 4. Type your full wildcard pattern, for example `*user*`.
 5. Do not select any of the suggested values while typing.
 6. As you type, an option appears at the bottom of the suggestion list: `Use custom value: *user*`.
-7. Click this option to confirm and apply the filter.
+7. Click this option to apply the filter.
 
 ![](https://raw.githubusercontent.com/hydrolix/grafana-datasource-plugin/refs/heads/gifs/docs/ad-hoc-filter-wildcards.gif)
 
