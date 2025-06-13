@@ -212,17 +212,6 @@ filters.
 Ad hoc filters support wildcard filtering using the `=~` and `!~` operators. These operators allow matching or excluding
 values based on simple patterns that include the `*` wildcard character. Full regular expressions are not supported.
 
-When a filter value contains `*`, it is translated into a SQL `LIKE` condition. For example, the following filter:
-```
-message =~ *user*
-```
-
-is translated to:
-
-```sql
-WHERE message LIKE '%user%'
-```
-
 To match a literal asterisk (`*`), escape it with a backslash (`\*`). For example, to search for the exact string
 `*debug*`, enter:
 
