@@ -126,7 +126,7 @@ The editor provides extensive SQL capabilities, featuring:
 
 #### Keyboard shortcuts
 
-- `Cmd/Ctrl + Return` – Run the query.
+- `Cmd/Ctrl + Return` - Run the query.
 
 ### Macros
 
@@ -206,6 +206,42 @@ If the data contains literal values such as `__null__` or `__empty__`, those wil
 filters.
 
 ![](https://raw.githubusercontent.com/hydrolix/grafana-datasource-plugin/refs/heads/gifs/docs/ad-hoc-filter-synthetic-values.gif)
+
+#### Wildcards
+
+Ad hoc filters support wildcard-based filtering using the `=~` (matches regex) and `!~` (does not match regex) operators.
+When a filter value contains an asterisk (`*`), it is translated into a SQL LIKE condition. 
+
+For example, filtering with:
+```
+message =~ *user*
+```
+
+will be translated to:
+
+```sql
+WHERE message LIKE '%user%'
+```
+
+> **Note:** If you need to search for a literal asterisk character (`*`), escape it with a backslash: `\*`. 
+> For example, to match the string `*debug*` literally, enter `\*debug\*`.
+
+To apply a wildcard filter:
+
+1. On the dashboard, click in the filter field.
+2. Select the column to filter, such as `message`.
+3. Choose the operator `=~` or `!~`.
+4. Type your wildcard pattern, for example `*user*`.
+5. Do not select any suggestion from the dropdown while typing.
+6. While typing, a special option appears at the bottom of the suggestion list showing your current input:
+
+```
+Use custom value: *user*
+```
+
+7. Once your input is complete, click that option to confirm and apply the filter.
+
+![](https://raw.githubusercontent.com/hydrolix/grafana-datasource-plugin/refs/heads/gifs/docs/ad-hoc-filter-wildcads.gif)
 
 ### Round timestamps
 
