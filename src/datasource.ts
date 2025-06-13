@@ -210,10 +210,7 @@ export class DataSource extends DataSourceWithBackend<
           adHocFilter: {
             filters: request.filters,
             ast: astResponse.data,
-            keys: (table: string) =>
-              this.metadataProvider
-                .tableKeys(table)
-                .then((arr) => arr.map((k) => k.text)),
+            keys: (table: string) => this.metadataProvider.tableKeys(table),
           },
         });
       } catch (e: any) {
@@ -267,7 +264,6 @@ export class DataSource extends DataSourceWithBackend<
       return `Cannot apply ad hoc filter: unknown error occurred while parsing query '${query}'`;
     }
     const fullMessage = error_message;
-    console.log(fullMessage);
     const errorRegExp = /^line\s(\d*):(\d*) (.*)$/;
 
     const [message] = fullMessage.split("\n");
@@ -358,7 +354,6 @@ export class DataSource extends DataSourceWithBackend<
     if (!sql) {
       return [];
     }
-
     let response = await this.metadataProvider.executeQuery(
       (
         await this.interpolateQuery(sql, "", {
@@ -374,6 +369,9 @@ export class DataSource extends DataSourceWithBackend<
       ? response.data[0].fields
       : [];
     let values: string[] = fields[0]?.values;
+    if (!values) {
+      return [];
+    }
 
     return [
       ...values

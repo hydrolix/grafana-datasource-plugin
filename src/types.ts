@@ -70,7 +70,8 @@ export enum Protocol {
 export interface AdHocFilterKeys {
   text: string;
   value?: string | number;
-  group: string;
+  group?: string;
+  type: string;
 }
 
 export interface AstResponse {
@@ -166,5 +167,5 @@ export interface Context {
 interface AdHocFilterContext {
   filters?: AdHocVariableFilter[];
   ast?: any;
-  keys: (table: string) => Promise<string[]>;
+  keys: (table: string) => Promise<AdHocFilterKeys[]>;
 }
