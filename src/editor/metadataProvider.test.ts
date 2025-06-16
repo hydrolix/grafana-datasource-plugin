@@ -148,9 +148,9 @@ describe("MetadataProvider", () => {
     let mdp = getMetadataProvider(datasource);
     let actual = await mdp.tableKeys("table");
     expect(actual.map((n) => n)).toEqual([
-      { text: "column1", value: "column1" },
-      { text: "column2", value: "column2" },
-      { text: "column5", value: "column5" },
+      { text: "column1", type: "String", value: "column1" },
+      { text: "column2", type: "Nullable(String)", value: "column2" },
+      { text: "column5", type: "String", value: "column5" },
     ]);
   });
 
@@ -173,25 +173,88 @@ describe("getKeyMap", () => {
       name: "summary describe",
       describe: DESCRIBE2,
       keys: [
-        "statusCode",
-        "reqHost",
-        "city",
-        "state",
-        "country",
-        "cacheable",
-        "errorCode",
-        "reqMethod",
-        "rspContentType",
-        "proto",
-        "cacheStatus",
-        "cp",
-        "timestamp_min",
+        {
+          text: "statusCode",
+          type: "Nullable(UInt32)",
+          value: "statusCode",
+        },
+        {
+          text: "reqHost",
+          type: "Nullable(String)",
+          value: "reqHost",
+        },
+        {
+          text: "city",
+          type: "Nullable(String)",
+          value: "city",
+        },
+        {
+          text: "state",
+          type: "Nullable(String)",
+          value: "state",
+        },
+        {
+          text: "country",
+          type: "Nullable(String)",
+          value: "country",
+        },
+        {
+          text: "cacheable",
+          type: "Nullable(UInt8)",
+          value: "cacheable",
+        },
+        {
+          text: "errorCode",
+          type: "Nullable(String)",
+          value: "errorCode",
+        },
+        {
+          text: "reqMethod",
+          type: "Nullable(String)",
+          value: "reqMethod",
+        },
+        {
+          text: "rspContentType",
+          type: "Nullable(String)",
+          value: "rspContentType",
+        },
+        {
+          text: "proto",
+          type: "Nullable(String)",
+          value: "proto",
+        },
+        {
+          text: "cacheStatus",
+          type: "Nullable(UInt8)",
+          value: "cacheStatus",
+        },
+        {
+          text: "cp",
+          type: "Nullable(UInt32)",
+          value: "cp",
+        },
+        {
+          text: "timestamp_min",
+          type: "DateTime",
+          value: "timestamp_min",
+        },
       ],
     },
     {
       name: "summary with parsable alias",
       describe: DESCRIBE1,
-      keys: ["hour_ts", "sampled_request_path"],
+      keys: [
+        {
+          text: "hour_ts",
+          type: "DateTime",
+          value: "hour_ts",
+        },
+        {
+          text: "sampled_request_path",
+          type: "Nullable(String)",
+          value: "sampled_request_path",
+        },
+      ],
     },
   ];
   it.each(cases)("$name", ({ describe, keys }) => {
@@ -207,8 +270,7 @@ describe("getKeyMap", () => {
         },
       ],
     };
-    let expected = keys.map((k) => ({ text: k, value: k }));
     let result = getKeyMap(response);
-    expect(result).toEqual(expected);
+    expect(result).toEqual(keys);
   });
 });

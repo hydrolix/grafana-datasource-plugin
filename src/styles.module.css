@@ -1,0 +1,5 @@
+.round div:has(> div[role="alert"]) {
+  min-width: 10rem;
+  position: absolute;
+  z-index: 1;
+}

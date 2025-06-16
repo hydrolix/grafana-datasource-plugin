@@ -92,7 +92,7 @@ describe("HdxDataSource", () => {
     expect(actual.rawSql).toEqual("foo templatedFoo");
   });
 
-  describe("ad-hoc filtering", () => {
+  describe("ad hoc filtering", () => {
     beforeEach(() => {
       jest.clearAllMocks();
     });
@@ -162,7 +162,95 @@ describe("HdxDataSource", () => {
       );
       let values = await datasource.getTagValues({ key: "key1", filters: [] });
 
-      expect(values).toEqual([{ text: "null", value: null }]);
+      expect(values).toEqual([{ text: "__null__", value: "__null__" }]);
+    });
+    it("should return empty value", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve(
+          ["key1", "key2", "key3"].map(
+            (k) => ({ text: k, value: k } as AdHocFilterKeys)
+          )
+        )
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: [""] }],
+            }),
+          ],
+        })
+      );
+      let values = await datasource.getTagValues({ key: "key1", filters: [] });
+
+      expect(values).toEqual([{ text: "__empty__", value: "__empty__" }]);
+    });
+
+    it("should return empty and synthetic value", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve(
+          ["key1", "key2", "key3"].map(
+            (k) => ({ text: k, value: k } as AdHocFilterKeys)
+          )
+        )
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["", "__empty__"] }],
+            }),
+          ],
+        })
+      );
+      let values = await datasource.getTagValues({ key: "key1", filters: [] });
+
+      expect(values).toEqual([{ text: "__empty__", value: "__empty__" }]);
+    });
+    it("should return null and synthetic value", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve(
+          ["key1", "key2", "key3"].map(
+            (k) => ({ text: k, value: k } as AdHocFilterKeys)
+          )
+        )
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: [null, "__null__"] }],
+            }),
+          ],
+        })
+      );
+      let values = await datasource.getTagValues({ key: "key1", filters: [] });
+
+      expect(values).toEqual([{ text: "__null__", value: "__null__" }]);
+    });
+    it("should return empty, null and both synthetic values", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve(
+          ["key1", "key2", "key3"].map(
+            (k) => ({ text: k, value: k } as AdHocFilterKeys)
+          )
+        )
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: [null, "__null__", "", "__empty__"] }],
+            }),
+          ],
+        })
+      );
+      let values = await datasource.getTagValues({ key: "key1", filters: [] });
+
+      expect(values).toEqual([
+        { text: "__empty__", value: "__empty__" },
+        { text: "__null__", value: "__null__" },
+      ]);
     });
   });
 

@@ -128,6 +128,6 @@ export const MACROS = [
     text: "$__adHocFilter",
     args: [],
     type: MacroType.Filter,
-    description: "Replaced with conditions from ad-hoc filter",
+    description: "Replaced with conditions from ad hoc filter",
   },
 ];

@@ -160,6 +160,18 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
   };
 };
 
+export const getType = (
+  definitionByKey: Map<string, KeyDefinition>,
+  c: string
+) => {
+  let definition = definitionByKey.get(c)!;
+  if (definition.isAlias) {
+    return definitionByKey.get(definition.aliasFor)?.type || "";
+  } else {
+    return definition.type;
+  }
+};
+
 export const getKeyMap = (r: DataQueryResponse): AdHocFilterKeys[] => {
   try {
     let fields = r.data[0]?.fields?.length
@@ -185,21 +197,15 @@ export const getKeyMap = (r: DataQueryResponse): AdHocFilterKeys[] => {
     );
     return columns
       .filter((c) => {
-        let definition = definitionByKey.get(c)!;
-        let type;
-        if (definition.isAlias) {
-          type = definitionByKey.get(definition.aliasFor)?.type || "";
-        } else {
-          type = definition.type;
-        }
+        let type = getType(definitionByKey, c);
         return (
           !c.includes("(") &&
           (SUPPORTED_TYPES.includes(type) || NULLABLE_TYPES.includes(type))
         );
       })
-      .map((k) => ({ text: k, value: k } as AdHocFilterKeys));
+      .map((k) => ({ text: k, value: k, type: getType(definitionByKey, k) }));
   } catch (e: any) {
-    throw new Error("can not get columns for ad-hoc filter", e.message);
+    throw new Error("can not get columns for ad hoc filter", e.message);
   }
 };
 
