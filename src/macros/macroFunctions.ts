@@ -35,7 +35,7 @@ export const adHocFilter = async (
     }
     if (!tableName) {
       throw new Error(
-        `Cannot apply ad hoc filters: unable to resolve tableName for ad-hoc filter at index ${index}`
+        `Cannot apply ad hoc filters: unable to resolve tableName for ad hoc filter at index ${index}`
       );
     }
 

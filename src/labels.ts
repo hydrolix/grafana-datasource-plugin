@@ -78,21 +78,21 @@ export default {
         },
         adHocDefaultTimeRange: {
           testId: "data-testid hdx_adHocFilterTimeRange",
-          label: "Ad-hoc filter default time range",
+          label: "Ad hoc filter default time range",
           description:
-            "Used to filter possible ad-hoc filter values when the dashboard time range is unavailable",
+            "Default time range for time filtering when the dashboard time range is not available",
         },
         adHocTableVariable: {
           testId: "data-testid hdx_adHocTableVariable",
-          label: "Ad-hoc filter table variable name",
+          label: "Ad hoc filter table variable name",
           description:
-            "Dashboard variable name to specify the table for retrieving ad-hoc filter keys and values",
+            "Name of a dashboard variable that defines which table to use for retrieving ad hoc filter columns and values",
         },
         adHocTimeColumnVariable: {
           testId: "data-testid hdx_adHocTimeColumnVariable",
-          label: "Ad-hoc filter time column variable name",
+          label: "Ad hoc filter time column variable name",
           description:
-            "Dashboard variable name to specify the time column used to filter possible ad-hoc filter values within the dashboard time range",
+            "Name of a dashboard variable that defines which column to use for time filtering in ad hoc filters",
         },
         defaultRound: {
           testId: "data-testid hdx_defaultRound",

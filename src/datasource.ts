@@ -269,7 +269,7 @@ export class DataSource extends DataSourceWithBackend<
     const [message] = fullMessage.split("\n");
     const match = errorRegExp.exec(message);
     if (match) {
-      return `Cannot apply ad-hoc filter because of syntax error at line ${
+      return `Cannot apply ad hoc filter because of syntax error at line ${
         +match[1] + 1
       }: ${match[3]}`;
     } else {
@@ -334,7 +334,7 @@ export class DataSource extends DataSourceWithBackend<
       .then((keys) => keys.map((k) => k.value));
     if (!keys.includes(options.key)) {
       logWarning(
-        `ad-hoc filter key ${options.key} is not available for table ${table}`
+        `ad hoc filter key ${options.key} is not available for table ${table}`
       );
       return [];
     }
