@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+- **Feature**: Support `*` wildcard in ad hoc filters and convert to SQL `%` (HDX-8167)
+- **Feature**: Support synthetic ad hoc filter values `__empty__` and `__null__` (HDX-8468)
+- **Fix**: Do not crash when ad hoc tag values are missing in dashboard time range (HDX-8605)
+- **Fix**: Tooltip for invalid round value causes layout shift in query editor (HDX-8391)
+- **Fix**: No loading spinner when changing round value in query editor (HDX-8491)
+
 ## 0.2.0
 
 - **Feature**: Add support for `one-of` (`=|`) and `not-one-of` (`!=|`) ad hoc filter operators (HDX-8336)
