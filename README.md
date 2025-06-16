@@ -205,7 +205,7 @@ strings for the selected column during the current dashboard time range.
 If the data contains literal values such as `__null__` or `__empty__`, those will also be matched by the corresponding
 filters.
 
-![](https://raw.githubusercontent.com/hydrolix/grafana-datasource-plugin/refs/heads/gifs/docs/ad-hoc-filter-synthetic-values.gif)
+![](https://raw.githubusercontent.com/hydrolix/grafana-datasource-plugin/refs/heads/main/docs/ad-hoc-filter-synthetic-values.gif)
 
 #### Wildcards
 
@@ -228,7 +228,7 @@ To apply a wildcard filter:
 6. As you type, an option appears at the bottom of the suggestion list: `Use custom value: *user*`.
 7. Click this option to apply the filter.
 
-![](https://raw.githubusercontent.com/hydrolix/grafana-datasource-plugin/refs/heads/gifs/docs/ad-hoc-filter-wildcards.gif)
+![](https://raw.githubusercontent.com/hydrolix/grafana-datasource-plugin/refs/heads/main/docs/ad-hoc-filter-wildcards.gif)
 
 ### Round timestamps
 
