@@ -2,7 +2,6 @@ import { Icon, Monaco, Spinner, useTheme2 } from "@grafana/ui";
 import React, { useMemo, useState } from "react";
 import { css } from "@emotion/css";
 import { InterpolationResult } from "../types";
-import "./ValidationBar.css";
 
 interface Props {
   monaco: Monaco | null;

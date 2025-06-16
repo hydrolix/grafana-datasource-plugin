@@ -40,6 +40,7 @@ import { getColumnValuesStatement } from "./ast";
 import { getFirstValidRound, roundTimeRange } from "./editor/timeRangeUtils";
 import { applyAdHocMacro, applyBaseMacros } from "./macros/macrosApplier";
 import { validateQuery } from "./editor/queryValidation";
+import { SYNTHETIC_EMPTY, SYNTHETIC_NULL } from "./constants";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -91,6 +92,7 @@ export class DataSource extends DataSourceWithBackend<
             try {
               interpolationResult = await this.interpolateQuery(
                 t.rawSql,
+                "",
                 request,
                 getFirstValidRound([
                   t.round,
@@ -166,6 +168,7 @@ export class DataSource extends DataSourceWithBackend<
 
   public async interpolateQuery(
     sql: string,
+    interpolationId: string,
     request: Partial<DataQueryRequest<HdxQuery>>,
     round?: string
   ): Promise<InterpolationResult> {
@@ -207,15 +210,13 @@ export class DataSource extends DataSourceWithBackend<
           adHocFilter: {
             filters: request.filters,
             ast: astResponse.data,
-            keys: (table: string) =>
-              this.metadataProvider
-                .tableKeys(table)
-                .then((arr) => arr.map((k) => k.text)),
+            keys: (table: string) => this.metadataProvider.tableKeys(table),
           },
         });
       } catch (e: any) {
         return {
           originalSql: sql,
+          interpolationId,
           interpolatedSql: interpolatedSql,
           hasError: true,
           hasWarning: false,
@@ -227,6 +228,7 @@ export class DataSource extends DataSourceWithBackend<
       if (!astResponse.data) {
         return {
           originalSql: sql,
+          interpolationId,
           interpolatedSql: interpolatedSql,
           finalSql: interpolatedSql,
           hasError: false,
@@ -236,6 +238,7 @@ export class DataSource extends DataSourceWithBackend<
       let validationResult = validateQuery(astResponse.data);
       return {
         originalSql: sql,
+        interpolationId,
         interpolatedSql: interpolatedSql,
         finalSql: interpolatedSql,
         hasError: !!validationResult?.error,
@@ -247,6 +250,7 @@ export class DataSource extends DataSourceWithBackend<
       console.error(e);
       return {
         originalSql: sql,
+        interpolationId,
         interpolatedSql: interpolatedSql,
         hasError: true,
         hasWarning: false,
@@ -260,13 +264,12 @@ export class DataSource extends DataSourceWithBackend<
       return `Cannot apply ad hoc filter: unknown error occurred while parsing query '${query}'`;
     }
     const fullMessage = error_message;
-    console.log(fullMessage);
     const errorRegExp = /^line\s(\d*):(\d*) (.*)$/;
 
     const [message] = fullMessage.split("\n");
     const match = errorRegExp.exec(message);
     if (match) {
-      return `Cannot apply ad-hoc filter because of syntax error at line ${
+      return `Cannot apply ad hoc filter because of syntax error at line ${
         +match[1] + 1
       }: ${match[3]}`;
     } else {
@@ -331,7 +334,7 @@ export class DataSource extends DataSourceWithBackend<
       .then((keys) => keys.map((k) => k.value));
     if (!keys.includes(options.key)) {
       logWarning(
-        `ad-hoc filter key ${options.key} is not available for table ${table}`
+        `ad hoc filter key ${options.key} is not available for table ${table}`
       );
       return [];
     }
@@ -351,10 +354,9 @@ export class DataSource extends DataSourceWithBackend<
     if (!sql) {
       return [];
     }
-
     let response = await this.metadataProvider.executeQuery(
       (
-        await this.interpolateQuery(sql, {
+        await this.interpolateQuery(sql, "", {
           ...this.options,
           filters: options.filters,
           range:
@@ -367,12 +369,35 @@ export class DataSource extends DataSourceWithBackend<
       ? response.data[0].fields
       : [];
     let values: string[] = fields[0]?.values;
-    return values
-      .filter((n) => n !== "")
-      .map((n) => ({
-        text: n ? n : "null",
+    if (!values) {
+      return [];
+    }
+
+    return [
+      ...values
+        .filter((v) => v)
+        .filter((v) => ![SYNTHETIC_EMPTY, SYNTHETIC_NULL].includes(v)),
+
+      values.filter((v) => v === "").length ? SYNTHETIC_EMPTY : null,
+      values.filter((v) => v === null || v === undefined).length
+        ? SYNTHETIC_NULL
+        : null,
+    ]
+      .filter((v) => v !== null)
+      .map((n: string) => ({
+        text: n,
         value: n,
       }));
+  }
+
+  getNullSafeValue(s: string): string {
+    if (s === "") {
+      return SYNTHETIC_EMPTY;
+    } else if (s === null || s === undefined) {
+      return SYNTHETIC_NULL;
+    } else {
+      return s;
+    }
   }
 
   private adHocFilterTableName() {

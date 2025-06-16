@@ -37,6 +37,9 @@ import {
   SHOW_VALIDATION_BAR,
 } from "../constants";
 
+// @ts-ignore
+import styles from "../styles.module.css";
+
 export type Props = QueryEditorProps<
   DataSource,
   HdxQuery,
@@ -81,6 +84,8 @@ export function QueryEditor(props: Props) {
   const [dryRunTriggered, setDryRunTriggered] = useState(false);
   const [interpolationResult, setInterpolationResult] =
     useState<InterpolationResult>({
+      originalSql: props.query.rawSql,
+      interpolationId: "",
       hasError: false,
       hasWarning: false,
     });
@@ -114,8 +119,8 @@ export function QueryEditor(props: Props) {
     props.onChange({ ...props.query, round: round });
   };
 
-  // track variable change and refresh interpolated query
-  const [variables, setVariables] = useState<string>("");
+  // track values change and refresh interpolated query
+  const [interpolationId, setInterpolationId] = useState<string>("");
   const variablesString = props.datasource.templateSrv
     .getVariables()
     .map((v: any) => (v?.current?.value ? v?.current?.value : v?.filters))
@@ -123,17 +128,18 @@ export function QueryEditor(props: Props) {
     .flat()
     .map((v) => (typeof v === "object" ? Object.values(v).join(",") : v))
     .join(":");
+  const interpolationIdString = `${props.query.rawSql}|${props.query.round}|${variablesString}`;
 
-  if (variables !== variablesString) {
-    setVariables(variablesString);
+  if (interpolationId !== interpolationIdString) {
+    setInterpolationId(interpolationIdString);
   }
-
   useDebounce(
     async () => {
       if (showSql || SHOW_VALIDATION_BAR) {
         if (props.datasource.options) {
           let interpolatedQuery = await props.datasource.interpolateQuery(
             props.query.rawSql,
+            interpolationId,
             {
               ...props.datasource.options,
               filters: props.datasource.filters,
@@ -150,10 +156,10 @@ export function QueryEditor(props: Props) {
       }
     },
     300,
-    [props.query.rawSql, props.query.round, showSql, variables]
+    [showSql, interpolationId]
   );
   // eslint-disable-next-line eqeqeq
-  let dirty = interpolationResult?.originalSql != props.query.rawSql;
+  let dirty = interpolationResult?.interpolationId != interpolationId;
   return (
     <div>
       <SQLEditor
@@ -195,6 +201,7 @@ export function QueryEditor(props: Props) {
                   />
                 </InlineField>
                 <InlineField
+                  className={styles.round}
                   error={"invalid duration"}
                   invalid={invalidDuration.current}
                   label={
