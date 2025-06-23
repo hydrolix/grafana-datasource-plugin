@@ -1,4 +1,4 @@
-import React, { FormEvent, useRef } from "react";
+import React, { FormEvent, useMemo, useRef, useState } from "react";
 import {
   DataSourcePluginOptionsEditorProps,
   onUpdateDatasourceJsonDataOption,
@@ -6,6 +6,7 @@ import {
   TimeRange,
 } from "@grafana/data";
 import {
+  Button,
   Divider,
   Field,
   InlineField,
@@ -13,6 +14,7 @@ import {
   Input,
   RadioButtonGroup,
   SecretInput,
+  Select,
   Stack,
   Switch,
   TimeRangeInput,
@@ -46,6 +48,65 @@ export function ConfigEditor(props: Props) {
     { label: "Native", value: Protocol.Native },
     { label: "HTTP", value: Protocol.Http },
   ];
+  let querySettingDefinitions = useMemo(() => {
+    return labels.querySettings.values.reduce((acc, cur) => {
+      acc[cur.setting] = cur;
+      return acc;
+    }, {} as { [setting: string]: any });
+  }, [labels]);
+
+  const existingSettings = Object.keys(jsonData?.querySettings ?? {});
+  let queryOptions = labels.querySettings.values
+    .filter((v) => !existingSettings.includes(v.setting))
+    .map((v) => ({
+      label: v.setting,
+      value: v.setting,
+      description: v.description,
+    }));
+
+  let [settingErrors, setSettingErrors] = useState<{
+    [setting: string]: string;
+  }>({});
+
+  useMemo(() => {
+    const errors: { [setting: string]: string } = {};
+    for (const key in jsonData.querySettings) {
+      const option = labels.querySettings.values.find((v) => v.setting === key);
+
+      const type = option?.type;
+      const min = option?.min;
+      if (
+        type &&
+        ["number", "text", "duration"].includes(type) &&
+        (jsonData.querySettings[key] === "" ||
+          jsonData.querySettings[key] === undefined)
+      ) {
+        errors[key] = "setting value is required";
+      } else if (
+        type &&
+        type === "number" &&
+        isNaN(jsonData.querySettings[key] as any)
+      ) {
+        errors[key] = `value is not a valid number`;
+      } else if (
+        type &&
+        type === "duration" &&
+        isNaN(jsonData.querySettings[key] as any) &&
+        !QUERY_DURATION_REGEX.test(jsonData.querySettings[key])
+      ) {
+        errors[key] = `value is not a valid duration`;
+      } else if (
+        type &&
+        type === "number" &&
+        min !== undefined &&
+        min > +jsonData.querySettings[key] &&
+        +jsonData.querySettings[key] !== querySettingDefinitions[key].default
+      ) {
+        errors[key] = `value cannot be less than ${min}`;
+      }
+    }
+    setSettingErrors(errors);
+  }, [jsonData, querySettingDefinitions, labels]);
 
   const getDefaultPort = (protocol: Protocol, secure: boolean) =>
     secure
@@ -135,6 +196,42 @@ export function ConfigEditor(props: Props) {
       jsonData: {
         ...options.jsonData,
         adHocDefaultTimeRange: e,
+      },
+    });
+  };
+  const onQuerySettingsChange = (key: string) => {
+    return (value: string) => {
+      let querySettings = jsonData?.querySettings ?? {};
+      querySettings[key] = value;
+      onOptionsChange({
+        ...options,
+        jsonData: {
+          ...jsonData,
+          querySettings,
+        },
+      });
+    };
+  };
+
+  const addQuerySetting = (setting: string) => {
+    let querySettings = jsonData?.querySettings ?? {};
+    querySettings[setting] = querySettingDefinitions[setting]?.default;
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...jsonData,
+        querySettings,
+      },
+    });
+  };
+  const deleteQuerySetting = (setting: string) => {
+    let querySettings = jsonData?.querySettings ?? {};
+    delete querySettings[setting];
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...jsonData,
+        querySettings,
       },
     });
   };
@@ -432,6 +529,76 @@ export function ConfigEditor(props: Props) {
               type="number"
             />
           </Field>
+          <Divider />
+          <ConfigSection title="Query Settings">
+            <div style={{ marginBottom: "20px" }}>
+              <Select
+                options={queryOptions}
+                onChange={(v) => addQuerySetting(v.value ?? "")}
+                value={null}
+              ></Select>
+            </div>
+            {Object.keys(jsonData?.querySettings ?? {}).map((key) => {
+              return (
+                <Field
+                  key={key}
+                  label={key}
+                  required
+                  error={settingErrors[key]}
+                  invalid={!!settingErrors[key]}
+                  description={querySettingDefinitions[key].description}
+                >
+                  <Stack direction={"row"}>
+                    {querySettingDefinitions[key].type === "boolean" ? (
+                      <Select
+                        width={80}
+                        options={[
+                          { value: "yes", label: "Yes" },
+                          { value: "no", label: "No" },
+                        ]}
+                        onChange={(v) =>
+                          onQuerySettingsChange(key)(
+                            v.value === "yes" ? "1" : "0"
+                          )
+                        }
+                        value={
+                          jsonData?.querySettings &&
+                          jsonData?.querySettings[key] === "1"
+                            ? "yes"
+                            : "no"
+                        }
+                      ></Select>
+                    ) : (
+                      <Input
+                        name={key}
+                        width={80}
+                        value={
+                          jsonData?.querySettings
+                            ? jsonData?.querySettings[key]
+                            : ""
+                        }
+                        //type={querySettingDefinitions[key].type}
+                        min={querySettingDefinitions[key].min}
+                        onChange={(e) =>
+                          onQuerySettingsChange(key)(e.currentTarget.value)
+                        }
+                        label={key}
+                        aria-label={key}
+                      />
+                    )}
+
+                    <Button
+                      style={{ marginTop: "4.5px" }}
+                      variant="destructive"
+                      icon="times"
+                      size={"sm"}
+                      onClick={() => deleteQuerySetting(key)}
+                    />
+                  </Stack>
+                </Field>
+              );
+            })}
+          </ConfigSection>
         </ConfigSection>
       </div>
     </>

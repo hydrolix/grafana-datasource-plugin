@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-// Settings validation errors
+// QuerySettings validation errors
 var (
 	ErrorMessageInvalidJSON         = errors.New("invalid settings json")
 	ErrorMessageInvalidHost         = errors.New("Server address is missing")
@@ -38,7 +38,25 @@ type PluginSettings struct {
 	DialTimeout     string         `json:"dialTimeout,omitempty"`
 	QueryTimeout    string         `json:"queryTimeout,omitempty"`
 	DefaultDatabase string         `json:"defaultDatabase,omitempty"`
+	QuerySettings   map[string]any `json:"querySettings,omitempty"`
 	Other           map[string]any `json:"-"`
+}
+
+// allowedQuerySettings lists Hydrolix allowed settings transferred as URL query parameters
+var allowedQuerySettings = []string{
+	"hdx_query_max_rows",
+	"hdx_query_max_attempts",
+	"hdx_query_max_result_bytes",
+	"hdx_query_max_result_rows",
+	"hdx_query_max_timerange_sec",
+	"hdx_query_timerange_required",
+	"hdx_query_max_partitions",
+	"hdx_query_max_peers",
+	"hdx_query_pool_name",
+	"hdx_query_max_concurrent_partitions",
+	"hdx_http_proxy_enabled",
+	"hdx_http_proxy_ttl",
+	"hdx_query_admin_comment",
 }
 
 // IsValid validates configuration data correctness
@@ -137,6 +155,15 @@ func NewPluginSettings(ctx context.Context, source backend.DataSourceInstanceSet
 			return settings, err
 		}
 		settings.SkipTlsVerify = skipTlsVerify
+	}
+
+	if jsonData["querySettings"] != nil {
+		settings.QuerySettings = jsonData["querySettings"].(map[string]any)
+		for k := range settings.QuerySettings {
+			if !slices.Contains(allowedQuerySettings, k) {
+				delete(settings.QuerySettings, k)
+			}
+		}
 	}
 
 	if password, ok := source.DecryptedSecureJSONData["password"]; ok {

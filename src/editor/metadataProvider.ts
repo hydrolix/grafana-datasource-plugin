@@ -42,6 +42,7 @@ export const getQueryRunner = (
           rawSql: sql,
           refId: "MD",
           round: "",
+          querySettings: {},
         },
       ],
       timezone: "UTC",
