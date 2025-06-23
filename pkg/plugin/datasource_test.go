@@ -19,7 +19,7 @@ type DatasourceTestSuite struct {
 
 func (s *DatasourceTestSuite) SetupSuite() {
 	s.DsTestSuite.SetupSuite()
-	s.HdxPlugin = &plugin.Hydrolix{}
+	s.HdxPlugin = plugin.NewHydrolix()
 }
 
 func (s *DatasourceTestSuite) TearDownSuite() {
@@ -76,7 +76,7 @@ func (s *DatasourceTestSuite) TestDatasourceRunQuery() {
 		switch ds := db.(type) {
 		case *sqlds.SQLDatasource:
 			_, err := ds.QueryData(context.Background(), &backend.QueryDataRequest{
-				PluginContext: backend.PluginContext{},
+				PluginContext: backend.PluginContext{DataSourceInstanceSettings: &settings},
 				Queries: []backend.DataQuery{
 					backend.DataQuery{
 						JSON: json.RawMessage(`{"rawSQL":"select now()", "Meta":{"TimeZone":"CDT"}, "Round":"2s", "RefID":"A"}`),
@@ -104,7 +104,7 @@ func (s *DatasourceTestSuite) TestDatasourceRunQuery() {
 		switch ds := db.(type) {
 		case *sqlds.SQLDatasource:
 			_, err := ds.QueryData(context.Background(), &backend.QueryDataRequest{
-				PluginContext: backend.PluginContext{},
+				PluginContext: backend.PluginContext{DataSourceInstanceSettings: &settings},
 				Queries: []backend.DataQuery{
 					backend.DataQuery{
 						JSON: json.RawMessage(`{"rawSQL":"select now()", "Meta":{"TimeZone":"CDT"}, "Round":"2s", "RefID":"A"}`),

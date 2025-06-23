@@ -72,6 +72,7 @@ describe("HdxDataSource", () => {
         refId: "",
         rawSql: query,
         round: "",
+        querySettings: {},
       });
       expect(actual).toEqual(valid);
     }
@@ -86,6 +87,7 @@ describe("HdxDataSource", () => {
         refId: "",
         rawSql: "foo $foo",
         round: "",
+        querySettings: {},
       },
       {}
     );

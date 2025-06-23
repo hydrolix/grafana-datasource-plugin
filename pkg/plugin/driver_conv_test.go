@@ -21,7 +21,7 @@ type ConvertersTestSuite struct {
 
 func (s *ConvertersTestSuite) SetupSuite() {
 	s.DsTestSuite.SetupSuite()
-	s.HdxPlugin = &plugin.Hydrolix{}
+	s.HdxPlugin = plugin.NewHydrolix()
 }
 
 func (s *ConvertersTestSuite) TearDownSuite() {

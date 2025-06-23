@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strconv"
 	"time"
 
@@ -23,12 +24,20 @@ import (
 )
 
 // Hydrolix defines how to connect to a Hydrolix datasource
-type Hydrolix struct{}
+type Hydrolix struct {
+	querySettingsContextHandler func(context.Context, map[string]any) context.Context
+}
 
 var (
-	_ sqlds.Driver       = (*Hydrolix)(nil)
-	_ sqlds.QueryMutator = (*Hydrolix)(nil)
+	_ sqlds.Driver           = (*Hydrolix)(nil)
+	_ sqlds.QueryMutator     = (*Hydrolix)(nil)
+	_ sqlds.QueryDataMutator = (*Hydrolix)(nil)
 )
+
+// NewHydrolix creates plugin instance with default parameters
+func NewHydrolix() *Hydrolix {
+	return &Hydrolix{querySettingsContextHandler: clickhouseContextHandler}
+}
 
 // getClientInfoProducts reads build information of grafana and plugin
 func getClientInfoProducts(ctx context.Context) (products []struct{ Name, Version string }) {
@@ -165,6 +174,41 @@ func (h *Hydrolix) Settings(ctx context.Context, config backend.DataSourceInstan
 	}
 }
 
+// MutateQueryData merges datasource's query options with the target query's query options.
+func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRequest) (context.Context, *backend.QueryDataRequest) {
+	pluginSettings, err := models.NewPluginSettings(ctx, *req.PluginContext.DataSourceInstanceSettings)
+	if err != nil {
+		panic(err)
+	}
+	if pluginSettings.QuerySettings == nil {
+		pluginSettings.QuerySettings = map[string]any{}
+	}
+
+	for i, q := range req.Queries {
+		var dataQuery struct {
+			RawSql        string         `json:"rawSql"`
+			QuerySettings map[string]any `json:"querySettings,omitempty"`
+		}
+		_ = json.Unmarshal(q.JSON, &dataQuery)
+
+		mergedSettings := maps.Clone(pluginSettings.QuerySettings)
+		if dataQuery.QuerySettings != nil {
+			// add or overwrite with query settings
+			maps.Copy(mergedSettings, dataQuery.QuerySettings)
+		}
+
+		if jmsg, err := jsonSet(q.JSON, map[string]any{"querySettings": mergedSettings}); err == nil {
+			req.Queries[i].JSON = jmsg
+		} else {
+			panic(err)
+		}
+		return h.querySettingsContextHandler(ctx, pluginSettings.QuerySettings), req
+
+	}
+
+	return ctx, req
+}
+
 // MutateQuery adds user location timezone metadata if it is available. Also, it rounds the Query Time Range to
 // specified time interval.
 func (h *Hydrolix) MutateQuery(ctx context.Context, req backend.DataQuery) (context.Context, backend.DataQuery) {
@@ -172,8 +216,9 @@ func (h *Hydrolix) MutateQuery(ctx context.Context, req backend.DataQuery) (cont
 		Meta struct {
 			TimeZone string `json:"timezone"`
 		} `json:"meta"`
-		Format int    `json:"format"`
-		Round  string `json:"round"`
+		Format        int            `json:"format"`
+		Round         string         `json:"round"`
+		QuerySettings map[string]any `json:"querySettings"`
 	}
 
 	if err := json.Unmarshal(req.JSON, &dataQuery); err != nil {
@@ -188,6 +233,15 @@ func (h *Hydrolix) MutateQuery(ctx context.Context, req backend.DataQuery) (cont
 		loc, _ := time.LoadLocation(dataQuery.Meta.TimeZone)
 		log.DefaultLogger.Info("Update query context with location info", "location", loc.String())
 		ctx = clickhouse.Context(ctx, clickhouse.WithUserLocation(loc))
+	}
+
+	if dataQuery.QuerySettings != nil {
+		log.DefaultLogger.Info("Update query context with settings info", "settings", dataQuery.QuerySettings)
+		customSettings := make(map[string]any, len(dataQuery.QuerySettings))
+		for k, v := range dataQuery.QuerySettings {
+			customSettings[k] = clickhouse.CustomSetting{Value: fmt.Sprintf("%v", v)}
+		}
+		ctx = h.querySettingsContextHandler(ctx, customSettings)
 	}
 
 	return ctx, req
@@ -205,6 +259,24 @@ func roundTimeRange(timeRange backend.TimeRange, interval string) backend.TimeRa
 
 	log.DefaultLogger.Warn("Using default time range, provided round interval is invalid", "interval", interval)
 	return timeRange
+}
+
+// jsonSet update raw message's root object by applying a value to a key property
+func jsonSet(jmsg json.RawMessage, val map[string]any) (json.RawMessage, error) {
+	var objmap map[string]interface{}
+	err := json.Unmarshal(jmsg, &objmap)
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range val {
+		objmap[k] = v
+	}
+	return json.Marshal(objmap)
+}
+
+// clickhouseContextHandler applies query options to context
+func clickhouseContextHandler(ctx context.Context, settings map[string]any) context.Context {
+	return clickhouse.Context(ctx, clickhouse.WithSettings(settings))
 }
 
 // MutateResponse converts fields of type FieldTypeNullableJSON to string, except for specific visualizations - traces,

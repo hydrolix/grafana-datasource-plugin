@@ -17,7 +17,7 @@ type ConnectivityTestSuite struct {
 
 func (s *ConnectivityTestSuite) SetupSuite() {
 	s.DsTestSuite.SetupSuite()
-	s.HdxPlugin = &plugin.Hydrolix{}
+	s.HdxPlugin = plugin.NewHydrolix()
 }
 
 func (s *ConnectivityTestSuite) TearDownSuite() {

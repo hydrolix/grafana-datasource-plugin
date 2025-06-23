@@ -106,11 +106,18 @@ export class DataSource extends DataSourceWithBackend<
             if (!interpolationResult.finalSql && interpolationResult.hasError) {
               throw new Error(interpolationResult.error);
             }
+            const querySettings = Object.entries(
+              this.instanceSettings.jsonData.querySettings ?? {}
+            ).reduce((acc: { [key: string]: any }, [key, value]) => {
+              acc[key] = this.templateSrv.replace(value);
+              return acc;
+            }, {});
 
             return {
               ...t,
               rawSql: interpolationResult.finalSql ?? "",
               filters: undefined,
+              querySettings,
               meta: {
                 timezone: this.resolveTimezone(request),
               },

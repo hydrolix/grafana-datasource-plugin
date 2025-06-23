@@ -155,57 +155,6 @@ export const pageHandler = (allLabels: any): ProxyHandler<Page> => {
 };
 
 /**
- * Temporary fix for Grafana's plugin-e2e packages/plugin-e2e/src/models/components/TimeRange.ts
- * https://github.com/grafana/plugin-tools/issues/1716
- */
-export const timerangeSet = async (
-  { from, to, zone }: TimeRangeArgs,
-  page: GrafanaPage
-) => {
-  const { TimeZonePicker, TimePicker } = selectors.components;
-  try {
-    await page.getByGrafanaSelector(TimePicker.openButton).click();
-  } catch (e) {
-    // seems like in older versions of Grafana the time picker markup is rendered twice
-    await page.ctx.page
-      .locator('[aria-controls="TimePickerContent"]')
-      .last()
-      .click();
-  }
-
-  if (zone) {
-    const changeTimeSettingsButton = semver.gte(
-      page.ctx.grafanaVersion,
-      "11.0.0"
-    )
-      ? page.getByGrafanaSelector(TimeZonePicker.changeTimeSettingsButton)
-      : page.ctx.page.getByRole("button", { name: "Change time settings" });
-
-    await changeTimeSettingsButton.click();
-    await page.getByGrafanaSelector(TimeZonePicker.containerV2).click();
-    await page
-      .getByGrafanaSelector(TimeZonePicker.containerV2)
-      .locator("input")
-      .fill(zone);
-    await page
-      .getByGrafanaSelector(TimeZonePicker.containerV2)
-      .getByRole("option")
-      .filter({ hasText: zone })
-      .click();
-
-    // await page.getByGrafanaSelector(selectors.components.Select.option).filter({hasText: zone}).click()
-  }
-  await page.getByGrafanaSelector(TimePicker.absoluteTimeRangeTitle).click();
-  const fromField = await page.getByGrafanaSelector(TimePicker.fromField);
-  await fromField.clear();
-  await fromField.fill(from);
-  const toField = await page.getByGrafanaSelector(TimePicker.toField);
-  await toField.clear();
-  await toField.fill(to);
-  await page.getByGrafanaSelector(TimePicker.applyTimeRange).click();
-};
-
-/**
  * Sets text into Monaco SQLQueryEditor
  *
  * @param refId Query refid (e.g. A, B, C, ...)

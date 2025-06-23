@@ -105,6 +105,142 @@ export default {
           label: "Additional Settings",
           description: "",
         },
+        querySettings: {
+          testId: "data-testid hdx_querySettings",
+          label: "Query Settings",
+          values: [
+            {
+              setting: "hdx_query_max_rows",
+              type: "number",
+              default: 0,
+              min: 0,
+              description:
+                "Set the maximum number of rows that can be evaluated to answer a query. The query is canceled if it exceeds this number of rows.\n" +
+                "\n" +
+                "Default value is 0 which sets no limit.",
+            },
+            {
+              setting: "hdx_query_max_attempts",
+              type: "number",
+              default: 3,
+              min: 0,
+              description:
+                "Limit the number of retries for recoverable failures of a query peer. The query head cancels the query if an additional attempt exceeds this number.\n" +
+                "\n" +
+                "Default value is 3.",
+            },
+            {
+              setting: "hdx_query_max_result_bytes",
+              type: "number",
+              default: 0,
+              min: 10000,
+              description:
+                "Limit the number of bytes that can be stored on the query head before returning data. The query is canceled if the response byte count exceeds this value.\n" +
+                "\n" +
+                "The Config API enforces a minimum of 10000 for this query option on organization, project, and table.\n" +
+                "\n" +
+                "Users may set this circuit breaker lower using either the Query API or SQL SETTINGS for responses that are expected to be very small.\n" +
+                "\n" +
+                "Default value is 0 which sets no limit.",
+            },
+            {
+              setting: "hdx_query_max_result_rows",
+              type: "number",
+              default: 0,
+              min: 0,
+              description:
+                "Limit the number of rows that can be stored on the query head before returning the response. The query is canceled if the resulting row count exceeds this number.\n" +
+                "\n" +
+                "Default value is 0 which sets no limit.",
+            },
+            {
+              setting: "hdx_query_max_timerange_sec",
+              type: "number",
+              default: 0,
+              min: 0,
+              description:
+                "Limit the total timerange allowed for a query. Calculates a query's covered time range from the WHERE clause filter on the primary column and cancels if the time range in seconds exceeds this number.\n" +
+                "\n" +
+                "For example, setting this value to 86400 prevents operating on a time window larger than one day.\n" +
+                "\n" +
+                "To prevent queries lacking WHERE clauses (or any filters) on the primary column, you must use the hdx_query_timerange_required query option.\n" +
+                "\n" +
+                "Default value is 0 which sets no limit.",
+            },
+            {
+              setting: "hdx_query_timerange_required",
+              type: "boolean",
+              default: false,
+              description:
+                "Set this parameter to true to ensure that queries include a WHERE clause on the primary column. Any query lacking a WHERE clause or filter on the primary column is canceled.\n" +
+                "\n" +
+                "Requiring a time range for queries prevents accidental scanning of all data for all time.\n" +
+                "\n" +
+                "Default is false.",
+            },
+            {
+              setting: "hdx_query_max_partitions",
+              default: 0,
+              description:
+                "Limit the number of partitions the query can read. The query is canceled if the total number of partitions required to execute the query exceeds this number.\n" +
+                "\n" +
+                "Default value is 0 which sets no limit.",
+            },
+            {
+              setting: "hdx_query_max_peers",
+              type: "number",
+              default: 0,
+              min: 0,
+              description:
+                "Instruct the query head to use only a subset of available peers for the query. If the number is greater than the number of available peers, all available peers are used.\n" +
+                "\n" +
+                "The effect of this setting may influence total query runtime by restricting work to a subset of query peers. For a systematic approach to separating query resources, see also Query pools.\n" +
+                "\n" +
+                "Default is 0. The query head distributes work across all available peers to maximize parallel processing.",
+            },
+            {
+              setting: "hdx_query_pool_name",
+              type: "text",
+              description:
+                "Send the query to a specific query pool. This option is only useful when multiple query pools are available, and the named query pool must exist already. See also Query pools.\n" +
+                "\n" +
+                "Sample error: ClusterError Pool name unknown_pool does not exist\n" +
+                "\n" +
+                "Default is empty string. The default query pool uses all available peers.",
+            },
+            {
+              setting: "hdx_query_max_concurrent_partitions",
+              type: "number",
+              default: 3,
+              min: 1,
+              description:
+                "Limit the number of partitions assignable to a single query peer.\n" +
+                "\n" +
+                "Default is 3",
+            },
+            {
+              setting: "hdx_query_admin_comment",
+              type: "text",
+              description:
+                "Add an admin comment to the query which is stored in Active Queries. This field can be filled automatically by Superset or Grafana to include username information in order to track user activity.\n" +
+                "\n" +
+                "Default is empty string.",
+            },
+            {
+              setting: "hdx_http_proxy_enabled",
+              type: "boolean",
+              default: true,
+              description:
+                  "Enable or disable HTTP proxying for queries when the data source is configured to use the HTTP proxy. When set to No, all queries are sent directly to the query heads."
+            },
+            {
+              setting: "hdx_http_proxy_ttl",
+              type: "duration",
+              description:
+                "Set the TTL for queries executed through the HTTP proxy. Supports values in seconds (e.g., 60) or duration expressions (e.g., 10s, 5m, 1h).",
+            },
+          ],
+        },
       },
     },
   },
