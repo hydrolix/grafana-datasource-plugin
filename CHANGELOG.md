@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- **Fix**: Some queries in template variables fail in Grafana 10.x (GRAP-64)
+
 ## 0.3.0
 
 - **Feature**: Support `*` wildcard in ad hoc filters and convert to SQL `%` (HDX-8167)
