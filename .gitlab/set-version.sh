@@ -10,13 +10,15 @@ VERSION=$(grep '"version"' "$PACKAGE_FILE" | head -1 | sed -E 's/.*"version": *"
 
 IS_MERGE_REQUEST=false
 IS_RELEASE_SOURCE_BRANCH=false
+IS_HOTFIX_SOURCE_BRANCH=true
 IS_MAIN_TARGET_BRANCH=false
 
 [[ "$CI_PIPELINE_SOURCE" == "merge_request_event" ]] && IS_MERGE_REQUEST=true
 [[ "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" =~ ^release[/_-].+ ]] && IS_RELEASE_SOURCE_BRANCH=true
+[[ "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" =~ ^hotfix[/_-].+ ]] && IS_HOTFIX_SOURCE_BRANCH=true
 [[ "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" == "main" ]] && IS_MAIN_TARGET_BRANCH=true
 
-if $IS_MERGE_REQUEST && $IS_RELEASE_SOURCE_BRANCH && $IS_MAIN_TARGET_BRANCH; then
+if $IS_MERGE_REQUEST && { $IS_RELEASE_SOURCE_BRANCH || $IS_HOTFIX_SOURCE_BRANCH; } && $IS_MAIN_TARGET_BRANCH; then
   if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     echo "Invalid version \"$VERSION\": expected format X.X.X"
     exit 1
