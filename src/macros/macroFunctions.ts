@@ -66,8 +66,8 @@ export const getFilterExpression = (
   isString: boolean
 ): string => {
   const getJoinedValues = () => {
-    // @ts-ignore
-    const values = filter?.values;
+    const f = filter as any;
+    const values = f?.values;
     return [
       [...values, values.find((v: any) => v === SYNTHETIC_EMPTY) ? "" : null]
         .filter((v) => v !== null)
@@ -96,7 +96,7 @@ export const getFilterExpression = (
       .filter((v) => v)
       .join(" AND ");
   } else if (
-    filter.value?.toLowerCase() === "null" ||
+    `${filter.value}`.toLowerCase() === "null" ||
     filter.value === SYNTHETIC_NULL
   ) {
     if (filter.operator === "=" && isString) {

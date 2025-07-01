@@ -12,6 +12,7 @@ export interface HdxQuery extends DataQuery {
   queryFormat?: string;
   format?: number;
   skipNextRun?: () => boolean;
+  querySettings: { [setting: string]: string };
 }
 
 /**
@@ -53,6 +54,12 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   adHocTimeColumnVariable?: string;
   dialTimeout?: string;
   queryTimeout?: string;
+  querySettings?: QuerySetting[];
+}
+
+export interface QuerySetting {
+  setting: string;
+  value: string;
 }
 
 /**

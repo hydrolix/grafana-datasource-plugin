@@ -11,7 +11,7 @@ import (
 
 // NewDatasource creates Hydrolix SQLDS datasource
 func NewDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-	ds := sqlds.NewDatasource(&Hydrolix{})
+	ds := sqlds.NewDatasource(NewHydrolix())
 	ds.EnableMultipleConnections = true
 	ds.CustomRoutes = api.Routes()
 	return ds.NewDatasource(ctx, settings)

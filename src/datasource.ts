@@ -41,6 +41,7 @@ import { getFirstValidRound, roundTimeRange } from "./editor/timeRangeUtils";
 import { applyAdHocMacro, applyBaseMacros } from "./macros/macrosApplier";
 import { validateQuery } from "./editor/queryValidation";
 import { SYNTHETIC_EMPTY, SYNTHETIC_NULL } from "./constants";
+import { replace } from "./syntheticVariables";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -106,11 +107,21 @@ export class DataSource extends DataSourceWithBackend<
             if (!interpolationResult.finalSql && interpolationResult.hasError) {
               throw new Error(interpolationResult.error);
             }
+            const querySettings = (
+              this.instanceSettings.jsonData.querySettings ?? []
+            ).reduce((acc: { [key: string]: any }, s) => {
+              acc[s.setting] = replace(this.templateSrv.replace(`${s.value}`), {
+                raw_query: () => t.rawSql,
+                query_source: () => request.app,
+              });
+              return acc;
+            }, {});
 
             return {
               ...t,
               rawSql: interpolationResult.finalSql ?? "",
               filters: undefined,
+              querySettings,
               meta: {
                 timezone: this.resolveTimezone(request),
               },
@@ -388,16 +399,6 @@ export class DataSource extends DataSourceWithBackend<
         text: n,
         value: n,
       }));
-  }
-
-  getNullSafeValue(s: string): string {
-    if (s === "") {
-      return SYNTHETIC_EMPTY;
-    } else if (s === null || s === undefined) {
-      return SYNTHETIC_NULL;
-    } else {
-      return s;
-    }
   }
 
   private adHocFilterTableName() {

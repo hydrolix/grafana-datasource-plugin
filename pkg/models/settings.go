@@ -8,12 +8,13 @@ import (
 	"fmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"math"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
 )
 
-// Settings validation errors
+// QuerySettings validation errors
 var (
 	ErrorMessageInvalidJSON         = errors.New("invalid settings json")
 	ErrorMessageInvalidHost         = errors.New("Server address is missing")
@@ -38,7 +39,31 @@ type PluginSettings struct {
 	DialTimeout     string         `json:"dialTimeout,omitempty"`
 	QueryTimeout    string         `json:"queryTimeout,omitempty"`
 	DefaultDatabase string         `json:"defaultDatabase,omitempty"`
+	QuerySettings   []QuerySetting `json:"querySettings,omitempty"`
 	Other           map[string]any `json:"-"`
+}
+
+type QuerySetting struct {
+	Setting string `json:"setting"`
+	Value   string `json:"value"`
+}
+
+// allowedQuerySettings lists Hydrolix allowed settings transferred as URL query parameters
+var allowedQuerySettings = []string{
+	"hdx_query_max_rows",
+	"hdx_query_max_attempts",
+	"hdx_query_max_result_bytes",
+	"hdx_query_max_result_rows",
+	"hdx_query_max_timerange_sec",
+	"hdx_query_timerange_required",
+	"hdx_query_max_partitions",
+	"hdx_query_max_peers",
+	"hdx_query_pool_name",
+	"hdx_query_max_concurrent_partitions",
+	"hdx_http_proxy_enabled",
+	"hdx_http_proxy_ttl",
+	"hdx_query_admin_comment",
+	"hdx_query_max_execution_time",
 }
 
 // IsValid validates configuration data correctness
@@ -137,6 +162,17 @@ func NewPluginSettings(ctx context.Context, source backend.DataSourceInstanceSet
 			return settings, err
 		}
 		settings.SkipTlsVerify = skipTlsVerify
+	}
+
+	if jsonData["querySettings"] != nil {
+		settings.QuerySettings = []QuerySetting{}
+		rv := reflect.ValueOf(jsonData["querySettings"])
+		if rv.Kind() == reflect.Slice {
+			for i := 0; i < rv.Len(); i++ {
+				qs := rv.Index(i).Interface().(map[string]interface{})
+				settings.QuerySettings = append(settings.QuerySettings, QuerySetting{Value: qs["value"].(string), Setting: qs["setting"].(string)})
+			}
+		}
 	}
 
 	if password, ok := source.DecryptedSecureJSONData["password"]; ok {

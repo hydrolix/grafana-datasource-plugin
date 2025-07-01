@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0
+
+- **Feature**: Support configurable Hydrolix query settings per data source (GRAP-46)
+
 ## 0.3.1
 
 - **Fix**: Some queries in template variables fail in Grafana 10.x (GRAP-64)
