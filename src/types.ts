@@ -54,7 +54,12 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   adHocTimeColumnVariable?: string;
   dialTimeout?: string;
   queryTimeout?: string;
-  querySettings?: { [setting: string]: string };
+  querySettings?: QuerySetting[];
+}
+
+export interface QuerySetting {
+  setting: string;
+  value: string;
 }
 
 /**

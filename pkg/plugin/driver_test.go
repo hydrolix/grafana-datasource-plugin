@@ -38,7 +38,7 @@ func TestQueryCustomSettingsPropagation(t *testing.T) {
 
 		plugin := &Hydrolix{querySettingsContextHandler: testContextHandler}
 
-		dsQuerySettings := map[string]any{
+		querySettings := map[string]string{
 			"hdx_query_max_rows":                  "100",
 			"hdx_query_max_attempts":              "2",
 			"hdx_query_max_result_bytes":          "10000",
@@ -53,6 +53,11 @@ func TestQueryCustomSettingsPropagation(t *testing.T) {
 			"hdx_http_proxy_ttl":                  "15",
 			"hdx_invalid":                         "10",
 			"hdx_query_admin_comment":             "db=dashboard; dp=Hits per status code; du=testuser",
+		}
+		dsQuerySettings := []models.QuerySetting{}
+
+		for k, v := range querySettings {
+			dsQuerySettings = append(dsQuerySettings, models.QuerySetting{Value: v, Setting: k})
 		}
 
 		settings := models.PluginSettings{
@@ -116,8 +121,6 @@ func TestQueryCustomSettingsPropagation(t *testing.T) {
 				t.Fatal("Query Settings unmarshal error:", err)
 			}
 
-			delete(dsQuerySettings, "hdx_invalid") // one invalid should be filtered out
-
 			actualSettings := dataQuery.QuerySettings
 			assert.Len(t, actualSettings, len(dsQuerySettings))
 
@@ -125,15 +128,15 @@ func TestQueryCustomSettingsPropagation(t *testing.T) {
 			assert.Equal(t, "0", actualSettings["hdx_query_timerange_required"])
 			assert.Equal(t, "20", actualSettings["hdx_query_max_result_rows"])
 
-			for k, v := range dsQuerySettings {
-				if !slices.Contains([]string{"hdx_query_timerange_required", "hdx_query_max_result_rows"}, k) {
-					assert.EqualValues(t, v, actualSettings[k])
+			for _, v := range dsQuerySettings {
+				if !slices.Contains([]string{"hdx_query_timerange_required", "hdx_query_max_result_rows"}, v.Setting) {
+					assert.EqualValues(t, v.Value, actualSettings[v.Setting])
 				}
 			}
 			actualSettings = ctx.Value("querySettings").(map[string]any)
 			assert.Len(t, actualSettings, len(dsQuerySettings))
-			for k, v := range dsQuerySettings {
-				assert.EqualValues(t, v, actualSettings[k])
+			for _, v := range dsQuerySettings {
+				assert.EqualValues(t, v.Value, actualSettings[v.Setting])
 			}
 
 			assert.NotContains(t, strings.ToLower(dataQuery.RawSql), " querySettings ")
@@ -146,8 +149,6 @@ func TestQueryCustomSettingsPropagation(t *testing.T) {
 				t.Fatal("Query Settings unmarshal error:", err)
 			}
 
-			delete(dsQuerySettings, "hdx_invalid") // one invalid should be filtered out
-
 			actualSettings := dataQuery.QuerySettings
 			assert.Len(t, actualSettings, len(dsQuerySettings))
 
@@ -155,9 +156,9 @@ func TestQueryCustomSettingsPropagation(t *testing.T) {
 			assert.Equal(t, "0", actualSettings["hdx_query_timerange_required"])
 			assert.Equal(t, "20", actualSettings["hdx_query_max_result_rows"])
 
-			for k, v := range dsQuerySettings {
-				if !slices.Contains([]string{"hdx_query_timerange_required", "hdx_query_max_result_rows"}, k) {
-					assert.EqualValues(t, v, actualSettings[k])
+			for _, v := range dsQuerySettings {
+				if !slices.Contains([]string{"hdx_query_timerange_required", "hdx_query_max_result_rows"}, v.Setting) {
+					assert.EqualValues(t, v.Value, actualSettings[v.Setting])
 				}
 			}
 

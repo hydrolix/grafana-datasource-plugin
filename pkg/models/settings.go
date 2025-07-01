@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"math"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -38,8 +39,13 @@ type PluginSettings struct {
 	DialTimeout     string         `json:"dialTimeout,omitempty"`
 	QueryTimeout    string         `json:"queryTimeout,omitempty"`
 	DefaultDatabase string         `json:"defaultDatabase,omitempty"`
-	QuerySettings   map[string]any `json:"querySettings,omitempty"`
+	QuerySettings   []QuerySetting `json:"querySettings,omitempty"`
 	Other           map[string]any `json:"-"`
+}
+
+type QuerySetting struct {
+	Setting string `json:"setting"`
+	Value   string `json:"value"`
 }
 
 // allowedQuerySettings lists Hydrolix allowed settings transferred as URL query parameters
@@ -57,6 +63,7 @@ var allowedQuerySettings = []string{
 	"hdx_http_proxy_enabled",
 	"hdx_http_proxy_ttl",
 	"hdx_query_admin_comment",
+	"hdx_query_max_execution_time",
 }
 
 // IsValid validates configuration data correctness
@@ -158,10 +165,12 @@ func NewPluginSettings(ctx context.Context, source backend.DataSourceInstanceSet
 	}
 
 	if jsonData["querySettings"] != nil {
-		settings.QuerySettings = jsonData["querySettings"].(map[string]any)
-		for k := range settings.QuerySettings {
-			if !slices.Contains(allowedQuerySettings, k) {
-				delete(settings.QuerySettings, k)
+		settings.QuerySettings = []QuerySetting{}
+		rv := reflect.ValueOf(jsonData["querySettings"])
+		if rv.Kind() == reflect.Slice {
+			for i := 0; i < rv.Len(); i++ {
+				qs := rv.Index(i).Interface().(map[string]interface{})
+				settings.QuerySettings = append(settings.QuerySettings, QuerySetting{Value: qs["value"].(string), Setting: qs["setting"].(string)})
 			}
 		}
 	}

@@ -168,6 +168,15 @@ export default {
                 "Default value is 0 which sets no limit.",
             },
             {
+              setting: "hdx_query_max_execution_time",
+              type: "number",
+              default: 0,
+              min: 0,
+              description:
+                "Limit the total runtime of a query. The query is canceled after the specified number of seconds have passed since query execution began.\n" +
+                "Default value is 0 which sets no limit.",
+            },
+            {
               setting: "hdx_query_timerange_required",
               type: "boolean",
               default: false,
@@ -181,6 +190,7 @@ export default {
             {
               setting: "hdx_query_max_partitions",
               default: 0,
+              type: "number",
               description:
                 "Limit the number of partitions the query can read. The query is canceled if the total number of partitions required to execute the query exceeds this number.\n" +
                 "\n" +
@@ -220,7 +230,7 @@ export default {
             },
             {
               setting: "hdx_query_admin_comment",
-              type: "text",
+              type: "textarea",
               description:
                 "Add an admin comment to the query which is stored in Active Queries. This field can be filled automatically by Superset or Grafana to include username information in order to track user activity.\n" +
                 "\n" +
@@ -231,7 +241,7 @@ export default {
               type: "boolean",
               default: true,
               description:
-                  "Enable or disable HTTP proxying for queries when the data source is configured to use the HTTP proxy. When set to No, all queries are sent directly to the query heads."
+                "Enable or disable HTTP proxying for queries when the data source is configured to use the HTTP proxy. When set to No, all queries are sent directly to the query heads.",
             },
             {
               setting: "hdx_http_proxy_ttl",

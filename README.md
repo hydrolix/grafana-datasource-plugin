@@ -23,27 +23,60 @@ After installation:
 
 You can configure the Hydrolix data source directly within Grafana or via configuration files.
 
-Following is the list of Hydrolix configuration options:
+Following is the list of Hydrolix configuration options.
 
-| Name                                                   | Description                                                                                                                                                                   |
-|--------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Name**                                               | The name used to reference this data source in panels and queries                                                                                                             |
-| **Default**                                            | Toggle to set this Hydrolix data source as the default in panels and visualizations                                                                                           |
-| **Server address**                                     | The IP address or hostname of your Hydrolix instance                                                                                                                          |
-| **Server port**                                        | The port on which your Hydrolix instance is running                                                                                                                           |
-| **Use default**                                        | Toggle to use the default port instead of specifying a custom one                                                                                                             |
-| **Protocol**                                           | The communication protocol used: Native or HTTP                                                                                                                               |
-| **Secure connection**                                  | Toggle to enable a secure connection                                                                                                                                          |
-| **HTTP URL path** (optional)                           | Additional URL path for HTTP requests                                                                                                                                         |
-| **Skip TLS verify**                                    | Toggle to bypass TLS certificate verification. Not recommended, unless absolutely necessary for testing                                                                       |
-| **Username**, **Password**                             | Credentials for connecting to your Hydrolix instance                                                                                                                          |
-| **Default database** (optional)                        | Used when no database is explicitly included in the query                                                                                                                     |
-| **Default round** (optional)                           | Used when a query does not specify a round value. Aligns `$from` and `$to` to the nearest multiple of this value. For more details, see [Round timestamps](#round-timestamps) |
-| **Ad hoc filter table variable name** (optional)       | Variable defines which table to use for retrieving ad hoc filter columns and values                                                                                           |
-| **Ad hoc filter time column variable name** (optional) | Variable defines which column to use for time filtering in ad hoc filters                                                                                                     |
-| **Ad hoc filter default time range** (optional)        | Default time range for time filtering when dashboard time range is not available                                                                                              |
-| **Dial timeout** (optional)                            | Connection timeout in seconds                                                                                                                                                 |
-| **Query timeout** (optional)                           | Read timeout in seconds                                                                                                                                                       |
+- **Name** - The name used to reference this data source in panels and queries.
+- **Default** - Toggle to set this Hydrolix data source as the default in panels and visualizations.
+
+**Server section:**
+
+- **Server address** - The IP address or hostname of your Hydrolix instance.
+- **Server port** - The port on which your Hydrolix instance is running.
+- **Use default** - Toggle to use the default port instead of specifying a custom one.
+- **Protocol** - The communication protocol used: Native or HTTP.
+- **Secure connection** - Toggle to enable a secure connection.
+- **HTTP URL path** (optional) - Additional URL path for HTTP requests.
+
+**TLS / SSL Settings section:**
+
+- **Skip TLS verify** - Toggle to bypass TLS certificate verification. Not recommended, unless absolutely necessary for
+  testing.
+
+**Credentials section:**
+
+- **Username**, **Password** - Credentials for connecting to your Hydrolix instance.
+
+**Additional Settings section:**
+
+- **Default database** (optional) - Used when no database is explicitly included in the query.
+- **Default round** (optional) - Used when a query does not specify a round value. Aligns `$from` and `$to` to the
+  nearest multiple of this value. For more details, see [Round timestamps](#round-timestamps).
+- **Ad hoc filter table variable name** (optional) - Variable defines which table to use for retrieving ad hoc filter
+  columns and values.
+- **Ad hoc filter time column variable name** (optional) - Variable defines which column to use for time filtering in ad
+  hoc filters.
+- **Ad hoc filter default time range** (optional) - Default time range for time filtering when dashboard time range is
+  not available
+- **Dial timeout** (optional) - Connection timeout in seconds.
+- **Query timeout** (optional) - Read timeout in seconds.
+
+**Query Settings subsection:**
+
+You can configure [Hydrolix query settings](https://docs.hydrolix.io/docs/query-options-reference) that will be sent
+with each query from this data source, wrapped as `CustomSetting` values. Note that only a subset of settings is
+supported in this way.
+
+To add a setting, select it from the dropdown list and provide a corresponding value in the field that appears.
+
+You can include any built-in Grafana variables or dashboard template variables in the setting values. Keep in mind that
+some variables may not be available during interpolation - their availability depends on the query source. If a variable
+or macro is not defined in the current context, it will not be interpolated and will remain as-is.
+
+The plugin also supports several synthetic variables specific to query settings:
+
+- `${__hydrolix.raw_query}` - Represents the raw query text before any interpolation is applied.
+- `${__hydrolix.query_source}` - Represents the query source, derived from the `DataQueryRequest.app` field. This is
+  useful to distinguish whether a query originated from Explore or elsewhere.
 
 ### Provision the data source
 
