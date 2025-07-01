@@ -70,7 +70,7 @@ To add a setting, select it from the dropdown list and provide a corresponding v
 
 You can include any built-in Grafana variables or dashboard template variables in the setting values. Keep in mind that
 some variables may not be available during interpolation - their availability depends on the query source. If a variable
-or macro is not defined in the current context, it will not be interpolated and will remain as-is.
+is not defined in the current context, it will not be interpolated and will remain as-is.
 
 The plugin also supports several synthetic variables specific to query settings:
 
