@@ -14,18 +14,16 @@ export const applyHotKey = (m: Monaco, props: Props) => {
       props.onRunQuery
     );
   };
-  // @ts-ignore
-  if (m.editor._standaloneKeybindingService) {
+  const editor = m.editor as any;
+  if (editor._standaloneKeybindingService) {
     // grafana 11.x
-    // @ts-ignore
-    applyBinding(m.editor._standaloneKeybindingService);
+    applyBinding(editor._standaloneKeybindingService);
   } else {
     // grafana 10.x
-    m.editor
+    editor
       .getEditors()
-      // @ts-ignore
-      .map((e) => e._standaloneKeybindingService)
-      .filter((s) => s)
+      .map((e: any) => e._standaloneKeybindingService)
+      .filter((s: any) => s)
       .map(applyBinding);
   }
 };
@@ -34,16 +32,25 @@ export const updateOptions = (m: Monaco) => {
   let options = {
     scrollBeyondLastLine: false,
   };
-  // @ts-ignore
-  if (m.editor.updateOptions) {
+  const editor = m.editor as any;
+  if (editor.updateOptions) {
     // grafana 11.x
-    // @ts-ignore
-    m.editor.updateOptions(options);
+    editor.updateOptions(options);
   } else {
     // grafana 10.x
     m.editor
       .getEditors()
       .filter((e) => e.updateOptions)
       .map((e) => e.updateOptions(options));
+  }
+};
+
+export const getDefaultValue = (value: any, type: string) => {
+  if (type === "boolean") {
+    return value ? "1" : "0";
+  } else if (value !== undefined) {
+    return `${value}`;
+  } else {
+    return "";
   }
 };

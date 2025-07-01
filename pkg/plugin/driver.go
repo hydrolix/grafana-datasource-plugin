@@ -177,11 +177,12 @@ func (h *Hydrolix) Settings(ctx context.Context, config backend.DataSourceInstan
 // MutateQueryData merges datasource's query options with the target query's query options.
 func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRequest) (context.Context, *backend.QueryDataRequest) {
 	pluginSettings, err := models.NewPluginSettings(ctx, *req.PluginContext.DataSourceInstanceSettings)
+
 	if err != nil {
 		panic(err)
 	}
 	if pluginSettings.QuerySettings == nil {
-		pluginSettings.QuerySettings = map[string]any{}
+		pluginSettings.QuerySettings = []models.QuerySetting{}
 	}
 
 	for i, q := range req.Queries {
@@ -190,9 +191,13 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 			QuerySettings map[string]any `json:"querySettings,omitempty"`
 		}
 		_ = json.Unmarshal(q.JSON, &dataQuery)
-
-		mergedSettings := maps.Clone(pluginSettings.QuerySettings)
+		globalPluginSettings := make(map[string]any)
+		for _, setting := range pluginSettings.QuerySettings {
+			globalPluginSettings[setting.Setting] = setting.Value
+		}
+		mergedSettings := maps.Clone(globalPluginSettings)
 		if dataQuery.QuerySettings != nil {
+
 			// add or overwrite with query settings
 			maps.Copy(mergedSettings, dataQuery.QuerySettings)
 		}
@@ -202,7 +207,7 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 		} else {
 			panic(err)
 		}
-		return h.querySettingsContextHandler(ctx, pluginSettings.QuerySettings), req
+		return h.querySettingsContextHandler(ctx, globalPluginSettings), req
 
 	}
 

@@ -37,8 +37,7 @@ import {
   SHOW_VALIDATION_BAR,
 } from "../constants";
 
-// @ts-ignore
-import styles from "../styles.module.css";
+import { css } from "@emotion/css";
 
 export type Props = QueryEditorProps<
   DataSource,
@@ -47,6 +46,14 @@ export type Props = QueryEditorProps<
 >;
 
 export function QueryEditor(props: Props) {
+  const alertStyle = css`
+    div:has(> div[role="alert"]) {
+      min-width: 10rem;
+      position: absolute;
+      z-index: 1;
+    }
+  `;
+
   const queryTypeOptions = useMemo<Array<SelectableValue<number>>>(
     () =>
       Object.keys(QueryType)
@@ -201,7 +208,7 @@ export function QueryEditor(props: Props) {
                   />
                 </InlineField>
                 <InlineField
-                  className={styles.round}
+                  className={alertStyle}
                   error={"invalid duration"}
                   invalid={invalidDuration.current}
                   label={

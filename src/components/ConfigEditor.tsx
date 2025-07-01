@@ -17,6 +17,7 @@ import {
   Select,
   Stack,
   Switch,
+  TextArea,
   TimeRangeInput,
 } from "@grafana/ui";
 import { ConfigSection } from "@grafana/plugin-ui";
@@ -24,6 +25,7 @@ import { HdxDataSourceOptions, HdxSecureJsonData, Protocol } from "../types";
 import allLabels from "labels";
 import defaultConfigs from "defaultConfigs";
 import { QUERY_DURATION_REGEX } from "../editor/timeRangeUtils";
+import { getDefaultValue } from "../editor/editorUtils";
 
 export interface Props
   extends DataSourcePluginOptionsEditorProps<
@@ -55,7 +57,9 @@ export function ConfigEditor(props: Props) {
     }, {} as { [setting: string]: any });
   }, [labels]);
 
-  const existingSettings = Object.keys(jsonData?.querySettings ?? {});
+  const existingSettings = (jsonData?.querySettings ?? []).map(
+    (v) => v.setting
+  );
   let queryOptions = labels.querySettings.values
     .filter((v) => !existingSettings.includes(v.setting))
     .map((v) => ({
@@ -70,43 +74,42 @@ export function ConfigEditor(props: Props) {
 
   useMemo(() => {
     const errors: { [setting: string]: string } = {};
-    for (const key in jsonData.querySettings) {
-      const option = labels.querySettings.values.find((v) => v.setting === key);
+    for (const querySettings of jsonData?.querySettings ?? []) {
+      const option = querySettingDefinitions[querySettings.setting];
 
       const type = option?.type;
       const min = option?.min;
       if (
         type &&
         ["number", "text", "duration"].includes(type) &&
-        (jsonData.querySettings[key] === "" ||
-          jsonData.querySettings[key] === undefined)
+        (querySettings.value === "" || querySettings.value === undefined)
       ) {
-        errors[key] = "setting value is required";
+        errors[querySettings.setting] = "setting value is required";
       } else if (
         type &&
         type === "number" &&
-        isNaN(jsonData.querySettings[key] as any)
+        isNaN(querySettings.value as any)
       ) {
-        errors[key] = `value is not a valid number`;
+        errors[querySettings.setting] = `value is not a valid number`;
       } else if (
         type &&
         type === "duration" &&
-        isNaN(jsonData.querySettings[key] as any) &&
-        !QUERY_DURATION_REGEX.test(jsonData.querySettings[key])
+        isNaN(querySettings.value as any) &&
+        !QUERY_DURATION_REGEX.test(querySettings.value)
       ) {
-        errors[key] = `value is not a valid duration`;
+        errors[querySettings.setting] = `value is not a valid duration`;
       } else if (
         type &&
         type === "number" &&
         min !== undefined &&
-        min > +jsonData.querySettings[key] &&
-        +jsonData.querySettings[key] !== querySettingDefinitions[key].default
+        min > +querySettings.value &&
+        +querySettings.value !== option.default
       ) {
-        errors[key] = `value cannot be less than ${min}`;
+        errors[querySettings.setting] = `value cannot be less than ${min}`;
       }
     }
     setSettingErrors(errors);
-  }, [jsonData, querySettingDefinitions, labels]);
+  }, [jsonData, querySettingDefinitions]);
 
   const getDefaultPort = (protocol: Protocol, secure: boolean) =>
     secure
@@ -201,8 +204,10 @@ export function ConfigEditor(props: Props) {
   };
   const onQuerySettingsChange = (key: string) => {
     return (value: string) => {
-      let querySettings = jsonData?.querySettings ?? {};
-      querySettings[key] = value;
+      let querySettings = jsonData?.querySettings ?? [];
+      querySettings
+        .filter((s) => s.setting === key)
+        .forEach((s) => (s.value = value));
       onOptionsChange({
         ...options,
         jsonData: {
@@ -214,8 +219,13 @@ export function ConfigEditor(props: Props) {
   };
 
   const addQuerySetting = (setting: string) => {
-    let querySettings = jsonData?.querySettings ?? {};
-    querySettings[setting] = querySettingDefinitions[setting]?.default;
+    let querySettings = jsonData?.querySettings ?? [];
+    let defaultValue = querySettingDefinitions[setting]?.default;
+    let type: string = querySettingDefinitions[setting]?.type;
+    querySettings.push({
+      setting,
+      value: getDefaultValue(defaultValue, type),
+    });
     onOptionsChange({
       ...options,
       jsonData: {
@@ -224,9 +234,11 @@ export function ConfigEditor(props: Props) {
       },
     });
   };
+
   const deleteQuerySetting = (setting: string) => {
-    let querySettings = jsonData?.querySettings ?? {};
-    delete querySettings[setting];
+    let querySettings = (jsonData?.querySettings ?? []).filter(
+      (s) => s.setting !== setting
+    );
     onOptionsChange({
       ...options,
       jsonData: {
@@ -248,6 +260,51 @@ export function ConfigEditor(props: Props) {
         defaultRound: round,
       },
     });
+  };
+  const settingInput = (key: string, value: string) => {
+    let type = querySettingDefinitions[key].type;
+    if (type === "boolean") {
+      return (
+        <Select
+          width={80}
+          options={[
+            { value: "yes", label: "Yes" },
+            { value: "no", label: "No" },
+          ]}
+          onChange={(v) =>
+            onQuerySettingsChange(key)(v.value === "yes" ? "1" : "0")
+          }
+          value={value === "1" ? "yes" : "no"}
+        ></Select>
+      );
+    } else if (type === "textarea") {
+      return (
+        <div style={{ width: "45.8em" }}>
+          <TextArea
+            name={key}
+            cols={40}
+            rows={2}
+            value={value ?? ""}
+            onChange={(e) => onQuerySettingsChange(key)(e.currentTarget.value)}
+            label={key}
+            aria-label={key}
+          />
+        </div>
+      );
+    } else {
+      return (
+        <Input
+          name={key}
+          width={80}
+          value={value ?? ""}
+          //type={querySettingDefinitions[key].type}
+          min={querySettingDefinitions[key].min}
+          onChange={(e) => onQuerySettingsChange(key)(e.currentTarget.value)}
+          label={key}
+          aria-label={key}
+        />
+      );
+    }
   };
 
   return (
@@ -538,61 +595,24 @@ export function ConfigEditor(props: Props) {
                 value={null}
               ></Select>
             </div>
-            {Object.keys(jsonData?.querySettings ?? {}).map((key) => {
+            {(jsonData?.querySettings ?? []).map((s) => {
               return (
                 <Field
-                  key={key}
-                  label={key}
+                  key={s.setting}
+                  label={s.setting}
                   required
-                  error={settingErrors[key]}
-                  invalid={!!settingErrors[key]}
-                  description={querySettingDefinitions[key].description}
+                  error={settingErrors[s.setting]}
+                  invalid={!!settingErrors[s.setting]}
+                  description={querySettingDefinitions[s.setting].description}
                 >
                   <Stack direction={"row"}>
-                    {querySettingDefinitions[key].type === "boolean" ? (
-                      <Select
-                        width={80}
-                        options={[
-                          { value: "yes", label: "Yes" },
-                          { value: "no", label: "No" },
-                        ]}
-                        onChange={(v) =>
-                          onQuerySettingsChange(key)(
-                            v.value === "yes" ? "1" : "0"
-                          )
-                        }
-                        value={
-                          jsonData?.querySettings &&
-                          jsonData?.querySettings[key] === "1"
-                            ? "yes"
-                            : "no"
-                        }
-                      ></Select>
-                    ) : (
-                      <Input
-                        name={key}
-                        width={80}
-                        value={
-                          jsonData?.querySettings
-                            ? jsonData?.querySettings[key]
-                            : ""
-                        }
-                        //type={querySettingDefinitions[key].type}
-                        min={querySettingDefinitions[key].min}
-                        onChange={(e) =>
-                          onQuerySettingsChange(key)(e.currentTarget.value)
-                        }
-                        label={key}
-                        aria-label={key}
-                      />
-                    )}
-
+                    {settingInput(s.setting, s.value)}
                     <Button
                       style={{ marginTop: "4.5px" }}
                       variant="destructive"
                       icon="times"
                       size={"sm"}
-                      onClick={() => deleteQuerySetting(key)}
+                      onClick={() => deleteQuerySetting(s.setting)}
                     />
                   </Stack>
                 </Field>
