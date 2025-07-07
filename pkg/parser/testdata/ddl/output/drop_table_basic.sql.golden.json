@@ -1,0 +1,25 @@
+[
+  {
+    "DropPos": 0,
+    "StatementEnd": 36,
+    "DropTarget": "TABLE",
+    "Name": {
+      "Database": {
+        "Name": "test",
+        "QuoteType": 1,
+        "NamePos": 21,
+        "NameEnd": 25
+      },
+      "Table": {
+        "Name": "table_name",
+        "QuoteType": 1,
+        "NamePos": 26,
+        "NameEnd": 36
+      }
+    },
+    "IfExists": true,
+    "OnCluster": null,
+    "IsTemporary": false,
+    "Modifier": ""
+  }
+]

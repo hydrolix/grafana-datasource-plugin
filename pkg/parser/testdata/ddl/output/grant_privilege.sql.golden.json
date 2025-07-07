@@ -1,0 +1,741 @@
+[
+  {
+    "GrantPos": 0,
+    "StatementEnd": 37,
+    "OnCluster": null,
+    "Privileges": [
+      {
+        "PrivilegePos": 6,
+        "PrivilegeEnd": 0,
+        "Keywords": [
+          "SELECT"
+        ],
+        "Params": {
+          "LeftParenPos": 12,
+          "RightParenPos": 16,
+          "Items": {
+            "ListPos": 13,
+            "ListEnd": 16,
+            "HasDistinct": false,
+            "Items": [
+              {
+                "Expr": {
+                  "Name": "x",
+                  "QuoteType": 1,
+                  "NamePos": 13,
+                  "NameEnd": 14
+                },
+                "Alias": null
+              },
+              {
+                "Expr": {
+                  "Name": "y",
+                  "QuoteType": 1,
+                  "NamePos": 15,
+                  "NameEnd": 16
+                },
+                "Alias": null
+              }
+            ]
+          },
+          "ColumnArgList": null
+        }
+      }
+    ],
+    "On": {
+      "Database": {
+        "Name": "db",
+        "QuoteType": 1,
+        "NamePos": 21,
+        "NameEnd": 23
+      },
+      "Table": {
+        "Name": "table",
+        "QuoteType": 1,
+        "NamePos": 24,
+        "NameEnd": 29
+      }
+    },
+    "To": [
+      {
+        "Name": "john",
+        "QuoteType": 1,
+        "NamePos": 33,
+        "NameEnd": 37
+      }
+    ],
+    "WithOptions": []
+  },
+  {
+    "GrantPos": 39,
+    "StatementEnd": 113,
+    "OnCluster": null,
+    "Privileges": [
+      {
+        "PrivilegePos": 45,
+        "PrivilegeEnd": 0,
+        "Keywords": [
+          "SELECT"
+        ],
+        "Params": {
+          "LeftParenPos": 51,
+          "RightParenPos": 55,
+          "Items": {
+            "ListPos": 52,
+            "ListEnd": 55,
+            "HasDistinct": false,
+            "Items": [
+              {
+                "Expr": {
+                  "Name": "x",
+                  "QuoteType": 1,
+                  "NamePos": 52,
+                  "NameEnd": 53
+                },
+                "Alias": null
+              },
+              {
+                "Expr": {
+                  "Name": "y",
+                  "QuoteType": 1,
+                  "NamePos": 54,
+                  "NameEnd": 55
+                },
+                "Alias": null
+              }
+            ]
+          },
+          "ColumnArgList": null
+        }
+      }
+    ],
+    "On": {
+      "Database": {
+        "Name": "db",
+        "QuoteType": 1,
+        "NamePos": 60,
+        "NameEnd": 62
+      },
+      "Table": {
+        "Name": "table",
+        "QuoteType": 1,
+        "NamePos": 63,
+        "NameEnd": 68
+      }
+    },
+    "To": [
+      {
+        "Name": "john",
+        "QuoteType": 1,
+        "NamePos": 72,
+        "NameEnd": 76
+      }
+    ],
+    "WithOptions": [
+      "GRANT",
+      "ADMIN"
+    ]
+  },
+  {
+    "GrantPos": 114,
+    "StatementEnd": 147,
+    "OnCluster": null,
+    "Privileges": [
+      {
+        "PrivilegePos": 120,
+        "PrivilegeEnd": 0,
+        "Keywords": [
+          "SELECT"
+        ],
+        "Params": {
+          "LeftParenPos": 126,
+          "RightParenPos": 130,
+          "Items": {
+            "ListPos": 127,
+            "ListEnd": 130,
+            "HasDistinct": false,
+            "Items": [
+              {
+                "Expr": {
+                  "Name": "x",
+                  "QuoteType": 1,
+                  "NamePos": 127,
+                  "NameEnd": 128
+                },
+                "Alias": null
+              },
+              {
+                "Expr": {
+                  "Name": "y",
+                  "QuoteType": 1,
+                  "NamePos": 129,
+                  "NameEnd": 130
+                },
+                "Alias": null
+              }
+            ]
+          },
+          "ColumnArgList": null
+        }
+      }
+    ],
+    "On": {
+      "Database": {
+        "Name": "db",
+        "QuoteType": 1,
+        "NamePos": 135,
+        "NameEnd": 137
+      },
+      "Table": {
+        "Name": "*",
+        "QuoteType": 0,
+        "NamePos": 138,
+        "NameEnd": 139
+      }
+    },
+    "To": [
+      {
+        "Name": "john",
+        "QuoteType": 1,
+        "NamePos": 143,
+        "NameEnd": 147
+      }
+    ],
+    "WithOptions": []
+  },
+  {
+    "GrantPos": 149,
+    "StatementEnd": 185,
+    "OnCluster": null,
+    "Privileges": [
+      {
+        "PrivilegePos": 155,
+        "PrivilegeEnd": 0,
+        "Keywords": [
+          "SELECT"
+        ],
+        "Params": {
+          "LeftParenPos": 161,
+          "RightParenPos": 165,
+          "Items": {
+            "ListPos": 162,
+            "ListEnd": 165,
+            "HasDistinct": false,
+            "Items": [
+              {
+                "Expr": {
+                  "Name": "x",
+                  "QuoteType": 1,
+                  "NamePos": 162,
+                  "NameEnd": 163
+                },
+                "Alias": null
+              },
+              {
+                "Expr": {
+                  "Name": "y",
+                  "QuoteType": 1,
+                  "NamePos": 164,
+                  "NameEnd": 165
+                },
+                "Alias": null
+              }
+            ]
+          },
+          "ColumnArgList": null
+        }
+      }
+    ],
+    "On": {
+      "Database": {
+        "Name": "*",
+        "QuoteType": 0,
+        "NamePos": 170,
+        "NameEnd": 171
+      },
+      "Table": {
+        "Name": "table",
+        "QuoteType": 1,
+        "NamePos": 172,
+        "NameEnd": 177
+      }
+    },
+    "To": [
+      {
+        "Name": "john",
+        "QuoteType": 1,
+        "NamePos": 181,
+        "NameEnd": 185
+      }
+    ],
+    "WithOptions": []
+  },
+  {
+    "GrantPos": 187,
+    "StatementEnd": 219,
+    "OnCluster": null,
+    "Privileges": [
+      {
+        "PrivilegePos": 193,
+        "PrivilegeEnd": 0,
+        "Keywords": [
+          "SELECT"
+        ],
+        "Params": {
+          "LeftParenPos": 199,
+          "RightParenPos": 203,
+          "Items": {
+            "ListPos": 200,
+            "ListEnd": 203,
+            "HasDistinct": false,
+            "Items": [
+              {
+                "Expr": {
+                  "Name": "x",
+                  "QuoteType": 1,
+                  "NamePos": 200,
+                  "NameEnd": 201
+                },
+                "Alias": null
+              },
+              {
+                "Expr": {
+                  "Name": "y",
+                  "QuoteType": 1,
+                  "NamePos": 202,
+                  "NameEnd": 203
+                },
+                "Alias": null
+              }
+            ]
+          },
+          "ColumnArgList": null
+        }
+      }
+    ],
+    "On": {
+      "Database": {
+        "Name": "*",
+        "QuoteType": 0,
+        "NamePos": 208,
+        "NameEnd": 209
+      },
+      "Table": {
+        "Name": "*",
+        "QuoteType": 0,
+        "NamePos": 210,
+        "NameEnd": 211
+      }
+    },
+    "To": [
+      {
+        "Name": "john",
+        "QuoteType": 1,
+        "NamePos": 215,
+        "NameEnd": 219
+      }
+    ],
+    "WithOptions": []
+  },
+  {
+    "GrantPos": 221,
+    "StatementEnd": 265,
+    "OnCluster": null,
+    "Privileges": [
+      {
+        "PrivilegePos": 227,
+        "PrivilegeEnd": 0,
+        "Keywords": [
+          "SELECT"
+        ],
+        "Params": {
+          "LeftParenPos": 233,
+          "RightParenPos": 237,
+          "Items": {
+            "ListPos": 234,
+            "ListEnd": 237,
+            "HasDistinct": false,
+            "Items": [
+              {
+                "Expr": {
+                  "Name": "x",
+                  "QuoteType": 1,
+                  "NamePos": 234,
+                  "NameEnd": 235
+                },
+                "Alias": null
+              },
+              {
+                "Expr": {
+                  "Name": "y",
+                  "QuoteType": 1,
+                  "NamePos": 236,
+                  "NameEnd": 237
+                },
+                "Alias": null
+              }
+            ]
+          },
+          "ColumnArgList": null
+        }
+      }
+    ],
+    "On": {
+      "Database": {
+        "Name": "*",
+        "QuoteType": 0,
+        "NamePos": 242,
+        "NameEnd": 243
+      },
+      "Table": {
+        "Name": "table",
+        "QuoteType": 1,
+        "NamePos": 244,
+        "NameEnd": 249
+      }
+    },
+    "To": [
+      {
+        "Name": "CURRENT_USER",
+        "QuoteType": 1,
+        "NamePos": 253,
+        "NameEnd": 265
+      }
+    ],
+    "WithOptions": []
+  },
+  {
+    "GrantPos": 267,
+    "StatementEnd": 321,
+    "OnCluster": null,
+    "Privileges": [
+      {
+        "PrivilegePos": 273,
+        "PrivilegeEnd": 0,
+        "Keywords": [
+          "SELECT"
+        ],
+        "Params": {
+          "LeftParenPos": 279,
+          "RightParenPos": 283,
+          "Items": {
+            "ListPos": 280,
+            "ListEnd": 283,
+            "HasDistinct": false,
+            "Items": [
+              {
+                "Expr": {
+                  "Name": "x",
+                  "QuoteType": 1,
+                  "NamePos": 280,
+                  "NameEnd": 281
+                },
+                "Alias": null
+              },
+              {
+                "Expr": {
+                  "Name": "y",
+                  "QuoteType": 1,
+                  "NamePos": 282,
+                  "NameEnd": 283
+                },
+                "Alias": null
+              }
+            ]
+          },
+          "ColumnArgList": null
+        }
+      }
+    ],
+    "On": {
+      "Database": {
+        "Name": "*",
+        "QuoteType": 0,
+        "NamePos": 288,
+        "NameEnd": 289
+      },
+      "Table": {
+        "Name": "table",
+        "QuoteType": 1,
+        "NamePos": 290,
+        "NameEnd": 295
+      }
+    },
+    "To": [
+      {
+        "Name": "CURRENT_USER",
+        "QuoteType": 1,
+        "NamePos": 299,
+        "NameEnd": 311
+      },
+      {
+        "Name": "john",
+        "QuoteType": 1,
+        "NamePos": 312,
+        "NameEnd": 316
+      },
+      {
+        "Name": "mary",
+        "QuoteType": 1,
+        "NamePos": 317,
+        "NameEnd": 321
+      }
+    ],
+    "WithOptions": []
+  },
+  {
+    "GrantPos": 323,
+    "StatementEnd": 372,
+    "OnCluster": null,
+    "Privileges": [
+      {
+        "PrivilegePos": 329,
+        "PrivilegeEnd": 0,
+        "Keywords": [
+          "ALL"
+        ],
+        "Params": null
+      }
+    ],
+    "On": {
+      "Database": {
+        "Name": "*",
+        "QuoteType": 0,
+        "NamePos": 336,
+        "NameEnd": 337
+      },
+      "Table": {
+        "Name": "*",
+        "QuoteType": 0,
+        "NamePos": 338,
+        "NameEnd": 339
+      }
+    },
+    "To": [
+      {
+        "Name": "admin_role",
+        "QuoteType": 1,
+        "NamePos": 343,
+        "NameEnd": 353
+      }
+    ],
+    "WithOptions": [
+      "GRANT"
+    ]
+  },
+  {
+    "GrantPos": 373,
+    "StatementEnd": 435,
+    "OnCluster": null,
+    "Privileges": [
+      {
+        "PrivilegePos": 379,
+        "PrivilegeEnd": 0,
+        "Keywords": [
+          "SELECT"
+        ],
+        "Params": null
+      },
+      {
+        "PrivilegePos": 386,
+        "PrivilegeEnd": 0,
+        "Keywords": [
+          "INSERT"
+        ],
+        "Params": null
+      }
+    ],
+    "On": {
+      "Database": {
+        "Name": "database",
+        "QuoteType": 1,
+        "NamePos": 396,
+        "NameEnd": 404
+      },
+      "Table": {
+        "Name": "table_1",
+        "QuoteType": 1,
+        "NamePos": 405,
+        "NameEnd": 412
+      }
+    },
+    "To": [
+      {
+        "Name": "table_1_select_role",
+        "QuoteType": 1,
+        "NamePos": 416,
+        "NameEnd": 435
+      }
+    ],
+    "WithOptions": []
+  },
+  {
+    "GrantPos": 437,
+    "StatementEnd": 508,
+    "OnCluster": null,
+    "Privileges": [
+      {
+        "PrivilegePos": 443,
+        "PrivilegeEnd": 0,
+        "Keywords": [
+          "SELECT"
+        ],
+        "Params": {
+          "LeftParenPos": 449,
+          "RightParenPos": 457,
+          "Items": {
+            "ListPos": 450,
+            "ListEnd": 457,
+            "HasDistinct": false,
+            "Items": [
+              {
+                "Expr": {
+                  "Name": "x",
+                  "QuoteType": 1,
+                  "NamePos": 450,
+                  "NameEnd": 451
+                },
+                "Alias": null
+              },
+              {
+                "Expr": {
+                  "Name": "y",
+                  "QuoteType": 1,
+                  "NamePos": 453,
+                  "NameEnd": 454
+                },
+                "Alias": null
+              },
+              {
+                "Expr": {
+                  "Name": "z",
+                  "QuoteType": 1,
+                  "NamePos": 456,
+                  "NameEnd": 457
+                },
+                "Alias": null
+              }
+            ]
+          },
+          "ColumnArgList": null
+        }
+      },
+      {
+        "PrivilegePos": 459,
+        "PrivilegeEnd": 0,
+        "Keywords": [
+          "INSERT"
+        ],
+        "Params": null
+      }
+    ],
+    "On": {
+      "Database": {
+        "Name": "database",
+        "QuoteType": 1,
+        "NamePos": 469,
+        "NameEnd": 477
+      },
+      "Table": {
+        "Name": "table_1",
+        "QuoteType": 1,
+        "NamePos": 478,
+        "NameEnd": 485
+      }
+    },
+    "To": [
+      {
+        "Name": "table_1_select_role",
+        "QuoteType": 1,
+        "NamePos": 489,
+        "NameEnd": 508
+      }
+    ],
+    "WithOptions": []
+  },
+  {
+    "GrantPos": 510,
+    "StatementEnd": 558,
+    "OnCluster": null,
+    "Privileges": [
+      {
+        "PrivilegePos": 516,
+        "PrivilegeEnd": 0,
+        "Keywords": [
+          "SELECT"
+        ],
+        "Params": null
+      },
+      {
+        "PrivilegePos": 524,
+        "PrivilegeEnd": 0,
+        "Keywords": [
+          "dictGet"
+        ],
+        "Params": null
+      }
+    ],
+    "On": {
+      "Database": {
+        "Name": "*",
+        "QuoteType": 0,
+        "NamePos": 535,
+        "NameEnd": 536
+      },
+      "Table": {
+        "Name": "*",
+        "QuoteType": 0,
+        "NamePos": 537,
+        "NameEnd": 538
+      }
+    },
+    "To": [
+      {
+        "Name": "select_all_role",
+        "QuoteType": 1,
+        "NamePos": 543,
+        "NameEnd": 558
+      }
+    ],
+    "WithOptions": []
+  },
+  {
+    "GrantPos": 560,
+    "StatementEnd": 605,
+    "OnCluster": null,
+    "Privileges": [
+      {
+        "PrivilegePos": 566,
+        "PrivilegeEnd": 0,
+        "Keywords": [
+          "ADMIN",
+          "OPTION"
+        ],
+        "Params": null
+      }
+    ],
+    "On": {
+      "Database": {
+        "Name": "*",
+        "QuoteType": 0,
+        "NamePos": 582,
+        "NameEnd": 583
+      },
+      "Table": {
+        "Name": "*",
+        "QuoteType": 0,
+        "NamePos": 584,
+        "NameEnd": 585
+      }
+    },
+    "To": [
+      {
+        "Name": "select_all_role",
+        "QuoteType": 1,
+        "NamePos": 590,
+        "NameEnd": 605
+      }
+    ],
+    "WithOptions": []
+  }
+]

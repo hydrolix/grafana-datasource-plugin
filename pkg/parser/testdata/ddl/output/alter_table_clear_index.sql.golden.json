@@ -1,0 +1,43 @@
+[
+  {
+    "AlterPos": 0,
+    "StatementEnd": 74,
+    "TableIdentifier": {
+      "Database": null,
+      "Table": {
+        "Name": "my_table",
+        "QuoteType": 1,
+        "NamePos": 12,
+        "NameEnd": 20
+      }
+    },
+    "OnCluster": null,
+    "AlterExprs": [
+      {
+        "ClearPos": 21,
+        "StatementEnd": 74,
+        "IfExists": false,
+        "IndexName": {
+          "Ident": {
+            "Name": "my_index_name",
+            "QuoteType": 1,
+            "NamePos": 33,
+            "NameEnd": 46
+          },
+          "DotIdent": null
+        },
+        "PartitionExpr": {
+          "PartitionPos": 50,
+          "Expr": {
+            "Name": "partition_name",
+            "QuoteType": 1,
+            "NamePos": 60,
+            "NameEnd": 74
+          },
+          "ID": null,
+          "All": false
+        }
+      }
+    ]
+  }
+]

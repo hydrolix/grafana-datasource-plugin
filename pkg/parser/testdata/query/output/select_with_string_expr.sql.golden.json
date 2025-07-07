@@ -1,0 +1,113 @@
+[
+  {
+    "SelectPos": 0,
+    "StatementEnd": 48,
+    "With": {
+      "WithPos": 0,
+      "EndPos": 9,
+      "CTEs": [
+        {
+          "CTEPos": 6,
+          "Expr": {
+            "Name": "abc",
+            "QuoteType": 2,
+            "NamePos": 6,
+            "NameEnd": 9
+          },
+          "Alias": {
+            "SelectPos": 15,
+            "StatementEnd": 28,
+            "With": null,
+            "Top": null,
+            "HasDistinct": false,
+            "SelectItems": [
+              {
+                "Expr": {
+                  "NumPos": 22,
+                  "NumEnd": 23,
+                  "Literal": "1",
+                  "Base": 10
+                },
+                "Modifiers": [],
+                "Alias": {
+                  "Name": "a",
+                  "QuoteType": 1,
+                  "NamePos": 27,
+                  "NameEnd": 28
+                }
+              }
+            ],
+            "From": null,
+            "ArrayJoin": null,
+            "Window": null,
+            "Prewhere": null,
+            "Where": null,
+            "GroupBy": null,
+            "WithTotal": false,
+            "Having": null,
+            "OrderBy": null,
+            "LimitBy": null,
+            "Limit": null,
+            "Settings": null,
+            "Format": null,
+            "UnionAll": null,
+            "UnionDistinct": null,
+            "Except": null
+          }
+        }
+      ]
+    },
+    "Top": null,
+    "HasDistinct": false,
+    "SelectItems": [
+      {
+        "Expr": {
+          "Name": "*",
+          "QuoteType": 0,
+          "NamePos": 37,
+          "NameEnd": 37
+        },
+        "Modifiers": [],
+        "Alias": null
+      }
+    ],
+    "From": {
+      "FromPos": 39,
+      "Expr": {
+        "Table": {
+          "TablePos": 45,
+          "TableEnd": 48,
+          "Alias": null,
+          "Expr": {
+            "Database": null,
+            "Table": {
+              "Name": "abc",
+              "QuoteType": 2,
+              "NamePos": 45,
+              "NameEnd": 48
+            }
+          },
+          "HasFinal": false
+        },
+        "StatementEnd": 48,
+        "SampleRatio": null,
+        "HasFinal": false
+      }
+    },
+    "ArrayJoin": null,
+    "Window": null,
+    "Prewhere": null,
+    "Where": null,
+    "GroupBy": null,
+    "WithTotal": false,
+    "Having": null,
+    "OrderBy": null,
+    "LimitBy": null,
+    "Limit": null,
+    "Settings": null,
+    "Format": null,
+    "UnionAll": null,
+    "UnionDistinct": null,
+    "Except": null
+  }
+]
