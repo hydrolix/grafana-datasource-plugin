@@ -1,0 +1,73 @@
+[
+  {
+    "SelectPos": 0,
+    "StatementEnd": 60,
+    "With": null,
+    "Top": null,
+    "HasDistinct": false,
+    "SelectItems": [
+      {
+        "Expr": {
+          "Name": "table_name",
+          "QuoteType": 1,
+          "NamePos": 7,
+          "NameEnd": 17
+        },
+        "Modifiers": [],
+        "Alias": null
+      }
+    ],
+    "From": {
+      "FromPos": 18,
+      "Expr": {
+        "Table": {
+          "TablePos": 24,
+          "TableEnd": 51,
+          "Alias": null,
+          "Expr": {
+            "Database": {
+              "Name": "information_schema",
+              "QuoteType": 2,
+              "NamePos": 24,
+              "NameEnd": 42
+            },
+            "Table": {
+              "Name": "tables",
+              "QuoteType": 2,
+              "NamePos": 45,
+              "NameEnd": 51
+            }
+          },
+          "HasFinal": false
+        },
+        "StatementEnd": 51,
+        "SampleRatio": null,
+        "HasFinal": false
+      }
+    },
+    "ArrayJoin": null,
+    "Window": null,
+    "Prewhere": null,
+    "Where": null,
+    "GroupBy": null,
+    "WithTotal": false,
+    "Having": null,
+    "OrderBy": null,
+    "LimitBy": null,
+    "Limit": {
+      "LimitPos": 53,
+      "Limit": {
+        "NumPos": 59,
+        "NumEnd": 60,
+        "Literal": "1",
+        "Base": 10
+      },
+      "Offset": null
+    },
+    "Settings": null,
+    "Format": null,
+    "UnionAll": null,
+    "UnionDistinct": null,
+    "Except": null
+  }
+]

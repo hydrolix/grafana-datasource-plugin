@@ -1,0 +1,23 @@
+[
+  {
+    "TruncatePos": 0,
+    "StatementEnd": 40,
+    "IsTemporary": false,
+    "IfExists": true,
+    "Name": {
+      "Database": {
+        "Name": "test",
+        "QuoteType": 1,
+        "NamePos": 25,
+        "NameEnd": 29
+      },
+      "Table": {
+        "Name": "table_name",
+        "QuoteType": 1,
+        "NamePos": 30,
+        "NameEnd": 40
+      }
+    },
+    "OnCluster": null
+  }
+]

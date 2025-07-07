@@ -1,0 +1,74 @@
+[
+  {
+    "AlterPos": 0,
+    "StatementEnd": 88,
+    "TableIdentifier": {
+      "Database": {
+        "Name": "test",
+        "QuoteType": 1,
+        "NamePos": 12,
+        "NameEnd": 16
+      },
+      "Table": {
+        "Name": "events_local",
+        "QuoteType": 1,
+        "NamePos": 17,
+        "NameEnd": 29
+      }
+    },
+    "OnCluster": {
+      "OnPos": 30,
+      "Expr": {
+        "LiteralPos": 42,
+        "LiteralEnd": 57,
+        "Literal": "default_cluster"
+      }
+    },
+    "AlterExprs": [
+      {
+        "AddPos": 59,
+        "StatementEnd": 88,
+        "Column": {
+          "NamePos": 70,
+          "ColumnEnd": 79,
+          "Name": {
+            "Ident": {
+              "Name": "f1",
+              "QuoteType": 1,
+              "NamePos": 70,
+              "NameEnd": 72
+            },
+            "DotIdent": null
+          },
+          "Type": {
+            "Name": {
+              "Name": "String",
+              "QuoteType": 1,
+              "NamePos": 73,
+              "NameEnd": 79
+            }
+          },
+          "NotNull": null,
+          "Nullable": null,
+          "DefaultExpr": null,
+          "MaterializedExpr": null,
+          "AliasExpr": null,
+          "Codec": null,
+          "TTL": null,
+          "Comment": null,
+          "CompressionCodec": null
+        },
+        "IfNotExists": false,
+        "After": {
+          "Ident": {
+            "Name": "f0",
+            "QuoteType": 1,
+            "NamePos": 86,
+            "NameEnd": 88
+          },
+          "DotIdent": null
+        }
+      }
+    ]
+  }
+]

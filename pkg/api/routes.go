@@ -3,7 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	clickhouse "github.com/AfterShip/clickhouse-sql-parser/parser"
+	clickhouse "github.com/hydrolix/plugin/pkg/parser"
 	"net/http"
 )
 

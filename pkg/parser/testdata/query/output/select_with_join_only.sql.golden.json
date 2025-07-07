@@ -1,0 +1,110 @@
+[
+  {
+    "SelectPos": 0,
+    "StatementEnd": 17,
+    "With": null,
+    "Top": null,
+    "HasDistinct": false,
+    "SelectItems": [
+      {
+        "Expr": {
+          "Name": "*",
+          "QuoteType": 0,
+          "NamePos": 7,
+          "NameEnd": 7
+        },
+        "Modifiers": [],
+        "Alias": null
+      }
+    ],
+    "From": {
+      "FromPos": 9,
+      "Expr": {
+        "JoinPos": 15,
+        "Left": {
+          "Table": {
+            "TablePos": 15,
+            "TableEnd": 17,
+            "Alias": null,
+            "Expr": {
+              "Database": null,
+              "Table": {
+                "Name": "t1",
+                "QuoteType": 2,
+                "NamePos": 15,
+                "NameEnd": 17
+              }
+            },
+            "HasFinal": false
+          },
+          "StatementEnd": 17,
+          "SampleRatio": null,
+          "HasFinal": false
+        },
+        "Right": {
+          "JoinPos": 19,
+          "Left": {
+            "Table": {
+              "TablePos": 25,
+              "TableEnd": 27,
+              "Alias": null,
+              "Expr": {
+                "Database": null,
+                "Table": {
+                  "Name": "t2",
+                  "QuoteType": 2,
+                  "NamePos": 25,
+                  "NameEnd": 27
+                }
+              },
+              "HasFinal": false
+            },
+            "StatementEnd": 27,
+            "SampleRatio": null,
+            "HasFinal": false
+          },
+          "Right": null,
+          "Modifiers": [
+            "JOIN"
+          ],
+          "Constraints": {
+            "OnPos": 29,
+            "On": {
+              "ListPos": 32,
+              "ListEnd": 36,
+              "HasDistinct": false,
+              "Items": [
+                {
+                  "Expr": {
+                    "Name": "true",
+                    "QuoteType": 1,
+                    "NamePos": 32,
+                    "NameEnd": 36
+                  },
+                  "Alias": null
+                }
+              ]
+            }
+          }
+        },
+        "Modifiers": null,
+        "Constraints": null
+      }
+    },
+    "ArrayJoin": null,
+    "Window": null,
+    "Prewhere": null,
+    "Where": null,
+    "GroupBy": null,
+    "WithTotal": false,
+    "Having": null,
+    "OrderBy": null,
+    "LimitBy": null,
+    "Limit": null,
+    "Settings": null,
+    "Format": null,
+    "UnionAll": null,
+    "UnionDistinct": null,
+    "Except": null
+  }
+]

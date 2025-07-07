@@ -1,0 +1,467 @@
+[
+  {
+    "OptimizePos": 0,
+    "StatementEnd": 32,
+    "Table": {
+      "Database": null,
+      "Table": {
+        "Name": "table",
+        "QuoteType": 1,
+        "NamePos": 15,
+        "NameEnd": 20
+      }
+    },
+    "OnCluster": null,
+    "Partition": null,
+    "HasFinal": false,
+    "Deduplicate": {
+      "DeduplicatePos": 21,
+      "By": null,
+      "Except": null
+    }
+  },
+  {
+    "OptimizePos": 49,
+    "StatementEnd": 85,
+    "Table": {
+      "Database": null,
+      "Table": {
+        "Name": "table",
+        "QuoteType": 1,
+        "NamePos": 64,
+        "NameEnd": 69
+      }
+    },
+    "OnCluster": null,
+    "Partition": null,
+    "HasFinal": false,
+    "Deduplicate": {
+      "DeduplicatePos": 70,
+      "By": {
+        "ListPos": 85,
+        "ListEnd": 85,
+        "HasDistinct": false,
+        "Items": [
+          {
+            "Expr": {
+              "Name": "*",
+              "QuoteType": 0,
+              "NamePos": 85,
+              "NameEnd": 85
+            },
+            "Alias": null
+          }
+        ]
+      },
+      "Except": null
+    }
+  },
+  {
+    "OptimizePos": 131,
+    "StatementEnd": 181,
+    "Table": {
+      "Database": null,
+      "Table": {
+        "Name": "table",
+        "QuoteType": 1,
+        "NamePos": 146,
+        "NameEnd": 151
+      }
+    },
+    "OnCluster": null,
+    "Partition": null,
+    "HasFinal": false,
+    "Deduplicate": {
+      "DeduplicatePos": 152,
+      "By": {
+        "ListPos": 167,
+        "ListEnd": 181,
+        "HasDistinct": false,
+        "Items": [
+          {
+            "Expr": {
+              "Name": "colX",
+              "QuoteType": 1,
+              "NamePos": 167,
+              "NameEnd": 171
+            },
+            "Alias": null
+          },
+          {
+            "Expr": {
+              "Name": "colY",
+              "QuoteType": 1,
+              "NamePos": 172,
+              "NameEnd": 176
+            },
+            "Alias": null
+          },
+          {
+            "Expr": {
+              "Name": "colZ",
+              "QuoteType": 1,
+              "NamePos": 177,
+              "NameEnd": 181
+            },
+            "Alias": null
+          }
+        ]
+      },
+      "Except": null
+    }
+  },
+  {
+    "OptimizePos": 183,
+    "StatementEnd": 219,
+    "Table": {
+      "Database": null,
+      "Table": {
+        "Name": "table",
+        "QuoteType": 1,
+        "NamePos": 198,
+        "NameEnd": 203
+      }
+    },
+    "OnCluster": null,
+    "Partition": null,
+    "HasFinal": false,
+    "Deduplicate": {
+      "DeduplicatePos": 204,
+      "By": {
+        "ListPos": 219,
+        "ListEnd": 219,
+        "HasDistinct": false,
+        "Items": [
+          {
+            "Expr": {
+              "Name": "*",
+              "QuoteType": 0,
+              "NamePos": 219,
+              "NameEnd": 219
+            },
+            "Alias": null
+          }
+        ]
+      },
+      "Except": {
+        "ListPos": 228,
+        "ListEnd": 232,
+        "HasDistinct": false,
+        "Items": [
+          {
+            "Expr": {
+              "Name": "colX",
+              "QuoteType": 1,
+              "NamePos": 228,
+              "NameEnd": 232
+            },
+            "Alias": null
+          }
+        ]
+      }
+    }
+  },
+  {
+    "OptimizePos": 234,
+    "StatementEnd": 270,
+    "Table": {
+      "Database": null,
+      "Table": {
+        "Name": "table",
+        "QuoteType": 1,
+        "NamePos": 249,
+        "NameEnd": 254
+      }
+    },
+    "OnCluster": null,
+    "Partition": null,
+    "HasFinal": false,
+    "Deduplicate": {
+      "DeduplicatePos": 255,
+      "By": {
+        "ListPos": 270,
+        "ListEnd": 270,
+        "HasDistinct": false,
+        "Items": [
+          {
+            "Expr": {
+              "Name": "*",
+              "QuoteType": 0,
+              "NamePos": 270,
+              "NameEnd": 270
+            },
+            "Alias": null
+          }
+        ]
+      },
+      "Except": {
+        "ListPos": 279,
+        "ListEnd": 290,
+        "HasDistinct": false,
+        "Items": [
+          {
+            "Expr": {
+              "LeftParenPos": 279,
+              "RightParenPos": 290,
+              "Items": {
+                "ListPos": 280,
+                "ListEnd": 290,
+                "HasDistinct": false,
+                "Items": [
+                  {
+                    "Expr": {
+                      "Name": "colX",
+                      "QuoteType": 1,
+                      "NamePos": 280,
+                      "NameEnd": 284
+                    },
+                    "Alias": null
+                  },
+                  {
+                    "Expr": {
+                      "Name": "colY",
+                      "QuoteType": 1,
+                      "NamePos": 286,
+                      "NameEnd": 290
+                    },
+                    "Alias": null
+                  }
+                ]
+              },
+              "ColumnArgList": null
+            },
+            "Alias": null
+          }
+        ]
+      }
+    }
+  },
+  {
+    "OptimizePos": 293,
+    "StatementEnd": 362,
+    "Table": {
+      "Database": null,
+      "Table": {
+        "Name": "table",
+        "QuoteType": 1,
+        "NamePos": 308,
+        "NameEnd": 313
+      }
+    },
+    "OnCluster": null,
+    "Partition": null,
+    "HasFinal": false,
+    "Deduplicate": {
+      "DeduplicatePos": 314,
+      "By": {
+        "ListPos": 329,
+        "ListEnd": 362,
+        "HasDistinct": false,
+        "Items": [
+          {
+            "Expr": {
+              "Name": {
+                "Name": "COLUMNS",
+                "QuoteType": 1,
+                "NamePos": 329,
+                "NameEnd": 336
+              },
+              "Params": {
+                "LeftParenPos": 336,
+                "RightParenPos": 362,
+                "Items": {
+                  "ListPos": 338,
+                  "ListEnd": 361,
+                  "HasDistinct": false,
+                  "Items": [
+                    {
+                      "Expr": {
+                        "LiteralPos": 338,
+                        "LiteralEnd": 361,
+                        "Literal": "column-matched-by-regex"
+                      },
+                      "Alias": null
+                    }
+                  ]
+                },
+                "ColumnArgList": null
+              }
+            },
+            "Alias": null
+          }
+        ]
+      },
+      "Except": null
+    }
+  },
+  {
+    "OptimizePos": 365,
+    "StatementEnd": 434,
+    "Table": {
+      "Database": null,
+      "Table": {
+        "Name": "table",
+        "QuoteType": 1,
+        "NamePos": 380,
+        "NameEnd": 385
+      }
+    },
+    "OnCluster": null,
+    "Partition": null,
+    "HasFinal": false,
+    "Deduplicate": {
+      "DeduplicatePos": 386,
+      "By": {
+        "ListPos": 401,
+        "ListEnd": 434,
+        "HasDistinct": false,
+        "Items": [
+          {
+            "Expr": {
+              "Name": {
+                "Name": "COLUMNS",
+                "QuoteType": 1,
+                "NamePos": 401,
+                "NameEnd": 408
+              },
+              "Params": {
+                "LeftParenPos": 408,
+                "RightParenPos": 434,
+                "Items": {
+                  "ListPos": 410,
+                  "ListEnd": 433,
+                  "HasDistinct": false,
+                  "Items": [
+                    {
+                      "Expr": {
+                        "LiteralPos": 410,
+                        "LiteralEnd": 433,
+                        "Literal": "column-matched-by-regex"
+                      },
+                      "Alias": null
+                    }
+                  ]
+                },
+                "ColumnArgList": null
+              }
+            },
+            "Alias": null
+          }
+        ]
+      },
+      "Except": {
+        "ListPos": 443,
+        "ListEnd": 447,
+        "HasDistinct": false,
+        "Items": [
+          {
+            "Expr": {
+              "Name": "colX",
+              "QuoteType": 1,
+              "NamePos": 443,
+              "NameEnd": 447
+            },
+            "Alias": null
+          }
+        ]
+      }
+    }
+  },
+  {
+    "OptimizePos": 449,
+    "StatementEnd": 518,
+    "Table": {
+      "Database": null,
+      "Table": {
+        "Name": "table",
+        "QuoteType": 1,
+        "NamePos": 464,
+        "NameEnd": 469
+      }
+    },
+    "OnCluster": null,
+    "Partition": null,
+    "HasFinal": false,
+    "Deduplicate": {
+      "DeduplicatePos": 470,
+      "By": {
+        "ListPos": 485,
+        "ListEnd": 518,
+        "HasDistinct": false,
+        "Items": [
+          {
+            "Expr": {
+              "Name": {
+                "Name": "COLUMNS",
+                "QuoteType": 1,
+                "NamePos": 485,
+                "NameEnd": 492
+              },
+              "Params": {
+                "LeftParenPos": 492,
+                "RightParenPos": 518,
+                "Items": {
+                  "ListPos": 494,
+                  "ListEnd": 517,
+                  "HasDistinct": false,
+                  "Items": [
+                    {
+                      "Expr": {
+                        "LiteralPos": 494,
+                        "LiteralEnd": 517,
+                        "Literal": "column-matched-by-regex"
+                      },
+                      "Alias": null
+                    }
+                  ]
+                },
+                "ColumnArgList": null
+              }
+            },
+            "Alias": null
+          }
+        ]
+      },
+      "Except": {
+        "ListPos": 527,
+        "ListEnd": 538,
+        "HasDistinct": false,
+        "Items": [
+          {
+            "Expr": {
+              "LeftParenPos": 527,
+              "RightParenPos": 538,
+              "Items": {
+                "ListPos": 528,
+                "ListEnd": 538,
+                "HasDistinct": false,
+                "Items": [
+                  {
+                    "Expr": {
+                      "Name": "colX",
+                      "QuoteType": 1,
+                      "NamePos": 528,
+                      "NameEnd": 532
+                    },
+                    "Alias": null
+                  },
+                  {
+                    "Expr": {
+                      "Name": "colY",
+                      "QuoteType": 1,
+                      "NamePos": 534,
+                      "NameEnd": 538
+                    },
+                    "Alias": null
+                  }
+                ]
+              },
+              "ColumnArgList": null
+            },
+            "Alias": null
+          }
+        ]
+      }
+    }
+  }
+]
