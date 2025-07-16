@@ -23,11 +23,13 @@ import {
 } from "@grafana/runtime";
 import {
   AstResponse,
+  Context,
   DEFAULT_QUERY,
   HdxDataSourceOptions,
   HdxQuery,
   InterpolationResult,
   SelectQuery,
+  TableIdentifier,
 } from "./types";
 import { from, Observable, switchMap } from "rxjs";
 import { map } from "rxjs/operators";
@@ -38,7 +40,7 @@ import {
 } from "./editor/metadataProvider";
 import { getColumnValuesStatement } from "./ast";
 import { getFirstValidRound, roundTimeRange } from "./editor/timeRangeUtils";
-import { applyAdHocMacro, applyBaseMacros } from "./macros/macrosApplier";
+import { applyAstAwareMacro, applyBaseMacros } from "./macros/macrosApplier";
 import { validateQuery } from "./editor/queryValidation";
 import { SYNTHETIC_EMPTY, SYNTHETIC_NULL } from "./constants";
 import { replace } from "./syntheticVariables";
@@ -185,10 +187,11 @@ export class DataSource extends DataSourceWithBackend<
   ): Promise<InterpolationResult> {
     let interpolatedSql = sql;
     try {
-      let macroContext = {
+      let macroContext: Context = {
         templateVars: this.templateSrv.getVariables(),
         replaceFn: this.templateSrv.replace.bind(this),
         intervalMs: request.intervalMs,
+        pk: async (table: string) => await this.getPrimaryKey(table),
         query: sql,
         timeRange:
           round && request.range
@@ -215,12 +218,12 @@ export class DataSource extends DataSourceWithBackend<
       }
 
       try {
-        interpolatedSql = await applyAdHocMacro(interpolatedSql, {
+        interpolatedSql = await applyAstAwareMacro(interpolatedSql, {
           ...macroContext,
           query: interpolatedSql,
+          ast: astResponse.data,
           adHocFilter: {
             filters: request.filters,
-            ast: astResponse.data,
             keys: (table: string) => this.metadataProvider.tableKeys(table),
           },
         });
@@ -270,6 +273,10 @@ export class DataSource extends DataSourceWithBackend<
     }
   }
 
+  private getPrimaryKey(table: string): Promise<string> {
+    return this.metadataProvider.primaryKey(this.getTableIdentifier(table));
+  }
+
   wrapSyntaxError(error_message: string, query: string) {
     if (!error_message || error_message === "Unknown Error") {
       return `Cannot apply ad hoc filter: unknown error occurred while parsing query '${query}'`;
@@ -280,9 +287,9 @@ export class DataSource extends DataSourceWithBackend<
     const [message] = fullMessage.split("\n");
     const match = errorRegExp.exec(message);
     if (match) {
-      return `Cannot apply ad hoc filter because of syntax error at line ${
+      return `Cannot apply Grafana macros due to a query syntax error at line ${
         +match[1] + 1
-      }: ${match[3]}`;
+      }: ${match[3]}\nPlease correct the query syntax.`;
     } else {
       return fullMessage;
     }
@@ -350,13 +357,9 @@ export class DataSource extends DataSourceWithBackend<
       return [];
     }
 
-    let timeFilter;
-    let timeFilterVariable = this.replace(
-      `$\{${this.instanceSettings.jsonData.adHocTimeColumnVariable}}`
+    let timeFilter = await this.metadataProvider.primaryKey(
+      this.getTableIdentifier(table)
     );
-    if (timeFilterVariable && !timeFilterVariable?.startsWith("${")) {
-      timeFilter = timeFilterVariable;
-    }
 
     let sql;
     if (table && timeFilter) {
@@ -414,6 +417,21 @@ export class DataSource extends DataSourceWithBackend<
       }
     } else {
       return undefined;
+    }
+  }
+
+  private getTableIdentifier(s: string): TableIdentifier {
+    if (s.includes(".")) {
+      let arr = s.split(".");
+      return {
+        schema: arr[0],
+        table: arr[1],
+      };
+    } else {
+      return {
+        schema: this.instanceSettings.jsonData.defaultDatabase,
+        table: s,
+      };
     }
   }
 

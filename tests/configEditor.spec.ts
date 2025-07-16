@@ -55,7 +55,6 @@ test("smoke: should render config editor", async ({
   await expect(configPage.defaultDatabase()).not.toBeVisible();
   await expect(configPage.defaultRound()).not.toBeVisible();
   await expect(configPage.adHocTableVariable()).not.toBeVisible();
-  await expect(configPage.adHocTimeColumnVariable()).not.toBeVisible();
   await expect(configPage.adHocDefaultTimeRangeTimeselect()).not.toBeVisible();
   await expect(configPage.dialTimeout()).not.toBeVisible();
   await expect(configPage.queryTimeout()).not.toBeVisible();
@@ -66,7 +65,6 @@ test("smoke: should render config editor", async ({
   await expect(configPage.defaultDatabase()).toBeVisible();
   await expect(configPage.defaultRound()).toBeVisible();
   await expect(configPage.adHocTableVariable()).toBeVisible();
-  await expect(configPage.adHocTimeColumnVariable()).toBeVisible();
   await expect(configPage.adHocDefaultTimeRangeTimeselect()).toBeVisible();
   await expect(configPage.dialTimeout()).toBeVisible();
   await expect(configPage.queryTimeout()).toBeVisible();

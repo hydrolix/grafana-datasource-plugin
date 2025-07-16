@@ -17,6 +17,7 @@ import {
   SCHEMA_SQL,
   SUPPORTED_TYPES,
   TABLES_SQL,
+  PK_SQL,
 } from "../constants";
 
 export const ZERO_TIME_RANGE = {
@@ -56,6 +57,7 @@ export interface MetadataProvider {
   schemas: () => Promise<SchemaDefinition[]>;
   tables: (t: TableIdentifier) => Promise<TableDefinition[]>;
   columns: (t: TableIdentifier) => Promise<ColumnDefinition[]>;
+  primaryKey: (t: TableIdentifier) => Promise<string>;
   functions: () => Promise<
     Array<{ id: string; name: string; description: string }>
   >;
@@ -90,6 +92,7 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
   let tables: { [table: string]: TableDefinition[] } = {};
   let columns: { [table: string]: ColumnDefinition[] } = {};
   let tableKeys: { [table: string]: AdHocFilterKeys[] } = {};
+  let primaryKeys: { [table: string]: string } = {};
   let functions:
     | Array<{ id: string; name: string; description: string }>
     | undefined;
@@ -100,6 +103,7 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
           queryRunner(AD_HOC_KEY_QUERY.replaceAll("${table}", table)).pipe(
             map((r) => {
               try {
+                console.log("${table}", table);
                 return getKeyMap(r);
               } catch (e: any) {
                 throw new Error(
@@ -154,6 +158,21 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
             )
           )
         : Promise.resolve(functions!);
+    },
+    primaryKey: (t: TableIdentifier) => {
+      return !primaryKeys[`${t.schema}.${t.table}`]
+        ? firstValueFrom(
+            queryRunner(
+              PK_SQL.replace(/\{schema}/, t?.schema!).replace(
+                /\{table}/,
+                t?.table!
+              )
+            ).pipe(
+              map((r) => transformResponse(r)[0]),
+              tap((v) => (primaryKeys[`${t.schema}.${t.table}`] = v))
+            )
+          )
+        : Promise.resolve(primaryKeys[`${t.schema}.${t.table}`]);
     },
     tableKeys: tableKeysFn,
     executeQuery: (sql: string, timeRange?: TimeRange) =>

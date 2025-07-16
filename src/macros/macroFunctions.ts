@@ -16,22 +16,8 @@ export const adHocFilter = async (
   let condition;
   if (context.adHocFilter?.filters?.length) {
     let tableName;
-    if (context.adHocFilter?.ast) {
-      let ast = context.adHocFilter?.ast;
-      let node = traverseTree(ast, (node) => {
-        return (
-          node.Where &&
-          traverseTree(
-            node.Where,
-            (n) => n.Name === "$__adHocFilter" && n.NamePos === index,
-            (n) => n.Where
-          )
-        );
-      });
-      let tableNode = node?.From?.Expr?.Table;
-      let start = tableNode?.TablePos;
-      let end = tableNode?.TableEnd;
-      tableName = context.query.substring(start, end);
+    if (context?.ast) {
+      tableName = getFilterTableName("$__adHocFilter", context, index);
     }
     if (!tableName) {
       throw new Error(
@@ -233,12 +219,20 @@ export const interval_s = async (
 
 export const timeFilter = async (
   params: string[],
-  context: Context
+  context: Context,
+  index?: number
 ): Promise<string> => {
-  if (params.length !== 1 || params[0] === "") {
-    throw new Error("Macro $__timeFilter should contain 1 parameter");
+  if (params.length > 1) {
+    throw new Error(
+      "Macro $__timeFilter should not contain more than 1 parameter"
+    );
   }
-  let column = params[0];
+  let column;
+  if (params.length !== 1 || params[0] === "") {
+    column = await getFilterPK("$__timeFilter", context, index);
+  } else {
+    column = params[0];
+  }
 
   let phrase;
   if (context.timeRange) {
@@ -258,12 +252,20 @@ export const timeFilter = async (
 
 export const timeFilter_ms = async (
   params: string[],
-  context: Context
+  context: Context,
+  index?: number
 ): Promise<string> => {
-  if (params.length !== 1 || params[0] === "") {
-    throw new Error("Macro $__timeFilter_ms should contain 1 parameter");
+  if (params.length > 1) {
+    throw new Error(
+      "Macro $__timeFilter_ms should not contain more than 1 parameter"
+    );
   }
-  let param = params[0];
+  let param;
+  if (params.length !== 1 || params[0] === "") {
+    param = await getFilterPK("$__timeFilter_ms", context, index);
+  } else {
+    param = params[0];
+  }
 
   let phrase;
   if (context.timeRange) {
@@ -283,12 +285,20 @@ export const timeFilter_ms = async (
 
 export const timeInterval = async (
   params: string[],
-  context: Context
+  context: Context,
+  index?: number
 ): Promise<string> => {
-  if (params.length !== 1 || params[0] === "") {
-    throw new Error("Macro $__timeInterval should contain 1 parameter");
+  if (params.length > 1) {
+    throw new Error(
+      "Macro $__timeInterval should not contain more than 1 parameter"
+    );
   }
-  let param = params[0];
+  let param;
+  if (params.length !== 1 || params[0] === "") {
+    param = await getValuePK("$__timeInterval", context, index);
+  } else {
+    param = params[0];
+  }
   let interval = (context.intervalMs || 0) / 1000;
   return `toStartOfInterval(toDateTime(${param}), INTERVAL ${Math.max(
     interval,
@@ -298,12 +308,20 @@ export const timeInterval = async (
 
 export const timeInterval_ms = async (
   params: string[],
-  context: Context
+  context: Context,
+  index?: number
 ): Promise<string> => {
-  if (params.length !== 1 || params[0] === "") {
-    throw new Error("Macro $__timeInterval_ms should contain 1 parameter");
+  if (params.length > 1) {
+    throw new Error(
+      "Macro $__timeInterval_ms should not contain more than 1 parameter"
+    );
   }
-  let param = params[0];
+  let param;
+  if (params.length !== 1 || params[0] === "") {
+    param = await getValuePK("$__timeInterval_ms", context, index);
+  } else {
+    param = params[0];
+  }
   return `toStartOfInterval(toDateTime64(${param}, 3), INTERVAL ${Math.max(
     context.intervalMs || 0,
     1
@@ -328,4 +346,63 @@ export const toTime_ms = async (
     throw new Error("cannot apply macro without time range");
   }
   return `fromUnixTimestamp64Milli(${context.timeRange.to.toDate().getTime()})`;
+};
+
+const getFilterTableName = (macros: string, context: Context, index?: number) =>
+  getTableName(macros, context, (n) => n.Where, index);
+
+const getValueTableName = (macros: string, context: Context, index?: number) =>
+  getTableName(macros, context, (n) => n.SelectItems, index);
+
+export const getTableName = (
+  macros: string,
+  context: Context,
+  macrosPlacement: (node: any) => boolean,
+  index?: number
+) => {
+  let ast = context?.ast;
+  if (!ast) {
+    throw new Error("query ast is not provided");
+  }
+  let node = traverseTree(ast, (node) => {
+    return (
+      macrosPlacement(node) &&
+      traverseTree(
+        macrosPlacement(node),
+        (n) => n.Name === macros && n.NamePos === index,
+        (n) => macrosPlacement(n)
+      )
+    );
+  });
+  let tableNode = node?.From?.Expr?.Table;
+  if (!tableNode) {
+    throw new Error(`cannot find table for macro ${macros}`);
+  }
+  let start = tableNode?.TablePos;
+  let end = tableNode?.TableEnd;
+  let aliasNode = traverseTree(node, (node) => node.Alias);
+  if (aliasNode?.Expr?.Table?.NameEnd) {
+    end = aliasNode.Expr.Table.NameEnd;
+  }
+  return context.query.substring(start, end);
+};
+
+const getFilterPK = (macros: string, context: Context, index?: number) => {
+  let table = getFilterTableName(macros, context, index);
+  return getPK(macros, context, table);
+};
+const getValuePK = (macros: string, context: Context, index?: number) => {
+  let table = getValueTableName(macros, context, index);
+  return getPK(macros, context, table);
+};
+
+const getPK = (macros: string, context: Context, table: string) => {
+  if (!table) {
+    throw new Error(`Macro ${macros} could not get table name`);
+  }
+  const pk = context.pk(table);
+  if (!pk) {
+    throw new Error(`Macro ${macros} cannot find PK for table name ${table}`);
+  }
+  return pk;
 };

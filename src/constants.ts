@@ -10,6 +10,8 @@ export const TABLES_SQL =
   "SELECT name FROM system.tables WHERE engine = 'TurbineStorage' AND database = '{schema}' AND total_rows > 0";
 export const COLUMNS_SQL =
   "SELECT name FROM system.columns WHERE database='{schema}' AND table ='{table}'";
+export const PK_SQL =
+  "SELECT primary_key FROM system.tables WHERE database='{schema}' AND table ='{table}'";
 export const FUNCTIONS_SQL = "SELECT name FROM  system.functions";
 
 export const AD_HOC_KEY_QUERY = "DESCRIBE ${table}";
