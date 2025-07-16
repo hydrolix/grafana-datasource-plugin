@@ -56,16 +56,3 @@ export const adHocTableVariable: CustomVariableModel = {
   options: [{ value: "table", text: "table", selected: true }],
   multi: false,
 };
-
-export const adHocTimeColumnVariable: CustomVariableModel = {
-  ...initialCustomVariableModelState,
-  id: "timefilter",
-  name: "timefilter",
-  current: {
-    value: "timefilter",
-    text: "timefilter",
-    selected: true,
-  },
-  options: [{ value: "timefilter", text: "timefilter", selected: true }],
-  multi: false,
-};

@@ -88,12 +88,6 @@ export default {
           description:
             "Name of a dashboard variable that defines which table to use for retrieving ad hoc filter columns and values",
         },
-        adHocTimeColumnVariable: {
-          testId: "data-testid hdx_adHocTimeColumnVariable",
-          label: "Ad hoc filter time column variable name",
-          description:
-            "Name of a dashboard variable that defines which column to use for time filtering in ad hoc filters",
-        },
         defaultRound: {
           testId: "data-testid hdx_defaultRound",
           label: "Default round",

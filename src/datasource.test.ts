@@ -1,11 +1,7 @@
 import { firstValueFrom, of } from "rxjs";
 import { DataQueryRequest, toDataFrame } from "@grafana/data";
 import { setupDataSourceMock } from "__mocks__/datasource";
-import {
-  adHocTableVariable,
-  adHocTimeColumnVariable,
-  fooVariable,
-} from "./__mocks__/variable";
+import { adHocTableVariable, fooVariable } from "./__mocks__/variable";
 import { AdHocFilterKeys, HdxQuery } from "./types";
 
 describe("HdxDataSource", () => {
@@ -99,7 +95,7 @@ describe("HdxDataSource", () => {
       jest.clearAllMocks();
     });
     const { datasource, queryMock } = setupDataSourceMock({
-      variables: [adHocTableVariable, adHocTimeColumnVariable],
+      variables: [adHocTableVariable],
     });
     const getKeysMock = jest.spyOn(datasource.metadataProvider, "tableKeys");
 

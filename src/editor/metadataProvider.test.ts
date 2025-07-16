@@ -2,16 +2,14 @@ import { DataQueryResponse, toDataFrame } from "@grafana/data";
 import { of } from "rxjs";
 import { getKeyMap, getMetadataProvider } from "./metadataProvider";
 import { setupDataSourceMock } from "../__mocks__/datasource";
-import {
-  adHocTableVariable,
-  adHocTimeColumnVariable,
-} from "../__mocks__/variable";
+import { adHocTableVariable } from "../__mocks__/variable";
 import { DESCRIBE1, DESCRIBE2 } from "../__mocks__/tableDescribes";
 
 const FUNCTIONS = ["widthBucket", "tupleConcat"];
 const SCHEMAS = ["schema1", "schema2"];
 const TABLES = ["table1", "table2"];
 const COLUMNS = ["column1", "column2"];
+const PK = "timefilter";
 const KEY_RESPONSE = {
   fields: [
     { values: ["column1", "column2", "column3", "column4", "column5"] },
@@ -25,7 +23,7 @@ const KEY_RESPONSE = {
 
 describe("MetadataProvider", () => {
   const { datasource, queryMock } = setupDataSourceMock({
-    variables: [adHocTableVariable, adHocTimeColumnVariable],
+    variables: [adHocTableVariable],
   });
   beforeEach(() => {
     jest.clearAllMocks();
@@ -163,6 +161,29 @@ describe("MetadataProvider", () => {
     let mdp = getMetadataProvider(datasource);
     await mdp.tableKeys("table");
     await mdp.tableKeys("table");
+    expect(queryMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("get pk", async () => {
+    queryMock.mockReturnValue(
+      of({
+        data: [toDataFrame({ fields: [{ values: [PK] }] })],
+      })
+    );
+    let mdp = getMetadataProvider(datasource);
+    let actual = await mdp.primaryKey({ schema: "schema", table: "table" });
+    expect(actual).toEqual("timefilter");
+  });
+
+  test("get cached pk", async () => {
+    queryMock.mockReturnValue(
+      of({
+        data: [toDataFrame({ fields: [{ values: [PK] }] })],
+      })
+    );
+    let mdp = getMetadataProvider(datasource);
+    await mdp.primaryKey({ schema: "schema", table: "table" });
+    await mdp.primaryKey({ schema: "schema", table: "table" });
     expect(queryMock).toHaveBeenCalledTimes(1);
   });
 });

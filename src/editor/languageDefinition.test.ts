@@ -1,8 +1,4 @@
 import { setupDataSourceMock } from "../__mocks__/datasource";
-import {
-  adHocTableVariable,
-  adHocTimeColumnVariable,
-} from "../__mocks__/variable";
 import { languageDefinition } from "./languageDefinition";
 import { Props } from "../components/QueryEditor";
 import { Monaco } from "@grafana/ui";
@@ -12,9 +8,7 @@ import { MACROS } from "./macros";
 import { OPERATORS } from "./operators";
 
 describe("language definition", () => {
-  const { datasource } = setupDataSourceMock({
-    variables: [adHocTableVariable, adHocTimeColumnVariable],
-  });
+  const { datasource } = setupDataSourceMock({});
   const props = {
     datasource: datasource,
     onRunQuery: () => {},

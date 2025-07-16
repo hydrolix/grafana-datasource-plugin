@@ -9,6 +9,12 @@ module.exports = {
     "src/**/*.{js,jsx,ts,tsx}",
     "!**/node_modules/**",
     "!**/__mocks__/**",
+    "!**/__tests__/**",
+  ],
+  testMatch: [
+    //"<rootDir>/src/**/__tests__/**/*.{js,jsx,ts,tsx}",
+    "<rootDir>/src/**/*.{spec,test,jest}.{js,jsx,ts,tsx}",
+    "<rootDir>/src/**/*.{spec,test,jest}.{js,jsx,ts,tsx}",
   ],
   coverageReporters: ["html", "text", "text-summary", "cobertura"],
 };

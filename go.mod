@@ -5,11 +5,11 @@ go 1.24.1
 toolchain go1.24.4
 
 require (
-	github.com/AfterShip/clickhouse-sql-parser v0.4.8
 	github.com/ClickHouse/clickhouse-go/v2 v2.33.1
 	github.com/docker/go-connections v0.5.0
 	github.com/grafana/grafana-plugin-sdk-go v0.277.1
 	github.com/grafana/sqlds/v4 v4.2.3
+	github.com/hydrolix/clickhouse-sql-parser v0.1.1
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.10.0
 	github.com/testcontainers/testcontainers-go v0.35.0
