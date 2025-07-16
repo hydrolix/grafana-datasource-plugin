@@ -525,23 +525,6 @@ export function ConfigEditor(props: Props) {
             />
           </Field>
           <Field
-            data-testid={labels.adHocTimeColumnVariable.testId}
-            label={labels.adHocTimeColumnVariable.label}
-            description={labels.adHocTimeColumnVariable.description}
-          >
-            <Input
-              name={"adHocTimeFilterVariable"}
-              width={40}
-              value={jsonData.adHocTimeColumnVariable || ""}
-              onChange={onUpdateDatasourceJsonDataOption(
-                props,
-                "adHocTimeColumnVariable"
-              )}
-              label={labels.adHocTimeColumnVariable.label}
-              aria-label={labels.adHocTimeColumnVariable.label}
-            />
-          </Field>
-          <Field
             data-testid={labels.adHocDefaultTimeRange.testId}
             label={labels.adHocDefaultTimeRange.label}
             description={labels.adHocDefaultTimeRange.description}

@@ -51,7 +51,6 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   defaultRound?: string;
   adHocDefaultTimeRange?: TimeRange;
   adHocTableVariable?: string;
-  adHocTimeColumnVariable?: string;
   dialTimeout?: string;
   queryTimeout?: string;
   querySettings?: QuerySetting[];
@@ -166,6 +165,8 @@ export interface Context {
   adHocFilter?: AdHocFilterContext;
   templateVars: TypedVariableModel[];
   replaceFn: (s: string) => string;
+  ast?: any;
+  pk: (t: string) => Promise<string>;
   query: string;
   intervalMs?: number;
   timeRange?: TimeRange;
@@ -173,6 +174,5 @@ export interface Context {
 
 interface AdHocFilterContext {
   filters?: AdHocVariableFilter[];
-  ast?: any;
   keys: (table: string) => Promise<AdHocFilterKeys[]>;
 }

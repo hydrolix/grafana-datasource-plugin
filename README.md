@@ -53,8 +53,6 @@ Following is the list of Hydrolix configuration options.
   nearest multiple of this value. For more details, see [Round timestamps](#round-timestamps).
 - **Ad hoc filter table variable name** (optional) - Variable defines which table to use for retrieving ad hoc filter
   columns and values.
-- **Ad hoc filter time column variable name** (optional) - Variable defines which column to use for time filtering in ad
-  hoc filters.
 - **Ad hoc filter default time range** (optional) - Default time range for time filtering when dashboard time range is
   not available
 - **Dial timeout** (optional) - Connection timeout in seconds.
@@ -136,7 +134,6 @@ datasources:
       defaultDatabase: database
       defaultRound: 60s
       adHocTableVariable: table
-      adHocTimeColumnVariable: timestamp
     secureJsonData:
       password: password
 ```
@@ -165,28 +162,28 @@ The editor provides extensive SQL capabilities, featuring:
 
 To simplify syntax and to allow for dynamic parts, like date range filters, the query can contain macros.
 
-| Macro                                        | Description                                                                                                           | Output example                                                                                        |
-| -------------------------------------------- |-----------------------------------------------------------------------------------------------------------------------| ----------------------------------------------------------------------------------------------------- |
-| `$__dateFilter(column)`                      | Generates a condition to filter data (using the provided column) based on the panel's date range                      | `date >= toDate('2022-10-21') AND date <= toDate('2022-10-23')`                                       |
-| `$__timeFilter(column)`                      | Generates a condition to filter data (using the provided column) based on the panel's time range in seconds           | `time >= toDateTime(1415792726) AND time <= toDateTime(1447328726)`                                   |
-| `$__timeFilter_ms(column)`                   | Generates a condition to filter data (using the provided column) based on the panel's time range in milliseconds      | `time >= fromUnixTimestamp64Milli(1415792726123) AND time <= fromUnixTimestamp64Milli(1447328726456)` |
-| `$__dateTimeFilter(dateColumn, timeColumn)`  | Combines `$__dateFilter()` and `$__timeFilter()` for filtering with separate date and time columns                    | `$__dateFilter(dateColumn) AND $__timeFilter(timeColumn)`                                             |
-| `$__adHocFilter`                             | Replaced with a condition to filter data based on the applied ad hoc filters                                          | `statusCode = '200'`                                                                                  |
-| `$__fromTime`                                | Replaced with the panel's start time, cast as `DateTime`                                                              | `toDateTime(1415792726)`                                                                              |
-| `$__toTime`                                  | Replaced with the panel's end time, cast as `DateTime`                                                                | `toDateTime(1447328726)`                                                                              |
-| `$__fromTime_ms`                             | Replaced with the panel's start time, cast as `DateTime64(3)` (millisecond precision)                                 | `fromUnixTimestamp64Milli(1415792726123)`                                                             |
-| `$__toTime_ms`                               | Replaced with the panel's end time, cast as `DateTime64(3)` (millisecond precision)                                   | `fromUnixTimestamp64Milli(1447328726456)`                                                             |
-| `$__interval_s`                              | Replaced with the interval in seconds                                                                                 | `20`                                                                                                  |
-| `$__timeInterval(column)`                    | Calculates intervals based on panel width, useful for grouping data in seconds                                        | `toStartOfInterval(toDateTime(column), INTERVAL 20 second)`                                           |
-| `$__timeInterval_ms(column)`                 | Calculates intervals based on panel width, useful for grouping data in milliseconds                                   | `toStartOfInterval(toDateTime64(column, 3), INTERVAL 20 millisecond)`                                 |
-| `$__conditionalAll(condition, $templateVar)` | Includes the provided condition only if the template variable does not select all values, defaults to `1=1` otherwise | `condition` or `1=1`                                                                                  |
+| Macro                                        | Description                                                                                                                                                                             | Output example                                                                                        |
+|----------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------| ----------------------------------------------------------------------------------------------------- |
+| `$__dateFilter(column)`                      | Generates a condition to filter data (using the provided column) based on the panel's date range                                                                                        | `date >= toDate('2022-10-21') AND date <= toDate('2022-10-23')`                                       |
+| `$__timeFilter([column])`                    | Generates a condition to filter data based on the panel's time range in seconds. Accepts an optional column name. If no column is provided, the primary key is used automatically.      | `time >= toDateTime(1415792726) AND time <= toDateTime(1447328726)`                                   |
+| `$__timeFilter_ms([column])`                 | Generates a condition to filter data based on the panel's time range in milliseconds. Accepts an optional column name. If no column is provided, the primary key is used automatically. | `time >= fromUnixTimestamp64Milli(1415792726123) AND time <= fromUnixTimestamp64Milli(1447328726456)` |
+| `$__dateTimeFilter(dateColumn, timeColumn)`  | Combines `$__dateFilter()` and `$__timeFilter()` for filtering with separate date and time columns                                                                                      | `$__dateFilter(dateColumn) AND $__timeFilter(timeColumn)`                                             |
+| `$__adHocFilter`                             | Replaced with a condition to filter data based on the applied ad hoc filters                                                                                                            | `statusCode = '200'`                                                                                  |
+| `$__fromTime`                                | Replaced with the panel's start time, cast as `DateTime`                                                                                                                                | `toDateTime(1415792726)`                                                                              |
+| `$__toTime`                                  | Replaced with the panel's end time, cast as `DateTime`                                                                                                                                  | `toDateTime(1447328726)`                                                                              |
+| `$__fromTime_ms`                             | Replaced with the panel's start time, cast as `DateTime64(3)` (millisecond precision)                                                                                                   | `fromUnixTimestamp64Milli(1415792726123)`                                                             |
+| `$__toTime_ms`                               | Replaced with the panel's end time, cast as `DateTime64(3)` (millisecond precision)                                                                                                     | `fromUnixTimestamp64Milli(1447328726456)`                                                             |
+| `$__interval_s`                              | Replaced with the interval in seconds                                                                                                                                                   | `20`                                                                                                  |
+| `$__timeInterval([column])`                  | Calculates intervals based on panel width, useful for grouping data in seconds. Accepts an optional column name. If no column is provided, the primary key is used automatically.       | `toStartOfInterval(toDateTime(column), INTERVAL 20 second)`                                           |
+| `$__timeInterval_ms([column])`               | Calculates intervals based on panel width, useful for grouping data in milliseconds. Accepts an optional column name. If no column is provided, the primary key is used automatically.  | `toStartOfInterval(toDateTime64(column, 3), INTERVAL 20 millisecond)`                                 |
+| `$__conditionalAll(condition, $templateVar)` | Includes the provided condition only if the template variable does not select all values, defaults to `1=1` otherwise                                                                   | `condition` or `1=1`                                                                                  |
 
 Below is an example of a query with the `$__timeFilter` macro:
 
 ```sql
 SELECT $__timeInterval(log_time) AS time, avg(cpu_usage) AS value
 FROM logs
-WHERE $__timeFilter(log_time)
+WHERE $__timeFilter()
 GROUP BY time
 ORDER BY time
 ```
@@ -199,7 +196,7 @@ queries via the `$__adHocFilter` macro, which must be explicitly included in the
 ```sql
 SELECT $__timeInterval(log_time) AS time, avg(cpu_usage) AS value
 FROM logs
-WHERE $__timeFilter(log_time) AND $__adHocFilter()
+WHERE $__timeFilter() AND $__adHocFilter()
 GROUP BY time
 ORDER BY time
 ```

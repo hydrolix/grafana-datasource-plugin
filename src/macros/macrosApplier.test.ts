@@ -2,12 +2,13 @@ import {
   emptyContext,
   parseMacroArgs,
   applyBaseMacros,
-  applyAdHocMacro,
+  applyAstAwareMacro,
 } from "./macrosApplier";
 import { dateTime, TimeRange, TypedVariableModel } from "@grafana/data";
-import { getFilterExpression } from "./macroFunctions";
+import { getFilterExpression, getTableName } from "./macroFunctions";
 import { adHocQueryAST } from "../__mocks__/ast";
 import { SYNTHETIC_EMPTY, SYNTHETIC_NULL } from "../constants";
+import { Context } from "../types";
 
 describe("macros base applier", () => {
   it("apply with one macro", async () => {
@@ -115,7 +116,7 @@ describe("macros interpolation", () => {
   ];
 
   it.each(cases)("$name", async ({ origin, interpolated }) => {
-    const actual = await applyBaseMacros(origin, {
+    let context = {
       ...emptyContext,
       timeRange: {
         from: dateTime("2025-02-12T11:45:26.123Z"),
@@ -125,7 +126,11 @@ describe("macros interpolation", () => {
           to: "",
         },
       },
-    });
+    };
+    const actual = await applyAstAwareMacro(
+      await applyBaseMacros(origin, context),
+      context
+    );
     expect(actual).toEqual(interpolated);
   });
 });
@@ -136,9 +141,9 @@ const SQL_WITHOUT_FILTER = "SELECT column1, columnt2 FROM table";
 const context = {
   ...emptyContext,
   query: SQL_WITH_FILTER,
+  ast: adHocQueryAST,
   adHocFilter: {
     filters: [],
-    ast: adHocQueryAST,
     keys: () =>
       Promise.resolve([
         {
@@ -154,20 +159,20 @@ const context = {
 };
 describe("$__adHocFilter", () => {
   test("apply to query without macros", async () => {
-    const actual = await applyAdHocMacro(SQL_WITHOUT_FILTER, context);
+    const actual = await applyAstAwareMacro(SQL_WITHOUT_FILTER, context);
     expect(actual).toEqual(SQL_WITHOUT_FILTER);
   });
   test("apply without filters", async () => {
-    const actual = await applyAdHocMacro(SQL_WITH_FILTER, context);
+    const actual = await applyAstAwareMacro(SQL_WITH_FILTER, context);
     expect(actual).toEqual("SELECT column1, columnt2 FROM table WHERE 1=1");
   });
   test("apply with filter", async () => {
-    const actual = await applyAdHocMacro(SQL_WITH_FILTER, {
+    const actual = await applyAstAwareMacro(SQL_WITH_FILTER, {
       ...context,
+      ast: adHocQueryAST,
       adHocFilter: {
         ...context.adHocFilter,
         filters: [{ key: "column1", operator: "=", value: "value" }],
-        ast: adHocQueryAST,
       },
       query: SQL_WITH_FILTER,
     });
@@ -176,15 +181,15 @@ describe("$__adHocFilter", () => {
     );
   });
   test("apply with filters", async () => {
-    const actual = await applyAdHocMacro(SQL_WITH_FILTER, {
+    const actual = await applyAstAwareMacro(SQL_WITH_FILTER, {
       ...context,
+      ast: adHocQueryAST,
       adHocFilter: {
         ...context.adHocFilter,
         filters: [
           { key: "column1", operator: "=", value: "value" },
           { key: "column2", operator: "<", value: "value2" },
         ],
-        ast: adHocQueryAST,
       },
       query: SQL_WITH_FILTER,
     });
@@ -193,7 +198,7 @@ describe("$__adHocFilter", () => {
     );
   });
   test("apply and skip invalid column", async () => {
-    const actual = await applyAdHocMacro(SQL_WITH_FILTER, {
+    const actual = await applyAstAwareMacro(SQL_WITH_FILTER, {
       ...context,
       adHocFilter: {
         ...context.adHocFilter,
@@ -202,8 +207,8 @@ describe("$__adHocFilter", () => {
           { key: "column2", operator: "<", value: "value2" },
           { key: "column3", operator: "=", value: "value3" },
         ],
-        ast: adHocQueryAST,
       },
+      ast: adHocQueryAST,
       query: SQL_WITH_FILTER,
     });
     expect(actual).toEqual(
@@ -211,7 +216,7 @@ describe("$__adHocFilter", () => {
     );
   });
   test("apply with all invalid columns", async () => {
-    const actual = await applyAdHocMacro(SQL_WITH_FILTER, {
+    const actual = await applyAstAwareMacro(SQL_WITH_FILTER, {
       ...context,
       adHocFilter: {
         ...context.adHocFilter,
@@ -854,7 +859,7 @@ describe("$__interval_s", () => {
 
 describe("$__timeInterval", () => {
   it("should apply macros", async () => {
-    let result = await applyBaseMacros("SELECT $__timeInterval(column)", {
+    let result = await applyAstAwareMacro("SELECT $__timeInterval(column)", {
       ...emptyContext,
       intervalMs: 30000,
     });
@@ -864,7 +869,7 @@ describe("$__timeInterval", () => {
   });
 
   it("should apply macros with no interval", async () => {
-    let result = await applyBaseMacros("SELECT $__timeInterval(column)", {
+    let result = await applyAstAwareMacro("SELECT $__timeInterval(column)", {
       ...emptyContext,
     });
     expect(result).toBe(
@@ -872,20 +877,54 @@ describe("$__timeInterval", () => {
     );
   });
 
-  it("should fail on macros with no params", async () => {
+  it("should apply macros with no params", async () => {
+    let query = "SELECT $__timeInterval() from table";
+    let result = await applyAstAwareMacro(query, {
+      ...emptyContext,
+      ast: JSON.parse(
+        '{"SelectPos":0,"StatementEnd":35,"With":null,"Top":null,"HasDistinct":false,"SelectItems":[{"Expr":{"Name":{"Name":"$__timeInterval","QuoteType":1,"NamePos":7,"NameEnd":22},"Params":{"LeftParenPos":22,"RightParenPos":23,"Items":{"ListPos":23,"ListEnd":23,"HasDistinct":false,"Items":[]},"ColumnArgList":null}},"Modifiers":[],"Alias":null}],"From":{"FromPos":25,"Expr":{"Table":{"TablePos":30,"TableEnd":35,"Alias":null,"Expr":{"Database":null,"Table":{"Name":"table","QuoteType":1,"NamePos":30,"NameEnd":35}},"HasFinal":false},"StatementEnd":35,"SampleRatio":null,"HasFinal":false}},"ArrayJoin":null,"Window":null,"Prewhere":null,"Where":null,"GroupBy":null,"WithTotal":false,"Having":null,"OrderBy":null,"LimitBy":null,"Limit":null,"Settings":null,"Format":null,"UnionAll":null,"UnionDistinct":null,"Except":null}'
+      ),
+      pk: () => Promise.resolve("ts"),
+      query,
+    });
+    expect(result).toBe(
+      "SELECT toStartOfInterval(toDateTime(ts), INTERVAL 1 second) from table"
+    );
+  });
+
+  it("should fail on empty ast", async () => {
     let t = async () =>
-      await applyBaseMacros("SELECT $__timeInterval()", {
+      await applyAstAwareMacro("SELECT $__timeInterval()", {
+        ...emptyContext,
+        ast: {},
+      });
+    await expect(t()).rejects.toThrow(
+      "cannot find table for macro $__timeInterval"
+    );
+  });
+
+  it("should fail with on ast", async () => {
+    let t = async () =>
+      await applyAstAwareMacro("SELECT $__timeInterval()", {
+        ...emptyContext,
+      });
+    await expect(t()).rejects.toThrow("query ast is not provided");
+  });
+
+  it("should fail with 2 paramst", async () => {
+    let t = async () =>
+      await applyAstAwareMacro("SELECT $__timeInterval(param1, param2)", {
         ...emptyContext,
       });
     await expect(t()).rejects.toThrow(
-      "Macro $__timeInterval should contain 1 parameter"
+      "Macro $__timeInterval should not contain more than 1 parameter"
     );
   });
 });
 
 describe("$__timeFilter", () => {
   it("should apply macros", async () => {
-    let result = await applyBaseMacros(
+    let result = await applyAstAwareMacro(
       "SELECT * FROM table WHERE $__timeFilter(date)",
       {
         ...emptyContext,
@@ -905,7 +944,7 @@ describe("$__timeFilter", () => {
   });
 
   it("should apply without timerange", async () => {
-    let result = await applyBaseMacros(
+    let result = await applyAstAwareMacro(
       "SELECT * FROM table WHERE $__timeFilter(date)",
       {
         ...emptyContext,
@@ -915,20 +954,62 @@ describe("$__timeFilter", () => {
     expect(result).toBe("SELECT * FROM table WHERE 1=1");
   });
 
-  it("should fail on macros with no params", async () => {
+  it("should apply macros with no params", async () => {
+    let query = "SELECT * FROM table WHERE $__timeFilter()";
+    let result = await applyAstAwareMacro(query, {
+      ...emptyContext,
+      timeRange: {
+        from: dateTime("2022-10-21T16:25:33"),
+        to: dateTime("2022-10-25T16:25:33"),
+        raw: {
+          from: "",
+          to: "",
+        },
+      },
+      ast: JSON.parse(
+        '{"SelectPos":0,"StatementEnd":40,"With":null,"Top":null,"HasDistinct":false,"SelectItems":[{"Expr":{"Name":"*","QuoteType":0,"NamePos":7,"NameEnd":7},"Modifiers":[],"Alias":null}],"From":{"FromPos":9,"Expr":{"Table":{"TablePos":14,"TableEnd":19,"Alias":null,"Expr":{"Database":null,"Table":{"Name":"table","QuoteType":1,"NamePos":14,"NameEnd":19}},"HasFinal":false},"StatementEnd":19,"SampleRatio":null,"HasFinal":false}},"ArrayJoin":null,"Window":null,"Prewhere":null,"Where":{"WherePos":20,"Expr":{"Name":{"Name":"$__timeFilter","QuoteType":1,"NamePos":26,"NameEnd":39},"Params":{"LeftParenPos":39,"RightParenPos":40,"Items":{"ListPos":40,"ListEnd":40,"HasDistinct":false,"Items":[]},"ColumnArgList":null}}},"GroupBy":null,"WithTotal":false,"Having":null,"OrderBy":null,"LimitBy":null,"Limit":null,"Settings":null,"Format":null,"UnionAll":null,"UnionDistinct":null,"Except":null}'
+      ),
+      pk: () => Promise.resolve("ts"),
+      query,
+    });
+    expect(result).toBe(
+      "SELECT * FROM table WHERE ts >= toDateTime(1666369533) AND ts <= toDateTime(1666715133)"
+    );
+  });
+
+  it("should fail on empty ast", async () => {
     let t = async () =>
-      await applyBaseMacros("SELECT * FROM table WHERE $__timeFilter()", {
+      await applyAstAwareMacro("SELECT $__timeFilter()", {
+        ...emptyContext,
+        ast: {},
+      });
+    await expect(t()).rejects.toThrow(
+      "cannot find table for macro $__timeFilter"
+    );
+  });
+
+  it("should fail with on ast", async () => {
+    let t = async () =>
+      await applyAstAwareMacro("SELECT $__timeFilter()", {
+        ...emptyContext,
+      });
+    await expect(t()).rejects.toThrow("query ast is not provided");
+  });
+
+  it("should fail with 2 params", async () => {
+    let t = async () =>
+      await applyAstAwareMacro("SELECT $__timeFilter(param1, param2)", {
         ...emptyContext,
       });
     await expect(t()).rejects.toThrow(
-      "Macro $__timeFilter should contain 1 parameter"
+      "Macro $__timeFilter should not contain more than 1 parameter"
     );
   });
 });
 
 describe("$__timeFilter_ms", () => {
   it("should apply macros", async () => {
-    let result = await applyBaseMacros(
+    let result = await applyAstAwareMacro(
       "SELECT * FROM table WHERE $__timeFilter_ms(date)",
       {
         ...emptyContext,
@@ -948,7 +1029,7 @@ describe("$__timeFilter_ms", () => {
   });
 
   it("$__timeFilter_ms", async () => {
-    let result = await applyBaseMacros(
+    let result = await applyAstAwareMacro(
       "SELECT * FROM table WHERE $__timeFilter_ms(date)",
       {
         ...emptyContext,
@@ -958,20 +1039,62 @@ describe("$__timeFilter_ms", () => {
     expect(result).toBe("SELECT * FROM table WHERE 1=1");
   });
 
-  it("should fail on macros with no params", async () => {
+  it("should apply macros with no params", async () => {
+    let query = "SELECT * FROM table WHERE $__timeFilter_ms()";
+    let result = await applyAstAwareMacro(query, {
+      ...emptyContext,
+      timeRange: {
+        from: dateTime("2022-10-21T16:25:33"),
+        to: dateTime("2022-10-25T16:25:33"),
+        raw: {
+          from: "",
+          to: "",
+        },
+      },
+      ast: JSON.parse(
+        '{"SelectPos":0,"StatementEnd":43,"With":null,"Top":null,"HasDistinct":false,"SelectItems":[{"Expr":{"Name":"*","QuoteType":0,"NamePos":7,"NameEnd":7},"Modifiers":[],"Alias":null}],"From":{"FromPos":9,"Expr":{"Table":{"TablePos":14,"TableEnd":19,"Alias":null,"Expr":{"Database":null,"Table":{"Name":"table","QuoteType":1,"NamePos":14,"NameEnd":19}},"HasFinal":false},"StatementEnd":19,"SampleRatio":null,"HasFinal":false}},"ArrayJoin":null,"Window":null,"Prewhere":null,"Where":{"WherePos":20,"Expr":{"Name":{"Name":"$__timeFilter_ms","QuoteType":1,"NamePos":26,"NameEnd":42},"Params":{"LeftParenPos":42,"RightParenPos":43,"Items":{"ListPos":43,"ListEnd":43,"HasDistinct":false,"Items":[]},"ColumnArgList":null}}},"GroupBy":null,"WithTotal":false,"Having":null,"OrderBy":null,"LimitBy":null,"Limit":null,"Settings":null,"Format":null,"UnionAll":null,"UnionDistinct":null,"Except":null}'
+      ),
+      pk: () => Promise.resolve("ts"),
+      query,
+    });
+    expect(result).toBe(
+      "SELECT * FROM table WHERE ts >= fromUnixTimestamp64Milli(1666369533000) AND ts <= fromUnixTimestamp64Milli(1666715133000)"
+    );
+  });
+
+  it("should fail on empty ast", async () => {
     let t = async () =>
-      await applyBaseMacros("SELECT * FROM table WHERE $__timeFilter_ms()", {
+      await applyAstAwareMacro("SELECT $__timeFilter_ms()", {
+        ...emptyContext,
+        ast: {},
+      });
+    await expect(t()).rejects.toThrow(
+      "cannot find table for macro $__timeFilter_ms"
+    );
+  });
+
+  it("should fail with on ast", async () => {
+    let t = async () =>
+      await applyAstAwareMacro("SELECT $__timeFilter_ms()", {
+        ...emptyContext,
+      });
+    await expect(t()).rejects.toThrow("query ast is not provided");
+  });
+
+  it("should fail with 2 params", async () => {
+    let t = async () =>
+      await applyAstAwareMacro("SELECT $__timeFilter_ms(param1, param2)", {
         ...emptyContext,
       });
     await expect(t()).rejects.toThrow(
-      "Macro $__timeFilter_ms should contain 1 parameter"
+      "Macro $__timeFilter_ms should not contain more than 1 parameter"
     );
   });
 });
 
 describe("$__timeInterval_ms", () => {
   it("should apply macros", async () => {
-    let result = await applyBaseMacros("SELECT $__timeInterval_ms(column)", {
+    let result = await applyAstAwareMacro("SELECT $__timeInterval_ms(column)", {
       ...emptyContext,
       intervalMs: 30000,
     });
@@ -980,7 +1103,7 @@ describe("$__timeInterval_ms", () => {
     );
   });
   it("should apply macros with no interval", async () => {
-    let result = await applyBaseMacros("SELECT $__timeInterval_ms(column)", {
+    let result = await applyAstAwareMacro("SELECT $__timeInterval_ms(column)", {
       ...emptyContext,
     });
     expect(result).toBe(
@@ -988,13 +1111,47 @@ describe("$__timeInterval_ms", () => {
     );
   });
 
-  it("should fail on macros with no params", async () => {
+  it("should apply macros with no params", async () => {
+    let query = "SELECT $__timeInterval_ms() from table";
+    let result = await applyAstAwareMacro(query, {
+      ...emptyContext,
+      ast: JSON.parse(
+        '{"SelectPos":0,"StatementEnd":38,"With":null,"Top":null,"HasDistinct":false,"SelectItems":[{"Expr":{"Name":{"Name":"$__timeInterval_ms","QuoteType":1,"NamePos":7,"NameEnd":25},"Params":{"LeftParenPos":25,"RightParenPos":26,"Items":{"ListPos":26,"ListEnd":26,"HasDistinct":false,"Items":[]},"ColumnArgList":null}},"Modifiers":[],"Alias":null}],"From":{"FromPos":28,"Expr":{"Table":{"TablePos":33,"TableEnd":38,"Alias":null,"Expr":{"Database":null,"Table":{"Name":"table","QuoteType":1,"NamePos":33,"NameEnd":38}},"HasFinal":false},"StatementEnd":38,"SampleRatio":null,"HasFinal":false}},"ArrayJoin":null,"Window":null,"Prewhere":null,"Where":null,"GroupBy":null,"WithTotal":false,"Having":null,"OrderBy":null,"LimitBy":null,"Limit":null,"Settings":null,"Format":null,"UnionAll":null,"UnionDistinct":null,"Except":null}'
+      ),
+      pk: () => Promise.resolve("ts"),
+      query,
+    });
+    expect(result).toBe(
+      "SELECT toStartOfInterval(toDateTime64(ts, 3), INTERVAL 1 millisecond) from table"
+    );
+  });
+
+  it("should fail on empty ast", async () => {
     let t = async () =>
-      await applyBaseMacros("SELECT $__timeInterval_ms()", {
+      await applyAstAwareMacro("SELECT $__timeInterval_ms()", {
+        ...emptyContext,
+        ast: {},
+      });
+    await expect(t()).rejects.toThrow(
+      "cannot find table for macro $__timeInterval_ms"
+    );
+  });
+
+  it("should fail with on ast", async () => {
+    let t = async () =>
+      await applyAstAwareMacro("SELECT $__timeInterval_ms()", {
+        ...emptyContext,
+      });
+    await expect(t()).rejects.toThrow("query ast is not provided");
+  });
+
+  it("should fail with 2 params", async () => {
+    let t = async () =>
+      await applyAstAwareMacro("SELECT $__timeInterval_ms(param1, param2)", {
         ...emptyContext,
       });
     await expect(t()).rejects.toThrow(
-      "Macro $__timeInterval_ms should contain 1 parameter"
+      "Macro $__timeInterval_ms should not contain more than 1 parameter"
     );
   });
 });
@@ -1048,5 +1205,115 @@ describe("$__toTime_ms", () => {
         timeRange: null as unknown as TimeRange,
       });
     await expect(t()).rejects.toThrow("cannot apply macro without time range");
+  });
+});
+
+describe("complex scenarios", () => {
+  it("should apply ast dependent macros in query and subquery with adHocFilter", async () => {
+    let query =
+      "SELECT\n" +
+      "  $__timeInterval(),\n" +
+      "  count()\n" +
+      "FROM\n" +
+      "  table\n" +
+      "WHERE\n" +
+      "  $__timeFilter(ts)\n" +
+      "  AND $__adHocFilter()\n" +
+      "  AND statusCode IN (\n" +
+      "    SELECT DISTINCT\n" +
+      "      statusCode\n" +
+      "    FROM\n" +
+      "      table\n" +
+      "    WHERE\n" +
+      "      $__timeFilter(ts)\n" +
+      "      AND $__adHocFilter()\n" +
+      "  )\n" +
+      "GROUP BY 1";
+    let result = await applyAstAwareMacro(query, {
+      ...emptyContext,
+      adHocFilter: {
+        ...context.adHocFilter,
+        filters: [{ key: "column1", operator: "=", value: "value" }],
+      },
+      timeRange: {
+        from: dateTime("2022-10-21T16:25:33"),
+        to: dateTime("2022-10-25T16:25:33"),
+        raw: {
+          from: "",
+          to: "",
+        },
+      },
+      ast: JSON.parse(
+        '{"SelectPos":0,"StatementEnd":255,"With":null,"Top":null,"HasDistinct":false,"SelectItems":[{"Expr":{"Name":{"Name":"$__timeInterval","QuoteType":1,"NamePos":9,"NameEnd":24},"Params":{"LeftParenPos":24,"RightParenPos":25,"Items":{"ListPos":25,"ListEnd":25,"HasDistinct":false,"Items":[]},"ColumnArgList":null}},"Modifiers":[],"Alias":null},{"Expr":{"Name":{"Name":"count","QuoteType":1,"NamePos":30,"NameEnd":35},"Params":{"LeftParenPos":35,"RightParenPos":36,"Items":{"ListPos":36,"ListEnd":36,"HasDistinct":false,"Items":[]},"ColumnArgList":null}},"Modifiers":[],"Alias":null}],"From":{"FromPos":38,"Expr":{"Table":{"TablePos":45,"TableEnd":50,"Alias":null,"Expr":{"Database":null,"Table":{"Name":"table","QuoteType":1,"NamePos":45,"NameEnd":50}},"HasFinal":false},"StatementEnd":50,"SampleRatio":null,"HasFinal":false}},"ArrayJoin":null,"Window":null,"Prewhere":null,"Where":{"WherePos":51,"Expr":{"LeftExpr":{"LeftExpr":{"Name":{"Name":"$__timeFilter","QuoteType":1,"NamePos":59,"NameEnd":72},"Params":{"LeftParenPos":72,"RightParenPos":75,"Items":{"ListPos":73,"ListEnd":75,"HasDistinct":false,"Items":[{"Expr":{"Name":"ts","QuoteType":1,"NamePos":73,"NameEnd":75},"Alias":null}]},"ColumnArgList":null}},"Operation":"AND","RightExpr":{"Name":{"Name":"$__adHocFilter","QuoteType":1,"NamePos":83,"NameEnd":97},"Params":{"LeftParenPos":97,"RightParenPos":98,"Items":{"ListPos":98,"ListEnd":98,"HasDistinct":false,"Items":[]},"ColumnArgList":null}},"HasGlobal":false,"HasNot":false},"Operation":"AND","RightExpr":{"LeftExpr":{"Name":"statusCode","QuoteType":1,"NamePos":106,"NameEnd":116},"Operation":"IN","RightExpr":{"HasParen":true,"Select":{"SelectPos":126,"StatementEnd":245,"With":null,"Top":null,"HasDistinct":true,"SelectItems":[{"Expr":{"Name":"statusCode","QuoteType":1,"NamePos":148,"NameEnd":158},"Modifiers":[],"Alias":null}],"From":{"FromPos":163,"Expr":{"Table":{"TablePos":174,"TableEnd":179,"Alias":null,"Expr":{"Database":null,"Table":{"Name":"table","QuoteType":1,"NamePos":174,"NameEnd":179}},"HasFinal":false},"StatementEnd":179,"SampleRatio":null,"HasFinal":false}},"ArrayJoin":null,"Window":null,"Prewhere":null,"Where":{"WherePos":184,"Expr":{"LeftExpr":{"Name":{"Name":"$__timeFilter","QuoteType":1,"NamePos":196,"NameEnd":209},"Params":{"LeftParenPos":209,"RightParenPos":212,"Items":{"ListPos":210,"ListEnd":212,"HasDistinct":false,"Items":[{"Expr":{"Name":"ts","QuoteType":1,"NamePos":210,"NameEnd":212},"Alias":null}]},"ColumnArgList":null}},"Operation":"AND","RightExpr":{"Name":{"Name":"$__adHocFilter","QuoteType":1,"NamePos":224,"NameEnd":238},"Params":{"LeftParenPos":238,"RightParenPos":239,"Items":{"ListPos":239,"ListEnd":239,"HasDistinct":false,"Items":[]},"ColumnArgList":null}},"HasGlobal":false,"HasNot":false}},"GroupBy":null,"WithTotal":false,"Having":null,"OrderBy":null,"LimitBy":null,"Limit":null,"Settings":null,"Format":null,"UnionAll":null,"UnionDistinct":null,"Except":null}},"HasGlobal":false,"HasNot":false},"HasGlobal":false,"HasNot":false}},"GroupBy":{"GroupByPos":245,"GroupByEnd":255,"AggregateType":"","Expr":{"ListPos":254,"ListEnd":255,"HasDistinct":false,"Items":[{"Expr":{"NumPos":254,"NumEnd":255,"Literal":"1","Base":10},"Alias":null}]},"WithCube":false,"WithRollup":false,"WithTotals":false},"WithTotal":false,"Having":null,"OrderBy":null,"LimitBy":null,"Limit":null,"Settings":null,"Format":null,"UnionAll":null,"UnionDistinct":null,"Except":null}'
+      ),
+      pk: () => Promise.resolve("ts"),
+      query,
+    });
+    expect(result).toBe(
+      "SELECT\n" +
+        "  toStartOfInterval(toDateTime(ts), INTERVAL 1 second),\n" +
+        "  count()\n" +
+        "FROM\n" +
+        "  table\n" +
+        "WHERE\n" +
+        "  ts >= toDateTime(1666369533) AND ts <= toDateTime(1666715133)\n" +
+        "  AND column1 = 'value'\n" +
+        "  AND statusCode IN (\n" +
+        "    SELECT DISTINCT\n" +
+        "      statusCode\n" +
+        "    FROM\n" +
+        "      table\n" +
+        "    WHERE\n" +
+        "      ts >= toDateTime(1666369533) AND ts <= toDateTime(1666715133)\n" +
+        "      AND column1 = 'value'\n" +
+        "  )\n" +
+        "GROUP BY 1"
+    );
+  });
+});
+
+describe("get table name", () => {
+  it("should return the table", async () => {
+    let tableName = getTableName(
+      "$__macro",
+      {
+        ast: JSON.parse(
+          '{"SelectPos":0,"StatementEnd":35,"With":null,"Top":null,"HasDistinct":false,"SelectItems":[{"Expr":{"Name":"*","QuoteType":0,"NamePos":7,"NameEnd":7},"Modifiers":[],"Alias":null}],"From":{"FromPos":9,"Expr":{"Table":{"TablePos":14,"TableEnd":19,"Alias":null,"Expr":{"Database":null,"Table":{"Name":"table","QuoteType":1,"NamePos":14,"NameEnd":19}},"HasFinal":false},"StatementEnd":19,"SampleRatio":null,"HasFinal":false}},"ArrayJoin":null,"Window":null,"Prewhere":null,"Where":{"WherePos":20,"Expr":{"Name":{"Name":"$__macro","QuoteType":1,"NamePos":26,"NameEnd":34},"Params":{"LeftParenPos":34,"RightParenPos":35,"Items":{"ListPos":35,"ListEnd":35,"HasDistinct":false,"Items":[]},"ColumnArgList":null}}},"GroupBy":null,"WithTotal":false,"Having":null,"OrderBy":null,"LimitBy":null,"Limit":null,"Settings":null,"Format":null,"UnionAll":null,"UnionDistinct":null,"Except":null}'
+        ),
+        query: "SELECT * FROM table WHERE $__macro()",
+      } as Context,
+      (node) => node.Where,
+      26
+    );
+    expect(tableName).toBe("table");
+  });
+  it("should return the table with schema", async () => {
+    let tableName = getTableName(
+      "$__macro",
+      {
+        ast: JSON.parse(
+          '{"SelectPos":0,"StatementEnd":42,"With":null,"Top":null,"HasDistinct":false,"SelectItems":[{"Expr":{"Name":"*","QuoteType":0,"NamePos":7,"NameEnd":7},"Modifiers":[],"Alias":null}],"From":{"FromPos":9,"Expr":{"Table":{"TablePos":14,"TableEnd":26,"Alias":null,"Expr":{"Database":{"Name":"schema","QuoteType":1,"NamePos":14,"NameEnd":20},"Table":{"Name":"table","QuoteType":1,"NamePos":21,"NameEnd":26}},"HasFinal":false},"StatementEnd":26,"SampleRatio":null,"HasFinal":false}},"ArrayJoin":null,"Window":null,"Prewhere":null,"Where":{"WherePos":27,"Expr":{"Name":{"Name":"$__macro","QuoteType":1,"NamePos":33,"NameEnd":41},"Params":{"LeftParenPos":41,"RightParenPos":42,"Items":{"ListPos":42,"ListEnd":42,"HasDistinct":false,"Items":[]},"ColumnArgList":null}}},"GroupBy":null,"WithTotal":false,"Having":null,"OrderBy":null,"LimitBy":null,"Limit":null,"Settings":null,"Format":null,"UnionAll":null,"UnionDistinct":null,"Except":null}'
+        ),
+        query: "SELECT * FROM schema.table WHERE $__macro()",
+      } as Context,
+      (node) => node.Where,
+      33
+    );
+    expect(tableName).toBe("schema.table");
+  });
+
+  it("should return the table and schema with alias", async () => {
+    let tableName = getTableName(
+      "$__macro",
+      {
+        ast: JSON.parse(
+          '{"SelectPos":0,"StatementEnd":48,"With":null,"Top":null,"HasDistinct":false,"SelectItems":[{"Expr":{"Name":"*","QuoteType":0,"NamePos":7,"NameEnd":7},"Modifiers":[],"Alias":null}],"From":{"FromPos":9,"Expr":{"Table":{"TablePos":14,"TableEnd":32,"Alias":null,"Expr":{"Expr":{"Database":{"Name":"schema","QuoteType":1,"NamePos":14,"NameEnd":20},"Table":{"Name":"table","QuoteType":1,"NamePos":21,"NameEnd":26}},"AliasPos":30,"Alias":{"Name":"t1","QuoteType":1,"NamePos":30,"NameEnd":32}},"HasFinal":false},"StatementEnd":32,"SampleRatio":null,"HasFinal":false}},"ArrayJoin":null,"Window":null,"Prewhere":null,"Where":{"WherePos":33,"Expr":{"Name":{"Name":"$__macro","QuoteType":1,"NamePos":39,"NameEnd":47},"Params":{"LeftParenPos":47,"RightParenPos":48,"Items":{"ListPos":48,"ListEnd":48,"HasDistinct":false,"Items":[]},"ColumnArgList":null}}},"GroupBy":null,"WithTotal":false,"Having":null,"OrderBy":null,"LimitBy":null,"Limit":null,"Settings":null,"Format":null,"UnionAll":null,"UnionDistinct":null,"Except":null}'
+        ),
+        query: "SELECT * FROM schema.table as t1 WHERE $__macro()",
+      } as Context,
+      (node) => node.Where,
+      39
+    );
+    expect(tableName).toBe("schema.table");
   });
 });
