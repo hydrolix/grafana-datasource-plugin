@@ -1,1 +1,0 @@
-ALTER TABLE test.events ON CLUSTER 'default_cluster' freeze;

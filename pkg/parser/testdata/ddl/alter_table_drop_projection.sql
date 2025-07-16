@@ -1,1 +1,0 @@
-ALTER TABLE test.event_local ON CLUSTER 'default_cluster' DROP PROJECTION f1;
