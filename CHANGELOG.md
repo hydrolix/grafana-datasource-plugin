@@ -1,4 +1,8 @@
 # Changelog
+## 0.5.0
+
+- **Feature**: Support \$__timeFilter and \$__timeInterval macros without timestamp (GRAP-71)
+- **Feature**: Support automatic timestamp column detection in ad hoc filters
 
 ## 0.4.0
 
