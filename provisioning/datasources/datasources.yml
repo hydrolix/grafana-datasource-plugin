@@ -19,7 +19,6 @@ datasources:
       defaultDatabase: akamai
       defaultRound: 1m
       adHocTableVariable: table
-      adHocTimeColumnVariable: timestamp
     secureJsonData:
       password: '${HYDROLIX_PASSWORD}'
   - name: "ClickHouse"

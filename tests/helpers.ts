@@ -3,12 +3,8 @@ import { Locator, Page, test } from "@playwright/test";
 import {
   DataSourceConfigPage,
   expect,
-  GrafanaPage,
   PanelEditPage,
-  TimeRangeArgs,
 } from "@grafana/plugin-e2e";
-import { selectors } from "@grafana/e2e-selectors";
-import semver = require("semver/preload");
 import allLabels from "../src/labels";
 import { CreateDataSourcePageArgs } from "@grafana/plugin-e2e/dist/types";
 
@@ -84,7 +80,7 @@ class ElementContext {
  */
 export const pageHandler = (allLabels: any): ProxyHandler<Page> => {
   return {
-    get(target: Page, propKey, receiver) {
+    get(target: Page, propKey) {
       return (...args) => {
         let propName = propKey.toString();
         let chains = propName.match(/[A-Za-z][^A-Z]*/g);
@@ -93,7 +89,7 @@ export const pageHandler = (allLabels: any): ProxyHandler<Page> => {
         }
 
         let elemName = "";
-        let i = 0;
+        let i;
         for (i = 0; i < chains.length; i++) {
           const chain = chains[i];
           if (
@@ -115,8 +111,7 @@ export const pageHandler = (allLabels: any): ProxyHandler<Page> => {
         }
         const labelsKey = elemName as keyof typeof allLabels;
         let ctx = new ElementContext(elemName, allLabels[labelsKey]);
-        const page = target;
-        const rootLoc = page.getByTestId("data-testid hydrolix_config_page");
+        const rootLoc = target.getByTestId("data-testid hydrolix_config_page");
         let loc: Locator = ctx.locator(rootLoc);
         do {
           const chain = chains.length === i ? "" : chains[i];
@@ -212,8 +207,6 @@ interface ConfigPageLocator {
   defaultRound(): Locator;
 
   adHocTableVariable(): Locator;
-
-  adHocTimeColumnVariable(): Locator;
 
   adHocDefaultTimeRangeTimeselect(): Locator;
 

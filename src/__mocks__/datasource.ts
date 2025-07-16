@@ -19,7 +19,6 @@ export const MockDataSourceInstanceSettings: DataSourceInstanceSettings<HdxDataS
     jsonData: {
       defaultDatabase: "sample",
       adHocTableVariable: "table",
-      adHocTimeColumnVariable: "timefilter",
     },
     id: 0,
     uid: "",
@@ -90,7 +89,7 @@ export function setupTemplateServiceMock(
 
           if (variables) {
             variables.forEach((variable) => {
-              let repVal = "";
+              let repVal: string;
               let value =
                 format === "text"
                   ? variable.current.text
