@@ -1,1 +1,0 @@
-SELECT * FROM t0 WHERE id = ?;
