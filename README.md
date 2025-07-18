@@ -44,7 +44,9 @@ Following is the list of Hydrolix configuration options.
 
 **Credentials section:**
 
-- **Username**, **Password** - Credentials for connecting to your Hydrolix instance.
+- **Credentials Type** - Credentials type for connecting to your Hydrolix instance: User Account or Service Account.
+- **Token** - Service account token.
+- **Username**, **Password** - Service account credentials.
 
 **Additional Settings section:**
 
@@ -211,13 +213,10 @@ To enable ad hoc filters, both the data source and the dashboard must be configu
 
    - **Ad hoc filter table variable name**: the name of a dashboard variable that defines the table used to retrieve column
      names and their values for ad hoc filters.
-   - **Ad hoc filter time column variable name**: the name of a dashboard variable that defines the time column to use for
-     time filtering when retrieving ad hoc filter values.
    - **Ad hoc filter default time range**: a default time range to use when the dashboard time range is unavailable.
 
-2. In the target dashboard, create two variables using the exact names defined in the data source settings:
-   - A variable for the table name.
-   - A variable for the time column.
+2. In the target dashboard, create a variables using the exact name defined in the data source settings  **A variable for the table name**
+
 
 > **Note:** Ad hoc filters will not work unless both the data source and the dashboard are configured correctly. Be sure
 > to match variable names precisely.

@@ -21,7 +21,12 @@ import {
   TimeRangeInput,
 } from "@grafana/ui";
 import { ConfigSection } from "@grafana/plugin-ui";
-import { HdxDataSourceOptions, HdxSecureJsonData, Protocol } from "../types";
+import {
+  CredentialsType,
+  HdxDataSourceOptions,
+  HdxSecureJsonData,
+  Protocol,
+} from "../types";
 import allLabels from "labels";
 import defaultConfigs from "defaultConfigs";
 import { QUERY_DURATION_REGEX } from "../editor/timeRangeUtils";
@@ -49,6 +54,10 @@ export function ConfigEditor(props: Props) {
   const protocolOptions = [
     { label: "Native", value: Protocol.Native },
     { label: "HTTP", value: Protocol.Http },
+  ];
+  const credentialsTypesOptions = [
+    { label: "User Account", value: CredentialsType.UserAccount },
+    { label: "Service Account", value: CredentialsType.ServiceAccount },
   ];
   let querySettingDefinitions = useMemo(() => {
     return labels.querySettings.values.reduce((acc, cur) => {
@@ -157,6 +166,15 @@ export function ConfigEditor(props: Props) {
       },
     });
   };
+  const onCredentialsTypeToggle = (credentialsType: CredentialsType) => {
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...options.jsonData,
+        credentialsType,
+      },
+    });
+  };
   const onSecureChange = (value: boolean) => {
     onOptionsChange({
       ...options,
@@ -179,6 +197,19 @@ export function ConfigEditor(props: Props) {
     });
   };
 
+  const onResetToken = () => {
+    onOptionsChange({
+      ...options,
+      secureJsonFields: {
+        ...options.secureJsonFields,
+        token: false,
+      },
+      secureJsonData: {
+        ...options.secureJsonData,
+        token: "",
+      },
+    });
+  };
   const onResetPassword = () => {
     onOptionsChange({
       ...options,
@@ -432,42 +463,84 @@ export function ConfigEditor(props: Props) {
 
         <ConfigSection title="Credentials">
           <Field
-            data-testid={labels.username.testId}
-            label={labels.username.label}
-            description={labels.username.description}
+            data-testid={labels.credentialsType.testId}
+            label={labels.credentialsType.label}
+            description={labels.credentialsType.description}
           >
-            <Input
-              name={"username"}
-              width={40}
-              value={jsonData.username}
-              onChange={onUpdateDatasourceJsonDataOption(props, "username")}
-              label={labels.username.label}
-              aria-label={labels.username.label}
-              placeholder={labels.username.placeholder}
+            <RadioButtonGroup<CredentialsType>
+              options={credentialsTypesOptions}
+              disabledOptions={[]}
+              value={jsonData.credentialsType ?? CredentialsType.UserAccount}
+              onChange={(e) => onCredentialsTypeToggle(e!)}
             />
           </Field>
-          <Field
-            data-testid={labels.password.testId}
-            label={labels.password.label}
-            description={labels.password.description}
-          >
-            <SecretInput
-              name={"password"}
-              width={40}
-              label={labels.password.label}
-              aria-label={labels.password.label}
-              placeholder={labels.password.placeholder}
-              value={secureJsonData.password || ""}
-              isConfigured={
-                (secureJsonFields && secureJsonFields.password) as boolean
-              }
-              onReset={onResetPassword}
-              onChange={onUpdateDatasourceSecureJsonDataOption(
-                props,
-                "password"
-              )}
-            />
-          </Field>
+          {jsonData.credentialsType !== CredentialsType.ServiceAccount && (
+            <>
+              <Field
+                data-testid={labels.username.testId}
+                label={labels.username.label}
+                description={labels.username.description}
+              >
+                <Input
+                  name={"username"}
+                  width={40}
+                  value={jsonData.username}
+                  onChange={onUpdateDatasourceJsonDataOption(props, "username")}
+                  label={labels.username.label}
+                  aria-label={labels.username.label}
+                  placeholder={labels.username.placeholder}
+                />
+              </Field>
+              <Field
+                data-testid={labels.password.testId}
+                label={labels.password.label}
+                description={labels.password.description}
+              >
+                <SecretInput
+                  name={"password"}
+                  width={40}
+                  label={labels.password.label}
+                  aria-label={labels.password.label}
+                  placeholder={labels.password.placeholder}
+                  value={secureJsonData.password || ""}
+                  isConfigured={
+                    (secureJsonFields && secureJsonFields.password) as boolean
+                  }
+                  onReset={onResetPassword}
+                  onChange={onUpdateDatasourceSecureJsonDataOption(
+                    props,
+                    "password"
+                  )}
+                />
+              </Field>
+            </>
+          )}
+          {jsonData.credentialsType === CredentialsType.ServiceAccount && (
+            <>
+              <Field
+                data-testid={labels.token.testId}
+                label={labels.token.label}
+                description={labels.token.description}
+              >
+                <SecretInput
+                  name={"token"}
+                  width={40}
+                  label={labels.token.label}
+                  aria-label={labels.token.label}
+                  placeholder={labels.token.placeholder}
+                  value={secureJsonData.token || ""}
+                  isConfigured={
+                    (secureJsonFields && secureJsonFields.token) as boolean
+                  }
+                  onReset={onResetToken}
+                  onChange={onUpdateDatasourceSecureJsonDataOption(
+                    props,
+                    "token"
+                  )}
+                />
+              </Field>
+            </>
+          )}
         </ConfigSection>
         <Divider />
         <ConfigSection

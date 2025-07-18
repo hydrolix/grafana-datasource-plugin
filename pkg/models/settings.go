@@ -33,6 +33,8 @@ type PluginSettings struct {
 	Port            uint16         `json:"port"`
 	Protocol        string         `json:"protocol"`
 	Password        string         `json:"-"`
+	Token           string         `json:"-"`
+	CredentialsType string         `json:"credentialsType"`
 	Secure          bool           `json:"secure"`
 	Path            string         `json:"path,omitempty"`
 	SkipTlsVerify   bool           `json:"skipTlsVerify,omitempty"`
@@ -128,6 +130,10 @@ func NewPluginSettings(ctx context.Context, source backend.DataSourceInstanceSet
 		settings.Protocol = jsonData["protocol"].(string)
 	}
 
+	if jsonData["credentialsType"] != nil {
+		settings.CredentialsType = jsonData["credentialsType"].(string)
+	}
+
 	if jsonData["secure"] != nil {
 		secure, err := parseBool(jsonData["secure"])
 		if err != nil {
@@ -177,6 +183,10 @@ func NewPluginSettings(ctx context.Context, source backend.DataSourceInstanceSet
 
 	if password, ok := source.DecryptedSecureJSONData["password"]; ok {
 		settings.Password = password
+	}
+
+	if token, ok := source.DecryptedSecureJSONData["token"]; ok {
+		settings.Token = token
 	}
 
 	settings.SetDefaults()
