@@ -46,6 +46,17 @@ export default {
           label: "Skip TLS Verify",
           description: "Skip TLS Verify",
         },
+        credentialsType: {
+          testId: "data-testid data-testid hdx_credentialsType",
+          label: "Credentials Type",
+          description: "User account or Service account",
+        },
+        token: {
+          testId: "data-testid hdx_token",
+          label: "Token",
+          description: "Service Account Token",
+          placeholder: "default",
+        },
         username: {
           testId: "data-testid hdx_requestUsername",
           label: "Username",

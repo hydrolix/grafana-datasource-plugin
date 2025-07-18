@@ -91,11 +91,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 
 	opts := &clickhouse.Options{
 		Addr: []string{fmt.Sprintf("%s:%d", settings.Host, settings.Port)},
-		Auth: clickhouse.Auth{
-			Database: settings.DefaultDatabase,
-			Username: settings.UserName,
-			Password: settings.Password,
-		},
+
 		ClientInfo: clickhouse.ClientInfo{
 			Products: getClientInfoProducts(ctx),
 		},
@@ -110,15 +106,39 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 
 		BlockBufferSize: 2,
 	}
-
-	if protocol == clickhouse.HTTP {
-		// https & basic auth
-		if settings.Secure {
-			opts.HttpHeaders = map[string]string{"Authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", settings.UserName, settings.Password)))}
+	if settings.CredentialsType == "serviceAccount" {
+		if protocol == clickhouse.HTTP {
+			opts.Auth = clickhouse.Auth{
+				Database: settings.DefaultDatabase,
+			}
+			if settings.Secure {
+				opts.HttpHeaders = map[string]string{"Authorization": "Bearer " + settings.Token}
+			}
+			// native format
+			opts.Settings = map[string]any{"hdx_query_output_format": "Native"}
+		} else {
+			opts.Auth = clickhouse.Auth{
+				Database: settings.DefaultDatabase,
+				Username: "__api_token__",
+				Password: settings.Token,
+			}
+		}
+	} else {
+		opts.Auth = clickhouse.Auth{
+			Database: settings.DefaultDatabase,
+			Username: settings.UserName,
+			Password: settings.Password,
 		}
 
-		// native format
-		opts.Settings = map[string]any{"hdx_query_output_format": "Native"}
+		if protocol == clickhouse.HTTP {
+			// https & basic auth
+			if settings.Secure {
+				opts.HttpHeaders = map[string]string{"Authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", settings.UserName, settings.Password)))}
+			}
+
+			// native format
+			opts.Settings = map[string]any{"hdx_query_output_format": "Native"}
+		}
 	}
 
 	db := clickhouse.OpenDB(opts)
