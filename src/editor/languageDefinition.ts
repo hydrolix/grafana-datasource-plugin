@@ -13,6 +13,7 @@ import { OPERATORS } from "./operators";
 import { FUNCTIONS } from "./functions";
 import { Props } from "../components/QueryEditor";
 import { applyHotKey, updateOptions } from "./editorUtils";
+import { v4 as uuidv4 } from "uuid";
 
 export const languageDefinition: (
   props: Props,
@@ -51,11 +52,30 @@ export const languageDefinition: (
 
       return completionProvider;
     },
-    formatter: (s) =>
-      format(s, { language: "mysql" })
-        .replace(/(\$__\w*\s\()/g, (m) => m.replace(/\s/g, ""))
-        .replace("SETTINGS", "\nSETTINGS\n "),
+    formatter: formatQuery,
   };
+};
+
+export const formatQuery = (s: string) => {
+  const re = /\[?\$\{(?:\w|:|\.)*}]?|\w*:{2}\w*|\[\d*]|\['.*']/;
+  const variableStore: { [id: string]: string } = {};
+  while (re.test(s)) {
+    const match = s.match(re);
+    if (!match) {
+      break;
+    }
+    const varId = uuidv4().replaceAll("-", "");
+    variableStore[varId] = match[0];
+    s = s.replaceAll(variableStore[varId], varId);
+  }
+
+  s = format(s, { language: "mysql" })
+    .replace(/(\$__\w*\s\()/g, (m) => m.replace(/\s/g, ""))
+    .replace("SETTINGS", "\nSETTINGS\n ");
+  for (const varId in variableStore) {
+    s = s.replaceAll(varId, variableStore[varId]);
+  }
+  return s;
 };
 
 enum CustomStatementPosition {
