@@ -598,6 +598,23 @@ export function ConfigEditor(props: Props) {
             />
           </Field>
           <Field
+            data-testid={labels.adHocValuesConditionVariable.testId}
+            label={labels.adHocValuesConditionVariable.label}
+            description={labels.adHocValuesConditionVariable.description}
+          >
+            <Input
+              name={"adHocTableVariable"}
+              width={40}
+              value={jsonData.adHocValuesConditionVariable || ""}
+              onChange={onUpdateDatasourceJsonDataOption(
+                props,
+                "adHocValuesConditionVariable"
+              )}
+              label={labels.adHocValuesConditionVariable.label}
+              aria-label={labels.adHocValuesConditionVariable.label}
+            />
+          </Field>
+          <Field
             data-testid={labels.adHocDefaultTimeRange.testId}
             label={labels.adHocDefaultTimeRange.label}
             description={labels.adHocDefaultTimeRange.description}

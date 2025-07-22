@@ -57,6 +57,7 @@ Following is the list of Hydrolix configuration options.
   columns and values.
 - **Ad hoc filter default time range** (optional) - Default time range for time filtering when dashboard time range is
   not available
+- **Ad hoc filter values query condition variable name** (optional) - Name of a dashboard variable that defines query condition to filter ad hoc filter values
 - **Dial timeout** (optional) - Connection timeout in seconds.
 - **Query timeout** (optional) - Read timeout in seconds.
 
@@ -217,9 +218,22 @@ To enable ad hoc filters, both the data source and the dashboard must be configu
 
 2. In the target dashboard, create a variables using the exact name defined in the data source settings  **A variable for the table name**
 
-
 > **Note:** Ad hoc filters will not work unless both the data source and the dashboard are configured correctly. Be sure
 > to match variable names precisely.
+
+
+#### Limit ad hoc filter values
+
+This plugin allows limiting ad hoc filter values based on a specified condition. For example, if a dashboard only shows data from hosts with commercial domains, you can restrict the filter values using a condition like: `host like '%.com'`
+To apply the limit ad hoc filters, both the data source and the dashboard must be configured properly:
+
+1. In the data source settings (under _Advanced Settings_):
+
+    - **Ad hoc filter values query condition variable name**: the name of a dashboard variable that defines query condition to filter ad hoc filter values.
+
+2. In the target dashboard, create a const variables using the exact name defined in the data source settings  **Ad hoc filter values query condition variable name** and add condition as a value (e.g. `host like '%.com'`)
+
+
 
 ####  Empty and null values
 

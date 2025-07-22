@@ -99,6 +99,12 @@ export default {
           description:
             "Name of a dashboard variable that defines which table to use for retrieving ad hoc filter columns and values",
         },
+        adHocValuesConditionVariable: {
+          testId: "data-testid hdx_adHocValuesConditionVariable",
+          label: "Ad hoc filter values query condition variable name",
+          description:
+            "Name of a dashboard variable that defines query condition to filter ad hoc filter values",
+        },
         defaultRound: {
           testId: "data-testid hdx_defaultRound",
           label: "Default round",
