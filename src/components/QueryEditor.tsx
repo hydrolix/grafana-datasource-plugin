@@ -236,9 +236,20 @@ export function QueryEditor(props: Props) {
                     Show Interpolated Query
                   </Button>
                 )}
-                <div style={{ marginLeft: "auto", order: 2 }}>
-                  <ToolbarButton tooltip="Format query" onClick={formatQuery}>
+                <div style={{ marginLeft: "auto", order: 2, display: "table" }}>
+                  <ToolbarButton
+                    style={{ display: "table-cell" }}
+                    tooltip="Format query"
+                    onClick={formatQuery}
+                  >
                     <Icon name="brackets-curly" onClick={formatQuery} />
+                  </ToolbarButton>
+                  <ToolbarButton
+                    style={{ display: "table-cell" }}
+                    tooltip="Click or hit CTRL/CMD+Return to run query"
+                    onClick={props.onRunQuery}
+                  >
+                    <Icon name="play" onClick={formatQuery} />
                   </ToolbarButton>
                 </div>
               </div>
