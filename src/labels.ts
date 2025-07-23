@@ -99,8 +99,8 @@ export default {
           description:
             "Name of a dashboard variable that defines which table to use for retrieving ad hoc filter columns and values",
         },
-        adHocValuesConditionVariable: {
-          testId: "data-testid hdx_adHocValuesConditionVariable",
+        adHocConditionVariable: {
+          testId: "data-testid hdx_adHocConditionVariable",
           label: "Ad hoc filter values query condition variable name",
           description:
             "Name of a dashboard variable that defines query condition to filter ad hoc filter values",

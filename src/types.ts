@@ -53,7 +53,7 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   defaultRound?: string;
   adHocDefaultTimeRange?: TimeRange;
   adHocTableVariable?: string;
-  adHocValuesConditionVariable?: string;
+  adHocConditionVariable?: string;
   dialTimeout?: string;
   queryTimeout?: string;
   querySettings?: QuerySetting[];
