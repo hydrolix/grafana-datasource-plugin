@@ -427,7 +427,7 @@ export class DataSource extends DataSourceWithBackend<
   }
 
   private getAdHocFilterValueCondition(): string {
-    const varName = this.instanceSettings.jsonData.adHocValuesConditionVariable;
+    const varName = this.instanceSettings.jsonData.adHocConditionVariable;
     if (!varName) {
       return "";
     }

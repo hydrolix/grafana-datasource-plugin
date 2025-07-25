@@ -242,14 +242,14 @@ export function QueryEditor(props: Props) {
                     tooltip="Format query"
                     onClick={formatQuery}
                   >
-                    <Icon name="brackets-curly" onClick={formatQuery} />
+                    <Icon name="brackets-curly" />
                   </ToolbarButton>
                   <ToolbarButton
                     style={{ display: "table-cell" }}
                     tooltip="Click or hit CTRL/CMD+Return to run query"
                     onClick={props.onRunQuery}
                   >
-                    <Icon name="play" onClick={formatQuery} />
+                    <Icon name="play" />
                   </ToolbarButton>
                 </div>
               </div>
