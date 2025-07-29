@@ -177,7 +177,7 @@ describe("$__adHocFilter", () => {
       query: SQL_WITH_FILTER,
     });
     expect(actual).toEqual(
-      "SELECT column1, columnt2 FROM table WHERE column1 = 'value'"
+      "SELECT column1, columnt2 FROM table WHERE column1 = $$value$$"
     );
   });
   test("apply with filters", async () => {
@@ -194,7 +194,7 @@ describe("$__adHocFilter", () => {
       query: SQL_WITH_FILTER,
     });
     expect(actual).toEqual(
-      "SELECT column1, columnt2 FROM table WHERE column1 = 'value' AND column2 < 'value2'"
+      "SELECT column1, columnt2 FROM table WHERE column1 = $$value$$ AND column2 < $$value2$$"
     );
   });
   test("apply and skip invalid column", async () => {
@@ -212,7 +212,7 @@ describe("$__adHocFilter", () => {
       query: SQL_WITH_FILTER,
     });
     expect(actual).toEqual(
-      "SELECT column1, columnt2 FROM table WHERE column1 = 'value' AND column2 < 'value2'"
+      "SELECT column1, columnt2 FROM table WHERE column1 = $$value$$ AND column2 < $$value2$$"
     );
   });
   test("apply with all invalid columns", async () => {
@@ -241,7 +241,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       },
       false
     );
-    expect(actual).toEqual("column = 'value'");
+    expect(actual).toEqual("column = $$$$value$$$$");
   });
 
   test("eq empty sting expression", async () => {
@@ -264,7 +264,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       },
       false
     );
-    expect(actual).toEqual("column < 'value'");
+    expect(actual).toEqual("column < $$$$value$$$$");
   });
 
   test("eq null expression string ", async () => {
@@ -428,7 +428,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       },
       true
     );
-    expect(actual).toEqual("toString(column) LIKE 'REGEX'");
+    expect(actual).toEqual("toString(column) LIKE $$$$REGEX$$$$");
   });
 
   test("eq regex wildcard expression", async () => {
@@ -440,7 +440,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       },
       true
     );
-    expect(actual).toEqual("toString(column) LIKE '%REGEX%'");
+    expect(actual).toEqual("toString(column) LIKE $$$$%REGEX%$$$$");
   });
 
   test("eq regex escaped wildcard expression", async () => {
@@ -452,7 +452,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       },
       true
     );
-    expect(actual).toEqual("toString(column) LIKE '%*RE*GEX%'");
+    expect(actual).toEqual("toString(column) LIKE $$$$%*RE*GEX%$$$$");
   });
 
   test("neq regex expression", async () => {
@@ -464,7 +464,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       },
       true
     );
-    expect(actual).toEqual("toString(column) NOT LIKE 'REGEX'");
+    expect(actual).toEqual("toString(column) NOT LIKE $$$$REGEX$$$$");
   });
 
   test("one of expression", async () => {
@@ -477,7 +477,9 @@ describe("$__adHocFilter getFilterExpression", () => {
       },
       true
     );
-    expect(actual).toEqual("column IN ('one', 'two', 'three')");
+    expect(actual).toEqual(
+      "column IN ($$$$one$$$$, $$$$two$$$$, $$$$three$$$$)"
+    );
   });
 
   test("not one of expression", async () => {
@@ -490,7 +492,9 @@ describe("$__adHocFilter getFilterExpression", () => {
       },
       true
     );
-    expect(actual).toEqual("column NOT IN ('one', 'two', 'three')");
+    expect(actual).toEqual(
+      "column NOT IN ($$$$one$$$$, $$$$two$$$$, $$$$three$$$$)"
+    );
   });
 
   test("one of with string null expression", async () => {
@@ -504,7 +508,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       true
     );
     expect(actual).toEqual(
-      "(column IN ('one', '__null__', 'two', 'three') OR column IS NULL)"
+      "(column IN ($$$$one$$$$, $$$$__null__$$$$, $$$$two$$$$, $$$$three$$$$) OR column IS NULL)"
     );
   });
   test("one of with non string null expression", async () => {
@@ -518,7 +522,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       false
     );
     expect(actual).toEqual(
-      "(column IN ('one', 'two', 'three') OR column IS NULL)"
+      "(column IN ($$$$one$$$$, $$$$two$$$$, $$$$three$$$$) OR column IS NULL)"
     );
   });
 
@@ -533,7 +537,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       true
     );
     expect(actual).toEqual(
-      "column NOT IN ('one', 'two', 'three', '__null__') AND column IS NOT NULL"
+      "column NOT IN ($$$$one$$$$, $$$$two$$$$, $$$$three$$$$, $$$$__null__$$$$) AND column IS NOT NULL"
     );
   });
   test("not one of with non string null expression", async () => {
@@ -547,7 +551,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       false
     );
     expect(actual).toEqual(
-      "column NOT IN ('one', 'two', 'three') AND column IS NOT NULL"
+      "column NOT IN ($$$$one$$$$, $$$$two$$$$, $$$$three$$$$) AND column IS NOT NULL"
     );
   });
 
@@ -562,7 +566,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       true
     );
     expect(actual).toEqual(
-      "column IN ('one', '__empty__', 'two', 'three', '')"
+      "column IN ($$$$one$$$$, $$$$__empty__$$$$, $$$$two$$$$, $$$$three$$$$, $$$$$$$$)"
     );
   });
 
@@ -577,7 +581,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       true
     );
     expect(actual).toEqual(
-      "column NOT IN ('one', 'two', 'three', '__empty__', '')"
+      "column NOT IN ($$$$one$$$$, $$$$two$$$$, $$$$three$$$$, $$$$__empty__$$$$, $$$$$$$$)"
     );
   });
 
@@ -592,7 +596,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       true
     );
     expect(actual).toEqual(
-      "(column IN ('one', '__empty__', 'two', 'three', '__null__', '') OR column IS NULL)"
+      "(column IN ($$$$one$$$$, $$$$__empty__$$$$, $$$$two$$$$, $$$$three$$$$, $$$$__null__$$$$, $$$$$$$$) OR column IS NULL)"
     );
   });
 
@@ -607,7 +611,7 @@ describe("$__adHocFilter getFilterExpression", () => {
       true
     );
     expect(actual).toEqual(
-      "column NOT IN ('one', '__null__', 'two', 'three', '__empty__', '') AND column IS NOT NULL"
+      "column NOT IN ($$$$one$$$$, $$$$__null__$$$$, $$$$two$$$$, $$$$three$$$$, $$$$__empty__$$$$, $$$$$$$$) AND column IS NOT NULL"
     );
   });
 });
@@ -1257,7 +1261,7 @@ describe("complex scenarios", () => {
         "  table\n" +
         "WHERE\n" +
         "  ts >= toDateTime(1666369533) AND ts <= toDateTime(1666715133)\n" +
-        "  AND column1 = 'value'\n" +
+        "  AND column1 = $$value$$\n" +
         "  AND statusCode IN (\n" +
         "    SELECT DISTINCT\n" +
         "      statusCode\n" +
@@ -1265,7 +1269,7 @@ describe("complex scenarios", () => {
         "      table\n" +
         "    WHERE\n" +
         "      ts >= toDateTime(1666369533) AND ts <= toDateTime(1666715133)\n" +
-        "      AND column1 = 'value'\n" +
+        "      AND column1 = $$value$$\n" +
         "  )\n" +
         "GROUP BY 1"
     );

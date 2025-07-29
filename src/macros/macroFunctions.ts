@@ -58,7 +58,7 @@ export const getFilterExpression = (
       [...values, values.find((v: any) => v === SYNTHETIC_EMPTY) ? "" : null]
         .filter((v) => v !== null)
         .filter((v) => v !== SYNTHETIC_NULL || isString)
-        .map((v) => `'${v}'`)
+        .map((v) => `$$$$${v}$$$$`)
         ?.join(", "),
       values.find((v: any) => v === SYNTHETIC_NULL),
     ];
@@ -109,11 +109,15 @@ export const getFilterExpression = (
       );
     }
   } else if (filter.operator === "=~") {
-    return `toString(${key}) LIKE '${prepareWildcardQuery(filter.value)}'`;
+    return `toString(${key}) LIKE $$$$${prepareWildcardQuery(
+      filter.value
+    )}$$$$`;
   } else if (filter.operator === "!~") {
-    return `toString(${key}) NOT LIKE '${prepareWildcardQuery(filter.value)}'`;
+    return `toString(${key}) NOT LIKE $$$$${prepareWildcardQuery(
+      filter.value
+    )}$$$$`;
   } else {
-    return `${key} ${filter.operator} '${filter.value}'`;
+    return `${key} ${filter.operator} $$$$${filter.value}$$$$`;
   }
 };
 
