@@ -1,8 +1,16 @@
 # Changelog
+## 0.6.0
+
+- **Feature**: Service Account support (GRAP-41)
+- **Feature**: Support of limit values for ad-hoc filter (GRAP-78)
+- **Feature**: Add “Run Query” button to the query editor (GRAP-35)
+- **Fix**: Query parsing error when user tries to format query (GRAP-75)
+- **Fix**: Incorrect handling of single quotes inside ad-hoc filter values (GRAP-80)
+
 ## 0.5.0
 
 - **Feature**: Support \$__timeFilter and \$__timeInterval macros without timestamp (GRAP-71)
-- **Feature**: Support automatic timestamp column detection in ad hoc filters
+- **Feature**: Support automatic timestamp column detection in ad hoc filters (GRAP-68)
 
 ## 0.4.0
 
