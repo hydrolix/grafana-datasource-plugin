@@ -50,6 +50,7 @@ export function InterpolatedQuery({
                 display: "flex",
                 alignItems: "center",
                 gap: "10px",
+                color: "#8e8e9a",
               }}
               aria-label="copy-formatted-data-to-clipboard"
               name={icon}
