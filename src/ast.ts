@@ -36,11 +36,13 @@ export const isObject = (value: any): boolean => {
 export function getColumnValuesStatement(
   column: string,
   table: string,
-  timeColumn: string
+  timeColumn: string,
+  condition: string
 ): string {
   // return `SELECT DISTINCT ${column} FROM ${getTable(sql)} WHERE $__timeFilter(${timeColumn}) AND $__adHocFilter() LIMIT 100`;
   // return `SELECT DISTINCT ${column}, COUNT(${column}) as count  FROM ${getTable(sql)} WHERE $__timeFilter(${timeColumn}) AND $__adHocFilter()  GROUP BY ${column} ORDER BY count DESC LIMIT 100`;
   return AD_HOC_VALUE_QUERY.replaceAll("${column}", column)
     .replaceAll("${table}", table)
-    .replaceAll("${timeColumn}", timeColumn);
+    .replaceAll("${timeColumn}", timeColumn)
+    .replaceAll("${condition}", condition ? `AND ${condition}` : "");
 }

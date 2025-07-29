@@ -42,8 +42,10 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   host?: string;
   port?: number;
   useDefaultPort?: boolean;
+  credentialsType?: CredentialsType;
   username?: string;
   protocol?: Protocol;
+  token?: string;
   secure?: boolean;
   path?: string;
   skipTlsVerify?: boolean;
@@ -51,6 +53,7 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   defaultRound?: string;
   adHocDefaultTimeRange?: TimeRange;
   adHocTableVariable?: string;
+  adHocConditionVariable?: string;
   dialTimeout?: string;
   queryTimeout?: string;
   querySettings?: QuerySetting[];
@@ -66,11 +69,17 @@ export interface QuerySetting {
  */
 export interface HdxSecureJsonData {
   password?: string;
+  token?: string;
 }
 
 export enum Protocol {
   Native = "native",
   Http = "http",
+}
+
+export enum CredentialsType {
+  UserAccount = "userAccount",
+  ServiceAccount = "serviceAccount",
 }
 
 export interface AdHocFilterKeys {

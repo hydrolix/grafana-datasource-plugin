@@ -1,5 +1,6 @@
 import {
   AdHocVariableFilter,
+  ConstantVariableModel,
   CoreApp,
   DataFrame,
   DataQueryError,
@@ -363,7 +364,12 @@ export class DataSource extends DataSourceWithBackend<
 
     let sql;
     if (table && timeFilter) {
-      sql = getColumnValuesStatement(options.key, table, timeFilter);
+      sql = getColumnValuesStatement(
+        options.key,
+        table,
+        timeFilter,
+        this.getAdHocFilterValueCondition()
+      );
     }
     if (!sql) {
       return [];
@@ -418,6 +424,20 @@ export class DataSource extends DataSourceWithBackend<
     } else {
       return undefined;
     }
+  }
+
+  private getAdHocFilterValueCondition(): string {
+    const varName = this.instanceSettings.jsonData.adHocConditionVariable;
+    if (!varName) {
+      return "";
+    }
+    const variable = this.templateSrv
+      .getVariables()
+      .find((v) => v.name === varName);
+    if (!variable) {
+      return "";
+    }
+    return (variable as ConstantVariableModel).query;
   }
 
   private getTableIdentifier(s: string): TableIdentifier {
