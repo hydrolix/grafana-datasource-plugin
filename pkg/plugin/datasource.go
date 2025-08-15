@@ -2,17 +2,17 @@ package plugin
 
 import (
 	"context"
-
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
-	"github.com/grafana/sqlds/v4"
 	"github.com/hydrolix/plugin/pkg/api"
+	"github.com/hydrolix/plugin/pkg/datasource"
 )
 
-// NewDatasource creates Hydrolix SQLDS datasource
 func NewDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-	ds := sqlds.NewDatasource(NewHydrolix())
+	ds := &datasource.HydrolixDatasource{
+		Connector: &datasource.Connector{Driver: NewHydrolix()},
+	}
 	ds.EnableMultipleConnections = true
-	ds.CustomRoutes = api.Routes()
+	ds.RegisterRoutes(api.Routes(ds))
 	return ds.NewDatasource(ctx, settings)
 }
