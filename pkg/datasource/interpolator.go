@@ -3,11 +3,14 @@ package datasource
 import (
 	"context"
 	"fmt"
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 type Interpolator struct {
@@ -137,6 +140,20 @@ type CTE struct {
 	Table    string     `json:"table"`
 	Database string     `json:"database"`
 	Pos      parser.Pos `json:"pos"`
+}
+
+// RoundTimeRange rounds the time range to provided time interval
+func RoundTimeRange(timeRange backend.TimeRange, interval string) backend.TimeRange {
+	if dInterval, err := time.ParseDuration(interval); err == nil && dInterval.Seconds() >= 1 {
+		To := timeRange.To.Round(dInterval)
+		From := timeRange.From.Round(dInterval)
+
+		log.DefaultLogger.Debug("Time range rounded", "original", timeRange, "from", From, "to", To, "interval", interval)
+		return backend.TimeRange{To: To, From: From}
+	}
+
+	log.DefaultLogger.Warn("Using default time range, provided round interval is invalid", "interval", interval)
+	return timeRange
 }
 
 type macroVisitor struct {

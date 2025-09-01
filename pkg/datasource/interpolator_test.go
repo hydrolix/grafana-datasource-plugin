@@ -3,27 +3,59 @@ package datasource
 import (
 	"fmt"
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"maps"
+	"slices"
 	"testing"
 )
 
-func Test(t *testing.T) {
-	//sql := "select * from foo where $__timeFilter(cast(sth as timestamp)) AND $__adHocFilter()"
-	//sql := "WITH CategorizedSpans AS (\n    WITH\n        toInt32(hydro_extract_query_span(hydro_query_span_helper(assumeNotNull(query)))) AS span_in_seconds\n    SELECT\n        CASE\n            WHEN span_in_seconds <= 60 THEN '0-1m'\n            WHEN span_in_seconds <= 300 THEN '1-5m'\n            WHEN span_in_seconds <= 3600 THEN '5-60m'\n            WHEN span_in_seconds <= 86400 THEN '1-24h'\n            WHEN span_in_seconds <= 259200 THEN '1-3d'\n            WHEN span_in_seconds <= 604800 THEN '3-7d'\n            WHEN span_in_seconds <= 1209600 THEN '7-14d'\n            WHEN span_in_seconds <= 7776000 THEN\n                concat(toString(round(span_in_seconds / 604800.0)), 'w')\n            WHEN span_in_seconds <= 47304000 THEN\n                concat(toString(round(span_in_seconds / 2592000.0)), 'mo')\n            ELSE\n                concat(toString(round(span_in_seconds / 31536000.0)), 'y')\n        END AS span_bucket,\n        CASE\n            WHEN span_in_seconds <= 60 THEN 1\n            WHEN span_in_seconds <= 300 THEN 2\n            WHEN span_in_seconds <= 3600 THEN 3\n            WHEN span_in_seconds <= 86400 THEN 4\n            WHEN span_in_seconds <= 259200 THEN 5\n            WHEN span_in_seconds <= 604800 THEN 6\n            WHEN span_in_seconds <= 1209600 THEN 7\n            WHEN span_in_seconds <= 7776000 THEN round(span_in_seconds / 604800.0) + 1000\n            WHEN span_in_seconds <= 47304000 THEN round(span_in_seconds / 2592000.0) + 2000\n            ELSE round(span_in_seconds / 31536000.0) + 3000\n        END AS sort_order,\n        count() AS number_of_queries,\n        quantile(0.99)(exec_time) AS p99_exec_time\n    FROM hydro.query_overage_vw\n    WHERE\n        $__timeFilter(timestamp)\n        AND $__adHocFilter()\n        AND span_in_seconds IS NOT NULL\n        AND canonical_query = $$$$\n    GROUP BY\n        span_bucket,\n        sort_order\n)\nSELECT\n    span_bucket,\n    number_of_queries,\n    p99_exec_time\nFROM CategorizedSpans\nORDER BY\n    sort_order ASC"
-	//sql := "SELECT\n  main_query.reqTimeSec,\n  (\n    SELECT COUNT(*)\n    FROM akamai.logs AS subquery\n    WHERE $__timeFilter(reqTimeSec) AND $__adHocFilter() \n  )\nFROM\n  akamai.logs AS main_query\nWHERE\n  reqId IN (\n    SELECT\n      reqId\n    FROM\n      akamai.logs AS subquery\n    WHERE\n      statusCode = 404\n      AND reqMethod = 'GET'\n      AND $__timeFilter(reqTimeSec) AND $__adHocFilter() \n  );"
+func TestGetMacroCTEs(t *testing.T) {
+	type test struct {
+		name   string
+		input  string
+		result string
+	}
+
+	tests := []test{
+		{input: "SELECT * FROM table WHERE $__macro()", result: "table", name: "should return the table for filter"},
+		{input: "SELECT * FROM schema.table WHERE $__macro()", result: "schema.table", name: "should return the table with schema for filter"},
+		{input: "SELECT * FROM schema.table as t1 WHERE $__macro()", result: "schema.table AS t1", name: "should return the table and schema with alias for filter"},
+		{input: "SELECT * FROM (Select * from table2 where 1=1) WHERE $__macro()", result: "(SELECT * FROM table2 WHERE 1 = 1)", name: "should return the table and schema with alias for filter"},
+		{input: "SELECT * FROM (Select * from table2 where l in (select * from table2)) WHERE $__macro()", result: "(SELECT * FROM table2 WHERE l IN (SELECT * FROM table2))", name: "should return the table and schema with alias for filter"},
+
+		{input: "SELECT $__macro() FROM table WHERE 1=1", result: "table", name: "should return the table for value"},
+		{input: "SELECT $__macro() FROM schema.table WHERE 1=1", result: "schema.table", name: "should return the table with schema for value"},
+		{input: "SELECT $__macro() FROM schema.table as t1 WHERE 1=1", result: "schema.table AS t1", name: "should return the table and schema with alias for value"},
+		{input: "SELECT $__macro() FROM (Select * from table2 where 1=1) WHERE 1=1", result: "(SELECT * FROM table2 WHERE 1 = 1)", name: "should return the table and schema with alias for value"},
+		{input: "SELECT $__macro() FROM (Select * from table2 where l in (select * from table2)) WHERE 1=1", result: "(SELECT * FROM table2 WHERE l IN (SELECT * FROM table2))", name: "should return the table and schema with alias for value"},
+	}
+
+	for i, tc := range tests {
+
+		t.Run(fmt.Sprintf("[%d/%d] %s", i+1, len(tests), tc.name), func(t *testing.T) {
+			expr, _ := parser.NewParser(tc.input).ParseStmts()
+			res, err := GetMacroCTEs(expr)
+			require.NoError(t, err)
+			fmt.Println(res)
+			assert.Equal(t, len(res), 1)
+			require.Nil(t, err)
+			v := slices.Collect(maps.Values(res))[0]
+			assert.Equal(t, tc.result, v.CTE)
+		})
+	}
+
+}
+
+func TestGetMacroCTEsForComplexQuery(t *testing.T) {
+	expected := []string{"akamai.logs AS main_query", "akamai.logs AS main_query", "akamai.logs AS main_query", "akamai.logs AS main_query", "akamai.logs AS subquery", "akamai.logs AS subquery"}
 	sql := "SELECT\n  main_query.reqTimeSec,\n  (\n    SELECT COUNT(*)\n    FROM logs AS subquery\n    WHERE $__timeFilter(reqTimeSec) AND $__adHocFilter() \n  )\nFROM\n  akamai.logs AS main_query\nWHERE\n$__timeFilter(reqTimeSec) AND $__adHocFilter() AND\n  reqId IN (\n    SELECT\n      reqId\n    FROM\n      akamai.logs AS subquery\n    WHERE\n      statusCode = 404\n      AND reqMethod = 'GET'\n      AND $__timeFilter(reqTimeSec) AND $__adHocFilter() \n  );"
-	//sql := "SELECT\n  main_query.reqTimeSec,\n  (\n    SELECT COUNT(*)\n    FROM akamai.logs AS subquery\n    \n  )\nFROM\n  akamai.logs AS main_query\nWHERE\n\n  reqId IN (\n    SELECT\n      reqId\n    FROM\n      akamai.logs AS subquery\n    WHERE\n      statusCode = 404\n      AND reqMethod = 'GET'\n      AND $__timeFilter(reqTimeSec) AND $__adHocFilter() \n  );"
 	expr, _ := parser.NewParser(sql).ParseStmts()
 	res, err := GetMacroCTEs(expr)
 	require.NoError(t, err)
 	fmt.Println(res)
-}
 
-//func Test2(t *testing.T) {
-//	//sql := "select * from foo where $__timeFilter(cast(sth as timestamp)) AND $__adHocFilter()"
-//	//sql := "WITH CategorizedSpans AS (\n    WITH\n        toInt32(hydro_extract_query_span(hydro_query_span_helper(assumeNotNull(query)))) AS span_in_seconds\n    SELECT\n        CASE\n            WHEN span_in_seconds <= 60 THEN '0-1m'\n            WHEN span_in_seconds <= 300 THEN '1-5m'\n            WHEN span_in_seconds <= 3600 THEN '5-60m'\n            WHEN span_in_seconds <= 86400 THEN '1-24h'\n            WHEN span_in_seconds <= 259200 THEN '1-3d'\n            WHEN span_in_seconds <= 604800 THEN '3-7d'\n            WHEN span_in_seconds <= 1209600 THEN '7-14d'\n            WHEN span_in_seconds <= 7776000 THEN\n                concat(toString(round(span_in_seconds / 604800.0)), 'w')\n            WHEN span_in_seconds <= 47304000 THEN\n                concat(toString(round(span_in_seconds / 2592000.0)), 'mo')\n            ELSE\n                concat(toString(round(span_in_seconds / 31536000.0)), 'y')\n        END AS span_bucket,\n        CASE\n            WHEN span_in_seconds <= 60 THEN 1\n            WHEN span_in_seconds <= 300 THEN 2\n            WHEN span_in_seconds <= 3600 THEN 3\n            WHEN span_in_seconds <= 86400 THEN 4\n            WHEN span_in_seconds <= 259200 THEN 5\n            WHEN span_in_seconds <= 604800 THEN 6\n            WHEN span_in_seconds <= 1209600 THEN 7\n            WHEN span_in_seconds <= 7776000 THEN round(span_in_seconds / 604800.0) + 1000\n            WHEN span_in_seconds <= 47304000 THEN round(span_in_seconds / 2592000.0) + 2000\n            ELSE round(span_in_seconds / 31536000.0) + 3000\n        END AS sort_order,\n        count() AS number_of_queries,\n        quantile(0.99)(exec_time) AS p99_exec_time\n    FROM hydro.query_overage_vw\n    WHERE\n        $__timeFilter(timestamp)\n        AND $__adHocFilter()\n        AND span_in_seconds IS NOT NULL\n        AND canonical_query = $$$$\n    GROUP BY\n        span_bucket,\n        sort_order\n)\nSELECT\n    span_bucket,\n    number_of_queries,\n    p99_exec_time\nFROM CategorizedSpans\nORDER BY\n    sort_order ASC"
-//	//sql := "SELECT\n  main_query.reqTimeSec,\n  (\n    SELECT COUNT(*)\n    FROM akamai.logs AS subquery\n    WHERE $__timeFilter(reqTimeSec) AND $__adHocFilter() \n  )\nFROM\n  akamai.logs AS main_query\nWHERE\n  reqId IN (\n    SELECT\n      reqId\n    FROM\n      akamai.logs AS subquery\n    WHERE\n      statusCode = 404\n      AND reqMethod = 'GET'\n      AND $__timeFilter(reqTimeSec) AND $__adHocFilter() \n  );"
-//	sql := "SELECT\n  main_query.reqTimeSec,\n  (\n    SELECT COUNT(*)\n    FROM logs AS subquery\n    WHERE $__timeFilter(reqTimeSec) AND $__adHocFilter() \n  )\nFROM\n  akamai.logs AS main_query\nWHERE\n$__timeFilter(reqTimeSec) AND $__adHocFilter() AND\n  reqId IN (\n    SELECT\n      reqId\n    FROM\n      akamai.logs AS subquery\n    WHERE\n      statusCode = 404\n      AND reqMethod = 'GET'\n      AND $__timeFilter(reqTimeSec) AND $__adHocFilter() \n  );"
-//	//sql := "SELECT\n  main_query.reqTimeSec,\n  (\n    SELECT COUNT(*)\n    FROM akamai.logs AS subquery\n    \n  )\nFROM\n  akamai.logs AS main_query\nWHERE\n\n  reqId IN (\n    SELECT\n      reqId\n    FROM\n      akamai.logs AS subquery\n    WHERE\n      statusCode = 404\n      AND reqMethod = 'GET'\n      AND $__timeFilter(reqTimeSec) AND $__adHocFilter() \n  );"
-//	Interpolator{}.Interpolate(&sqlutil.Query{RawSQL: sql}, Macros)
-//}
+	for i, v := range slices.SortedFunc(maps.Values(res), func(a, b CTE) int { return int(a.MacroPos) - int(b.MacroPos) }) {
+		assert.Equal(t, expected[i], v.CTE, fmt.Sprintf("For macro %s at index %d", v.Macro, v.MacroPos))
+	}
+}

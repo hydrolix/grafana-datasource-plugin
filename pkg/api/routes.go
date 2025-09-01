@@ -3,12 +3,14 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
 	"github.com/hydrolix/plugin/pkg/datasource"
 	"maps"
 	"net/http"
 	"slices"
+	"time"
 )
 
 func AST(rw http.ResponseWriter, req *http.Request) {
@@ -17,7 +19,7 @@ func AST(rw http.ResponseWriter, req *http.Request) {
 			wrapError(rw, errors.New("Unknown Error"))
 		}
 	}()
-	var astRequest QueryRequest
+	var astRequest Request[ASTData]
 	if err := json.NewDecoder(req.Body).Decode(&astRequest); err != nil {
 		wrapError(rw, err)
 		return
@@ -45,12 +47,28 @@ func Interpolate(ds *datasource.HydrolixDatasource, rw http.ResponseWriter, req 
 			wrapError(rw, errors.New((string(rawMessage))))
 		}
 	}()
-	var query sqlutil.Query
-	if err := json.NewDecoder(req.Body).Decode(&query); err != nil {
+	var request Request[QueryData]
+	if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
 		wrapError(rw, err)
 		return
 	}
-	body, err := ds.Interpolator.Interpolate(&query, req.Context())
+	timeRange := request.Data.Range.ToTimeRange()
+	if request.Data.Round != "" && request.Data.Round != "0" {
+		timeRange = datasource.RoundTimeRange(timeRange, request.Data.Round)
+	}
+	interval, err := time.ParseDuration(request.Data.Interval)
+
+	if err != nil {
+		wrapError(rw, err)
+		return
+	}
+
+	body, err := ds.Interpolator.Interpolate(
+		&sqlutil.Query{
+			RawSQL:    request.Data.RawSql,
+			Interval:  interval,
+			TimeRange: timeRange,
+		}, req.Context())
 
 	if err != nil {
 		wrapError(rw, err)
@@ -74,7 +92,7 @@ func MacroCTEs(rw http.ResponseWriter, req *http.Request) {
 			wrapError(rw, errors.New("Unknown Error"))
 		}
 	}()
-	var astRequest QueryRequest
+	var astRequest Request[ASTData]
 	if err := json.NewDecoder(req.Body).Decode(&astRequest); err != nil {
 		wrapError(rw, err)
 		return
@@ -125,11 +143,32 @@ func Routes(ds *datasource.HydrolixDatasource) map[string]func(http.ResponseWrit
 	}
 }
 
-type QueryRequest struct {
-	Data struct {
-		Query string `json:"query"`
-	} `json:"data"`
+type Request[T any] struct {
+	Data T
 }
+type QueryData struct {
+	RawSql   string `json:"rawSql"`
+	Round    string `json:"round"`
+	Range    Range  `json:"range"`
+	Interval string `json:"interval"`
+}
+
+type Range struct {
+	From time.Time `json:"from"`
+	To   time.Time `json:"to"`
+}
+
+func (r *Range) ToTimeRange() backend.TimeRange {
+	return backend.TimeRange{
+		From: r.From,
+		To:   r.To,
+	}
+}
+
+type ASTData struct {
+	Query string `json:"query"`
+}
+
 type Response[T any] struct {
 	Error        bool   `json:"error"`
 	ErrorMessage string `json:"error_message"`

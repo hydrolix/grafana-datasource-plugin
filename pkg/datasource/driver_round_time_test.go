@@ -1,4 +1,4 @@
-package plugin
+package datasource
 
 import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -12,7 +12,7 @@ var defaultTimeRange = backend.TimeRange{
 }
 
 func TestRoundToSecond(t *testing.T) {
-	timeRange := roundTimeRange(defaultTimeRange, "1s")
+	timeRange := RoundTimeRange(defaultTimeRange, "1s")
 	if timeRange.To != time.Unix(1740678412, 0) {
 		t.Error("To time should be rounded to 1s")
 	}
@@ -22,7 +22,7 @@ func TestRoundToSecond(t *testing.T) {
 }
 
 func TestRoundToMinute(t *testing.T) {
-	timeRange := roundTimeRange(defaultTimeRange, "1m")
+	timeRange := RoundTimeRange(defaultTimeRange, "1m")
 	if timeRange.To != time.Unix(1740678420, 0) {
 		t.Error("To time should be rounded to 1m")
 	}
@@ -32,7 +32,7 @@ func TestRoundToMinute(t *testing.T) {
 }
 
 func TestRoundToHour(t *testing.T) {
-	timeRange := roundTimeRange(defaultTimeRange, "1h")
+	timeRange := RoundTimeRange(defaultTimeRange, "1h")
 	if timeRange.To != time.Unix(1740679200, 0) {
 		t.Error("To time should be rounded to 1h")
 	}
@@ -42,21 +42,21 @@ func TestRoundToHour(t *testing.T) {
 }
 
 func TestRoundToZero(t *testing.T) {
-	timeRange := roundTimeRange(defaultTimeRange, "0")
+	timeRange := RoundTimeRange(defaultTimeRange, "0")
 	if timeRange != defaultTimeRange {
 		t.Error("TimeRange should not be rounded")
 	}
 }
 
 func TestRoundEmpty(t *testing.T) {
-	timeRange := roundTimeRange(defaultTimeRange, "")
+	timeRange := RoundTimeRange(defaultTimeRange, "")
 	if timeRange != defaultTimeRange {
 		t.Error("TimeRange should not be rounded")
 	}
 }
 
 func TestRoundInvalid(t *testing.T) {
-	timeRange := roundTimeRange(defaultTimeRange, "not valid duration")
+	timeRange := RoundTimeRange(defaultTimeRange, "not valid duration")
 	if timeRange != defaultTimeRange {
 		t.Error("TimeRange should not be rounded")
 	}
