@@ -6,6 +6,7 @@ toolchain go1.24.4
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.33.1
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/docker/go-connections v0.5.0
 	github.com/grafana/grafana-plugin-sdk-go v0.277.1
 	github.com/grafana/sqlds/v4 v4.2.3

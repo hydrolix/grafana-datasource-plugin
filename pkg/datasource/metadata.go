@@ -24,7 +24,6 @@ type MetaDataProvider struct {
 
 func NewMetaDataProvider(ds *HydrolixDatasource) *MetaDataProvider {
 	cache := ttlcache.New[string, string](ttlcache.WithTTL[string, string](time.Hour))
-	fmt.Println("NewMetaDataProvider cache", cache)
 	return &MetaDataProvider{ds: ds, cache: cache}
 }
 
@@ -57,16 +56,16 @@ func (p *MetaDataProvider) GetPK(context context.Context, database string, table
 
 }
 func (p *MetaDataProvider) getDefaultDatabase(context context.Context) (string, error) {
-	settings, err := models.NewPluginSettings(context, p.ds.Connector.instanceSettings)
+	settings, err := models.NewPluginSettings(context, p.ds.Connector.getInstanceSettings())
 	if err != nil {
 		return "", err
 	}
 	return settings.DefaultDatabase, nil
-
 }
+
 func (p *MetaDataProvider) QueryPK(database string, table string) (string, error) {
 
-	conn, _ := p.ds.Connector.getDBConnection(defaultKey(p.ds.Connector.UID))
+	conn, _ := p.ds.Connector.getDBConnection(defaultKey(p.ds.Connector.GetUID()))
 
 	rows, err := conn.db.Query(PRIMARY_KEY_QUERY_STRING, database, table)
 	if err != nil {
@@ -76,6 +75,7 @@ func (p *MetaDataProvider) QueryPK(database string, table string) (string, error
 	if err != nil {
 		return "", err
 	}
+
 	if len(frame.Fields) == 0 {
 		return "", PRIMARY_KEY_NOT_FOUND_ERROR
 	}
@@ -84,7 +84,25 @@ func (p *MetaDataProvider) QueryPK(database string, table string) (string, error
 	if field.Len() == 0 {
 		return "", PRIMARY_KEY_NOT_FOUND_ERROR
 	}
-	v := field.At(0)
+	v, err := p.GetStringSafe(field.At(0))
 
-	return v.(string), nil
+	println("Field:", v)
+	return v, err
+}
+
+func (p *MetaDataProvider) GetStringSafe(v any) (string, error) {
+
+	switch x := v.(type) {
+	case string:
+		println("string", x)
+		return x, nil
+	case *string:
+		println("*string", x)
+		if x == nil {
+			return "", nil
+		}
+		return *x, nil
+
+	}
+	return "", errors.New("invalid type")
 }

@@ -3,23 +3,15 @@ package datasource
 import (
 	"context"
 	"fmt"
+	"github.com/DATA-DOG/go-sqlmock"
 	"testing"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
-	"github.com/grafana/sqlds/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-type DriverMock struct {
-	sqlds.Driver
-}
-
-type MockDB struct {
-	DriverMock
-}
 
 func TestTimeToDate(t *testing.T) {
 	d, _ := time.Parse("2006-01-02T15:04:05.000Z", "2014-11-12T11:45:26.371Z")
@@ -266,8 +258,13 @@ func TestInterpolate(t *testing.T) {
 	}
 
 	for i, tc := range tests {
+		db, _, _ := sqlmock.New()
 		interpolator := NewInterpolator(HydrolixDatasource{
-			Connector: &Connector{Driver: MockDB{}},
+
+			Connector: &MockConnector{
+				db:  db,
+				uid: "uid-123",
+			},
 		})
 		t.Run(fmt.Sprintf("[%d/%d] %s", i+1, len(tests), tc.name), func(t *testing.T) {
 			query := &sqlutil.Query{

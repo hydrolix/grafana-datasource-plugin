@@ -15,7 +15,23 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 )
 
-type Connector struct {
+type Connector interface {
+	Connect(ctx context.Context, headers http.Header) (*dbConnection, error)
+	connectWithRetries(ctx context.Context, conn dbConnection, key string, headers http.Header) error
+	connect(conn dbConnection) error
+	ping(conn dbConnection) error
+	Reconnect(ctx context.Context, dbConn dbConnection, q *sqlutil.Query, cacheKey string) (*sql.DB, error)
+	getDBConnection(key string) (dbConnection, bool)
+	storeDBConnection(key string, dbConn dbConnection)
+	Dispose()
+	GetConnectionFromQuery(ctx context.Context, q *sqlutil.Query) (string, dbConnection, error)
+	GetDriver() sqlds.Driver
+	GetUID() string
+	getDriverSettings() sqlds.DriverSettings
+	getInstanceSettings() backend.DataSourceInstanceSettings
+}
+
+type HydrolixConnector struct {
 	UID              string
 	connections      sync.Map
 	Driver           sqlds.Driver
@@ -27,14 +43,14 @@ type Connector struct {
 	enableMultipleConnections bool
 }
 
-func NewConnector(ctx context.Context, driver sqlds.Driver, settings backend.DataSourceInstanceSettings, enableMultipleConnections bool) (*Connector, error) {
+func NewConnector(ctx context.Context, driver sqlds.Driver, settings backend.DataSourceInstanceSettings, enableMultipleConnections bool) (Connector, error) {
 	ds := driver.Settings(ctx, settings)
 	db, err := driver.Connect(ctx, settings, nil)
 	if err != nil {
 		return nil, backend.DownstreamError(err)
 	}
 
-	conn := &Connector{
+	conn := &HydrolixConnector{
 		UID:                       settings.UID,
 		Driver:                    driver,
 		driverSettings:            ds,
@@ -47,7 +63,7 @@ func NewConnector(ctx context.Context, driver sqlds.Driver, settings backend.Dat
 	return conn, nil
 }
 
-func (c *Connector) Connect(ctx context.Context, headers http.Header) (*dbConnection, error) {
+func (c *HydrolixConnector) Connect(ctx context.Context, headers http.Header) (*dbConnection, error) {
 	key := defaultKey(c.UID)
 	dbConn, ok := c.getDBConnection(key)
 	if !ok {
@@ -63,7 +79,7 @@ func (c *Connector) Connect(ctx context.Context, headers http.Header) (*dbConnec
 	return &dbConn, err
 }
 
-func (c *Connector) connectWithRetries(ctx context.Context, conn dbConnection, key string, headers http.Header) error {
+func (c *HydrolixConnector) connectWithRetries(ctx context.Context, conn dbConnection, key string, headers http.Header) error {
 	q := &sqlutil.Query{}
 	if c.driverSettings.ForwardHeaders {
 		applyHeaders(q, headers)
@@ -124,7 +140,7 @@ func applyHeaders(query *sqlutil.Query, headers http.Header) *sqlutil.Query {
 	return query
 }
 
-func (c *Connector) connect(conn dbConnection) error {
+func (c *HydrolixConnector) connect(conn dbConnection) error {
 	if err := c.ping(conn); err != nil {
 		return backend.DownstreamError(err)
 	}
@@ -132,7 +148,7 @@ func (c *Connector) connect(conn dbConnection) error {
 	return nil
 }
 
-func (c *Connector) ping(conn dbConnection) error {
+func (c *HydrolixConnector) ping(conn dbConnection) error {
 	if c.driverSettings.Timeout == 0 {
 		return conn.db.Ping()
 	}
@@ -143,7 +159,7 @@ func (c *Connector) ping(conn dbConnection) error {
 	return conn.db.PingContext(ctx)
 }
 
-func (c *Connector) Reconnect(ctx context.Context, dbConn dbConnection, q *sqlutil.Query, cacheKey string) (*sql.DB, error) {
+func (c *HydrolixConnector) Reconnect(ctx context.Context, dbConn dbConnection, q *sqlutil.Query, cacheKey string) (*sql.DB, error) {
 	if err := dbConn.db.Close(); err != nil {
 		backend.Logger.Warn(fmt.Sprintf("closing existing connection failed: %s", err.Error()))
 	}
@@ -156,20 +172,20 @@ func (c *Connector) Reconnect(ctx context.Context, dbConn dbConnection, q *sqlut
 	return db, nil
 }
 
-func (ds *Connector) getDBConnection(key string) (dbConnection, bool) {
-	conn, ok := ds.connections.Load(key)
+func (c *HydrolixConnector) getDBConnection(key string) (dbConnection, bool) {
+	conn, ok := c.connections.Load(key)
 	if !ok {
 		return dbConnection{}, false
 	}
 	return conn.(dbConnection), true
 }
 
-func (ds *Connector) storeDBConnection(key string, dbConn dbConnection) {
-	ds.connections.Store(key, dbConn)
+func (c *HydrolixConnector) storeDBConnection(key string, dbConn dbConnection) {
+	c.connections.Store(key, dbConn)
 }
 
 // Dispose is called when an existing SQLDatasource needs to be replaced
-func (c *Connector) Dispose() {
+func (c *HydrolixConnector) Dispose() {
 	c.connections.Range(func(_, conn interface{}) bool {
 		_ = conn.(dbConnection).db.Close()
 		return true
@@ -177,7 +193,21 @@ func (c *Connector) Dispose() {
 	c.connections.Clear()
 }
 
-func (c *Connector) GetConnectionFromQuery(ctx context.Context, q *sqlutil.Query) (string, dbConnection, error) {
+func (c *HydrolixConnector) getDriverSettings() sqlds.DriverSettings {
+	return c.driverSettings
+}
+
+func (c *HydrolixConnector) GetDriver() sqlds.Driver {
+	return c.Driver
+}
+func (c *HydrolixConnector) GetUID() string {
+	return c.UID
+}
+func (c *HydrolixConnector) getInstanceSettings() backend.DataSourceInstanceSettings {
+	return c.instanceSettings
+}
+
+func (c *HydrolixConnector) GetConnectionFromQuery(ctx context.Context, q *sqlutil.Query) (string, dbConnection, error) {
 	if !c.enableMultipleConnections && !c.driverSettings.ForwardHeaders && len(q.ConnectionArgs) > 0 {
 		return "", dbConnection{}, ErrorMissingMultipleConnectionsConfig
 	}

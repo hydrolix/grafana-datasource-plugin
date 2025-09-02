@@ -10,7 +10,7 @@ import (
 
 func NewDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
 	ds := &datasource.HydrolixDatasource{
-		Connector: &datasource.Connector{Driver: NewHydrolix()},
+		Connector: &datasource.HydrolixConnector{Driver: NewHydrolix()},
 	}
 	ds.EnableMultipleConnections = true
 	ds.RegisterRoutes(api.Routes(ds))

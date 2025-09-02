@@ -46,7 +46,7 @@ type dbConnection struct {
 
 type HydrolixDatasource struct {
 	backend.CallResourceHandler
-	Connector                 *Connector
+	Connector                 Connector
 	ID                        string
 	Interpolator              Interpolator
 	metrics                   sqlds.Metrics
@@ -275,11 +275,11 @@ func (ds *HydrolixDatasource) CheckHealth(ctx context.Context, req *backend.Chec
 }
 
 func (ds *HydrolixDatasource) DriverSettings() sqlds.DriverSettings {
-	return ds.Connector.driverSettings
+	return ds.Connector.getDriverSettings()
 }
 
 func (ds *HydrolixDatasource) driver() sqlds.Driver {
-	return ds.Connector.Driver
+	return ds.Connector.GetDriver()
 }
 
 func (ds *HydrolixDatasource) errors(response *sqlds.Response) error {
@@ -315,13 +315,13 @@ func (ds *HydrolixDatasource) SetDefaultRowLimit(limit int64) {
 // 2. set via the environment variable
 // 3. set is set on grafana_ini and passed via grafana context
 // 4. default row limit set by SetDefaultRowLimit
-func (ds *HydrolixDatasource) newRowLimit(ctx context.Context, conn *Connector) int64 {
+func (ds *HydrolixDatasource) newRowLimit(ctx context.Context, _ Connector) int64 {
 	if !ds.EnableRowLimit {
 		return defaultRowLimit
 	}
 
 	// Handles when row limit is set in the datasource configuration page
-	settingsLimit := conn.driverSettings.RowLimit
+	settingsLimit := ds.DriverSettings().RowLimit
 	if settingsLimit != 0 {
 		return settingsLimit
 	}

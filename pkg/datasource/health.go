@@ -9,7 +9,7 @@ import (
 )
 
 type HealthChecker struct {
-	Connector       *Connector
+	Connector       Connector
 	Metrics         sqlds.Metrics
 	PreCheckHealth  func(ctx context.Context, req *backend.CheckHealthRequest) *backend.CheckHealthResult
 	PostCheckHealth func(ctx context.Context, req *backend.CheckHealthRequest) *backend.CheckHealthResult
