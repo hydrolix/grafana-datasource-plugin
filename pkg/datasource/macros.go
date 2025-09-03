@@ -59,7 +59,7 @@ func TimeFilter(query *sqlutil.Query, args []string, pos parser.Pos, mdProvider 
 		to     = query.TimeRange.To
 	)
 
-	if len(args) == 1 {
+	if len(args) == 1 && args[0] != "" {
 		column = args[0]
 	} else {
 		pk, err := getPK(query.RawSQL, pos, mdProvider, context)
@@ -83,7 +83,7 @@ func TimeFilterMs(query *sqlutil.Query, args []string, pos parser.Pos, mdProvide
 		to     = query.TimeRange.To
 	)
 
-	if len(args) == 1 {
+	if len(args) == 1 && args[0] != "" {
 		column = args[0]
 	} else {
 		pk, err := getPK(query.RawSQL, pos, mdProvider, context)
@@ -188,7 +188,7 @@ func getPK(rawSQL string, pos parser.Pos, mdProvider *MetaDataProvider, context 
 	}
 	var cte *CTE
 	for _, macroCTE := range macroIds {
-		if macroCTE.Pos == pos {
+		if macroCTE.MacroPos == pos {
 			cte = &macroCTE
 			break
 		}

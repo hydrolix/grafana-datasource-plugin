@@ -197,9 +197,10 @@ type queryVisitor struct {
 
 func (v *queryVisitor) VisitSelectQuery(expr *parser.SelectQuery) error {
 	if expr.From != nil {
-		cte := expr.From.Expr.String()
 		pos := expr.Pos()
-		tVisitor := tableVisitor{pos: pos}
+		cte := expr.From.Expr.String()
+		tPos := expr.From.Expr.Pos()
+		tVisitor := tableVisitor{pos: tPos}
 		_ = expr.Accept(&tVisitor)
 		mVisitor := macroVisitor{macros: make([]MacroId, 0)}
 		_ = expr.Accept(&mVisitor)

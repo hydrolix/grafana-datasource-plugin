@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/DATA-DOG/go-sqlmock"
+	"regexp"
 	"testing"
 	"time"
 
@@ -237,9 +238,6 @@ func TestInterpolate(t *testing.T) {
 	from, _ := time.Parse("2006-01-02T15:04:05.000Z", "2014-11-12T11:45:26.123Z")
 	to, _ := time.Parse("2006-01-02T15:04:05.000Z", "2015-11-12T11:45:26.456Z")
 
-	tableName := "my_table"
-	tableColumn := "my_col"
-
 	type test struct {
 		name   string
 		input  string
@@ -269,8 +267,57 @@ func TestInterpolate(t *testing.T) {
 		t.Run(fmt.Sprintf("[%d/%d] %s", i+1, len(tests), tc.name), func(t *testing.T) {
 			query := &sqlutil.Query{
 				RawSQL: tc.input,
-				Table:  tableName,
-				Column: tableColumn,
+				TimeRange: backend.TimeRange{
+					From: from,
+					To:   to,
+				},
+			}
+			interpolatedQuery, err := interpolator.Interpolate(query, context.Background())
+			require.Nil(t, err)
+			assert.Equal(t, tc.output, interpolatedQuery)
+		})
+	}
+}
+
+// test sqlds query interpolation with clickhouse filters used
+func TestInterpolateWithAutomaticParams(t *testing.T) {
+	from, _ := time.Parse("2006-01-02T15:04:05.000Z", "2014-11-12T11:45:26.123Z")
+	to, _ := time.Parse("2006-01-02T15:04:05.000Z", "2015-11-12T11:45:26.456Z")
+
+	type test struct {
+		name   string
+		input  string
+		output string
+	}
+
+	tests := []test{
+		{input: "select * from foo.bar where $__timeFilter()", output: "select * from foo.bar where timestamp >= toDateTime(1415792726) AND timestamp <= toDateTime(1447328726)", name: "timeFilter auto timestamp empty param"},
+		{input: "select * from bar where $__timeFilter()", output: "select * from bar where timestamp >= toDateTime(1415792726) AND timestamp <= toDateTime(1447328726)", name: "timeFilter auto timestamp empty param default db"},
+		{input: "select * from foo.bar where $__timeFilter_ms()", output: "select * from foo.bar where timestamp >= fromUnixTimestamp64Milli(1415792726123) AND timestamp <= fromUnixTimestamp64Milli(1447328726456)", name: "timeFilter_ms auto timestamp empty param"},
+		{input: "select * from bar where $__timeFilter_ms()", output: "select * from bar where timestamp >= fromUnixTimestamp64Milli(1415792726123) AND timestamp <= fromUnixTimestamp64Milli(1447328726456)", name: "timeFilter_ms auto timestamp empty param default db"},
+		{input: "select $__timeInterval() from foo.bar", output: "select toStartOfInterval(toDateTime(), INTERVAL 1 second) from foo.bar", name: "timeInterval auto timestamp empty param"},
+		{input: "select $__timeInterval() from bar", output: "select toStartOfInterval(toDateTime(), INTERVAL 1 second) from bar", name: "timeInterval auto timestamp empty param default db"},
+		{input: "select $__timeInterval_ms() from foo.bar", output: "select toStartOfInterval(toDateTime64(, 3), INTERVAL 1 millisecond) from foo.bar", name: "timeInterval_ms auto timestamp empty param"},
+		{input: "select $__timeInterval_ms() from bar", output: "select toStartOfInterval(toDateTime64(, 3), INTERVAL 1 millisecond) from bar", name: "timeInterval_ms auto timestamp empty param default db"},
+	}
+
+	for i, tc := range tests {
+		db, mock, _ := sqlmock.New()
+
+		rows := sqlmock.NewRows([]string{"primary_key"}).AddRow("timestamp")
+		mock.ExpectQuery(regexp.QuoteMeta(PRIMARY_KEY_QUERY_STRING)).
+			WithArgs("foo", "bar").
+			WillReturnRows(rows)
+		interpolator := NewInterpolator(HydrolixDatasource{
+
+			Connector: &MockConnector{
+				db:  db,
+				uid: "uid-123",
+			},
+		})
+		t.Run(fmt.Sprintf("[%d/%d] %s", i+1, len(tests), tc.name), func(t *testing.T) {
+			query := &sqlutil.Query{
+				RawSQL: tc.input,
 				TimeRange: backend.TimeRange{
 					From: from,
 					To:   to,

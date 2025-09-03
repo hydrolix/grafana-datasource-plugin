@@ -9,9 +9,6 @@ import (
 )
 
 func TestQueryPK_Success(t *testing.T) {
-	s := "asd"
-	q := &s
-	println(s, q)
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock.New(): %v", err)

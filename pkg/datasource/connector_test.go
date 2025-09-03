@@ -9,6 +9,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
 	"github.com/grafana/sqlds/v4"
+	"github.com/hydrolix/plugin/pkg/models"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -294,7 +295,7 @@ func (m *MockConnector) connectWithRetries(_ context.Context, _ dbConnection, _ 
 func (m *MockConnector) connect(_ dbConnection) error { return nil }
 func (m *MockConnector) ping(_ dbConnection) error    { return nil }
 
-func (m *MockConnector) Reconnect(_ context.Context, _ dbConnection, _q *sqlutil.Query, _ string) (*sql.DB, error) {
+func (m *MockConnector) Reconnect(_ context.Context, _ dbConnection, _ *sqlutil.Query, _ string) (*sql.DB, error) {
 	return m.db, nil
 }
 
@@ -318,5 +319,24 @@ func (m *MockConnector) GetUID() string { return m.uid }
 func (m *MockConnector) getDriverSettings() sqlds.DriverSettings { return sqlds.DriverSettings{} }
 
 func (m *MockConnector) getInstanceSettings() backend.DataSourceInstanceSettings {
-	return backend.DataSourceInstanceSettings{}
+	settings := models.PluginSettings{
+		Host:            "localhost",
+		Port:            80,
+		Protocol:        "http",
+		UserName:        "default",
+		Password:        "pass",
+		Secure:          true,
+		Path:            "/query",
+		SkipTlsVerify:   true,
+		DialTimeout:     "10",
+		QueryTimeout:    "20",
+		DefaultDatabase: "foo",
+	}
+	jsonData, _ := json.Marshal(settings)
+
+	return backend.DataSourceInstanceSettings{
+		Name:                    "test-hydrolix-http-datasource",
+		JSONData:                jsonData,
+		DecryptedSecureJSONData: map[string]string{"password": settings.Password},
+	}
 }

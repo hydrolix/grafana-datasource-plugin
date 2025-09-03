@@ -86,7 +86,6 @@ func (p *MetaDataProvider) QueryPK(database string, table string) (string, error
 	}
 	v, err := p.GetStringSafe(field.At(0))
 
-	println("Field:", v)
 	return v, err
 }
 
@@ -94,10 +93,8 @@ func (p *MetaDataProvider) GetStringSafe(v any) (string, error) {
 
 	switch x := v.(type) {
 	case string:
-		println("string", x)
 		return x, nil
 	case *string:
-		println("*string", x)
 		if x == nil {
 			return "", nil
 		}

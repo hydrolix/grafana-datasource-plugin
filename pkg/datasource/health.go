@@ -34,5 +34,5 @@ func (hc *HealthChecker) Check(ctx context.Context, req *backend.CheckHealthRequ
 		}
 	}
 	hc.Metrics.CollectDuration(sqlds.SourceDownstream, sqlds.StatusOK, time.Since(start).Seconds())
-	return &backend.CheckHealthResult{Status: backend.HealthStatusOk, Message: "QueryPK source is working"}, nil
+	return &backend.CheckHealthResult{Status: backend.HealthStatusOk, Message: "Data source is working"}, nil
 }
