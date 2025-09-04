@@ -95,7 +95,7 @@ export interface InterpolationResponse extends ResourceResponse<string> {}
 export interface ResourceResponse<T> {
   originalSql: string;
   error: boolean;
-  error_message: string;
+  errorMessage: string;
   data: T;
 }
 

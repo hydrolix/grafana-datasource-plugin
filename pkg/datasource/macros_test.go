@@ -329,3 +329,35 @@ func TestInterpolateWithAutomaticParams(t *testing.T) {
 		})
 	}
 }
+
+// test sqlds query interpolation with clickhouse filters used
+func Test(t *testing.T) {
+
+	type test struct {
+		name  string
+		input string
+		error string
+	}
+
+	tests := []test{
+		{input: "select * from foo.bar where $__timeFilter(arg1, arg2)", error: "unexpected number of arguments: expected 0 or 1 argument, received 2", name: "timeFilter auto timestamp empty param"},
+		{input: "select * from foo.bar where $__timeFilter(arg1, arg2", error: "failed to parse macro arguments (missing close bracket?)", name: "timeFilter auto timestamp empty param"},
+	}
+
+	for i, tc := range tests {
+
+		interpolator := NewInterpolator(HydrolixDatasource{
+			Connector: &MockConnector{
+				uid: "uid-123",
+			},
+		})
+		t.Run(fmt.Sprintf("[%d/%d] %s", i+1, len(tests), tc.name), func(t *testing.T) {
+			query := &sqlutil.Query{
+				RawSQL: tc.input,
+			}
+			_, err := interpolator.Interpolate(query, context.Background())
+			require.Error(t, err, tc.error)
+			require.Equal(t, err.Error(), tc.error)
+		})
+	}
+}

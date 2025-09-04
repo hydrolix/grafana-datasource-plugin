@@ -208,7 +208,7 @@ export class DataSource extends DataSourceWithBackend<
           result = {
             ...result,
             hasError: true,
-            error: interpolationResponse.error_message,
+            error: interpolationResponse.errorMessage,
           };
         } else {
           result = {
@@ -260,7 +260,7 @@ export class DataSource extends DataSourceWithBackend<
         macroCTEResponse = {
           originalSql: preInterpolatedSql,
           error: true,
-          error_message: "Unknown ast parsing error",
+          errorMessage: "Unknown ast parsing error",
         };
       }
 
@@ -284,7 +284,7 @@ export class DataSource extends DataSourceWithBackend<
           hasWarning: false,
           error: macroCTEResponse.error
             ? this.wrapSyntaxError(
-                macroCTEResponse.error_message,
+                macroCTEResponse.errorMessage,
                 preInterpolatedSql
               )
             : e.message,
@@ -324,11 +324,11 @@ export class DataSource extends DataSourceWithBackend<
     }
   }
 
-  wrapSyntaxError(error_message: string, query: string) {
-    if (!error_message || error_message === "Unknown Error") {
+  wrapSyntaxError(errorMessage: string, query: string) {
+    if (!errorMessage || errorMessage === "Unknown Error") {
       return `Cannot apply ad hoc filter: unknown error occurred while parsing query '${query}'`;
     }
-    const fullMessage = error_message;
+    const fullMessage = errorMessage;
     const errorRegExp = /^line\s(\d*):(\d*) (.*)$/;
 
     const [message] = fullMessage.split("\n");
@@ -374,7 +374,7 @@ export class DataSource extends DataSourceWithBackend<
       },
     }).then((a: any) => ({
       error: a.error,
-      error_message: a.error_message,
+      errorMessage: a.errorMessage,
       data: a.data as string,
       originalSql: query.rawSql,
     }));
@@ -384,7 +384,7 @@ export class DataSource extends DataSourceWithBackend<
     if (query.toUpperCase().startsWith("DESCRIBE")) {
       return {
         error: false,
-        error_message: "",
+        errorMessage: "",
         data: [],
         originalSql: query,
       };
@@ -393,7 +393,7 @@ export class DataSource extends DataSourceWithBackend<
       data: { query },
     }).then((a: any) => ({
       error: a.error,
-      error_message: a.error_message,
+      errorMessage: a.errorMessage,
       data: a.data,
       originalSql: query,
     }));

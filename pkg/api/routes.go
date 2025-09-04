@@ -171,6 +171,6 @@ type ASTData struct {
 
 type Response[T any] struct {
 	Error        bool   `json:"error"`
-	ErrorMessage string `json:"error_message"`
+	ErrorMessage string `json:"errorMessage"`
 	Data         T      `json:"data"`
 }

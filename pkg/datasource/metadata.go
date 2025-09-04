@@ -65,7 +65,10 @@ func (p *MetaDataProvider) getDefaultDatabase(context context.Context) (string, 
 
 func (p *MetaDataProvider) QueryPK(database string, table string) (string, error) {
 
-	conn, _ := p.ds.Connector.getDBConnection(defaultKey(p.ds.Connector.GetUID()))
+	conn, ok := p.ds.Connector.getDBConnection(defaultKey(p.ds.Connector.GetUID()))
+	if !ok {
+		return "", PRIMARY_KEY_NOT_FOUND_ERROR
+	}
 
 	rows, err := conn.db.Query(PRIMARY_KEY_QUERY_STRING, database, table)
 	if err != nil {
