@@ -133,7 +133,7 @@ func TimeInterval(query *sqlutil.Query, args []string, pos parser.Pos, mdProvide
 		column string
 	)
 
-	if len(args) == 1 {
+	if len(args) == 1 && args[0] != "" {
 		column = args[0]
 	} else {
 		pk, err := getPK(query.RawSQL, pos, mdProvider, context)
@@ -155,7 +155,7 @@ func TimeIntervalMs(query *sqlutil.Query, args []string, pos parser.Pos, mdProvi
 		column string
 	)
 
-	if len(args) == 1 {
+	if len(args) == 1 && args[0] != "" {
 		column = args[0]
 	} else {
 		pk, err := getPK(query.RawSQL, pos, mdProvider, context)

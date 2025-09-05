@@ -245,12 +245,9 @@ export class DataSource extends DataSourceWithBackend<
             ? roundTimeRange(request.range, round)
             : request.range,
       };
-      console.log("start", preInterpolatedSql);
       preInterpolatedSql = await applyBaseMacros(sql, macroContext);
-      console.log("applyBaseMacros", preInterpolatedSql);
 
       preInterpolatedSql = this.templateSrv.replace(preInterpolatedSql);
-      console.log("replace", preInterpolatedSql);
 
       let macroCTEResponse;
       try {
@@ -274,7 +271,6 @@ export class DataSource extends DataSourceWithBackend<
             keys: (table: string) => this.metadataProvider.tableKeys(table),
           },
         });
-        console.log("applyAstAwareMacro", preInterpolatedSql);
       } catch (e: any) {
         return {
           originalSql: sql,

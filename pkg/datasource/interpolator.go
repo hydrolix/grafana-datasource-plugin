@@ -25,8 +25,8 @@ type macroMatch struct {
 	pos  parser.Pos
 }
 
-func NewInterpolator(ds HydrolixDatasource) Interpolator {
-	return Interpolator{NewMetaDataProvider(&ds), Macros}
+func NewInterpolator(ds *HydrolixDatasource) Interpolator {
+	return Interpolator{NewMetaDataProvider(ds), Macros}
 }
 
 // getMacroMatches extracts macro strings with their respective arguments from the sql input given

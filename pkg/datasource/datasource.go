@@ -46,11 +46,10 @@ type dbConnection struct {
 
 type HydrolixDatasource struct {
 	backend.CallResourceHandler
-	Connector                 Connector
-	ID                        string
-	Interpolator              Interpolator
-	metrics                   sqlds.Metrics
-	EnableMultipleConnections bool
+	Connector    Connector
+	ID           string
+	Interpolator Interpolator
+	metrics      sqlds.Metrics
 	// EnableRowLimit: enables using the dataproxy.row_limit setting to limit the number of rows returned by the query
 	// https://grafana.com/docs/grafana/latest/setup-grafana/configure-grafana/#row_limit
 	EnableRowLimit bool
@@ -60,18 +59,12 @@ type HydrolixDatasource struct {
 // NewDatasource creates a new `SQLDatasource`.
 // It uses the provided settings argument to call the ds.Driver to connect to the SQL server
 func (ds *HydrolixDatasource) NewDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-	conn, err := NewConnector(ctx, ds.driver(), settings, ds.EnableMultipleConnections)
-	ds.Interpolator = NewInterpolator(*ds)
+	ds.Interpolator = NewInterpolator(ds)
 	ds.ID = settings.UID
-	if err != nil {
-		return nil, backend.DownstreamError(err)
-	}
-
-	ds.Connector = conn
 
 	ds.metrics = sqlds.NewMetrics(settings.Name, settings.Type, sqlds.EndpointQuery)
 
-	ds.rowLimit = ds.newRowLimit(ctx, conn)
+	ds.rowLimit = ds.newRowLimit(ctx, ds.Connector)
 
 	return ds, nil
 }
