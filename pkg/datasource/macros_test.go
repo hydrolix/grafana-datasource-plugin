@@ -257,7 +257,7 @@ func TestInterpolate(t *testing.T) {
 
 	for i, tc := range tests {
 		db, _, _ := sqlmock.New()
-		interpolator := NewInterpolator(HydrolixDatasource{
+		interpolator := NewInterpolator(&HydrolixDatasource{
 
 			Connector: &MockConnector{
 				db:  db,
@@ -295,10 +295,10 @@ func TestInterpolateWithAutomaticParams(t *testing.T) {
 		{input: "select * from bar where $__timeFilter()", output: "select * from bar where timestamp >= toDateTime(1415792726) AND timestamp <= toDateTime(1447328726)", name: "timeFilter auto timestamp empty param default db"},
 		{input: "select * from foo.bar where $__timeFilter_ms()", output: "select * from foo.bar where timestamp >= fromUnixTimestamp64Milli(1415792726123) AND timestamp <= fromUnixTimestamp64Milli(1447328726456)", name: "timeFilter_ms auto timestamp empty param"},
 		{input: "select * from bar where $__timeFilter_ms()", output: "select * from bar where timestamp >= fromUnixTimestamp64Milli(1415792726123) AND timestamp <= fromUnixTimestamp64Milli(1447328726456)", name: "timeFilter_ms auto timestamp empty param default db"},
-		{input: "select $__timeInterval() from foo.bar", output: "select toStartOfInterval(toDateTime(), INTERVAL 1 second) from foo.bar", name: "timeInterval auto timestamp empty param"},
-		{input: "select $__timeInterval() from bar", output: "select toStartOfInterval(toDateTime(), INTERVAL 1 second) from bar", name: "timeInterval auto timestamp empty param default db"},
-		{input: "select $__timeInterval_ms() from foo.bar", output: "select toStartOfInterval(toDateTime64(, 3), INTERVAL 1 millisecond) from foo.bar", name: "timeInterval_ms auto timestamp empty param"},
-		{input: "select $__timeInterval_ms() from bar", output: "select toStartOfInterval(toDateTime64(, 3), INTERVAL 1 millisecond) from bar", name: "timeInterval_ms auto timestamp empty param default db"},
+		{input: "select $__timeInterval() from foo.bar", output: "select toStartOfInterval(toDateTime(timestamp), INTERVAL 1 second) from foo.bar", name: "timeInterval auto timestamp empty param"},
+		{input: "select $__timeInterval() from bar", output: "select toStartOfInterval(toDateTime(timestamp), INTERVAL 1 second) from bar", name: "timeInterval auto timestamp empty param default db"},
+		{input: "select $__timeInterval_ms() from foo.bar", output: "select toStartOfInterval(toDateTime64(timestamp, 3), INTERVAL 1 millisecond) from foo.bar", name: "timeInterval_ms auto timestamp empty param"},
+		{input: "select $__timeInterval_ms() from bar", output: "select toStartOfInterval(toDateTime64(timestamp, 3), INTERVAL 1 millisecond) from bar", name: "timeInterval_ms auto timestamp empty param default db"},
 	}
 
 	for i, tc := range tests {
@@ -308,7 +308,7 @@ func TestInterpolateWithAutomaticParams(t *testing.T) {
 		mock.ExpectQuery(regexp.QuoteMeta(PRIMARY_KEY_QUERY_STRING)).
 			WithArgs("foo", "bar").
 			WillReturnRows(rows)
-		interpolator := NewInterpolator(HydrolixDatasource{
+		interpolator := NewInterpolator(&HydrolixDatasource{
 
 			Connector: &MockConnector{
 				db:  db,
@@ -346,7 +346,7 @@ func Test(t *testing.T) {
 
 	for i, tc := range tests {
 
-		interpolator := NewInterpolator(HydrolixDatasource{
+		interpolator := NewInterpolator(&HydrolixDatasource{
 			Connector: &MockConnector{
 				uid: "uid-123",
 			},
