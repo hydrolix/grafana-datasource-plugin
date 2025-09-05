@@ -1,10 +1,10 @@
-version: '3.4'
+version: "3.4"
 x-common-variables: &common-variables
   CLUSTER_NODE: demo.trafficpeak.live
   REDIS_USERNAME: chproxy
   REDIS_PASSWORD:
-  HYDROLIX_USERNAME:
-  HYDROLIX_PASSWORD:
+  HYDROLIX_USERNAME: vkohut+dev@hydrolix.io
+  HYDROLIX_PASSWORD: DevTest83
   GF_INSTALL_PLUGINS: "grafana-clickhouse-datasource 4.8.2"
 volumes:
   prometheus_data: {}
@@ -15,7 +15,12 @@ services:
       service: grafana
     container_name: grafana-dashboards
     environment: *common-variables
+#    cap_add:
+#      - SYS_PTRACE
+#    security_opt:
+#      - seccomp=unconfined
+#    ports:
+#      - "2345:2345"
     build:
       args:
-        development: false
-
+        development: true

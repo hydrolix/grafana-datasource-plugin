@@ -6,10 +6,12 @@ toolchain go1.24.4
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.33.1
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/docker/go-connections v0.5.0
 	github.com/grafana/grafana-plugin-sdk-go v0.277.1
 	github.com/grafana/sqlds/v4 v4.2.3
 	github.com/hydrolix/clickhouse-sql-parser v0.1.1
+	github.com/jellydator/ttlcache/v3 v3.4.0
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.10.0
 	github.com/testcontainers/testcontainers-go v0.35.0
@@ -142,7 +144,7 @@ require (
 	golang.org/x/exp v0.0.0-20240909161429-701f63a606c0 // indirect
 	golang.org/x/mod v0.23.0 // indirect
 	golang.org/x/net v0.39.0 // indirect
-	golang.org/x/sync v0.13.0 // indirect
+	golang.org/x/sync v0.15.0 // indirect
 	golang.org/x/sys v0.32.0 // indirect
 	golang.org/x/term v0.31.0 // indirect
 	golang.org/x/text v0.24.0 // indirect

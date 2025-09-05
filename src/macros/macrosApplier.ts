@@ -1,38 +1,12 @@
 import { dateTime } from "@grafana/data";
-import {
-  adHocFilter,
-  conditionalAll,
-  dateFilter,
-  dateTimeFilter,
-  fromTime,
-  fromTime_ms,
-  interval_s,
-  timeFilter,
-  timeFilter_ms,
-  timeInterval,
-  timeInterval_ms,
-  toTime,
-  toTime_ms,
-} from "./macroFunctions";
+import { adHocFilter, conditionalAll } from "./macroFunctions";
 import { Context, MacroFunctionMap } from "../types";
 
 const baseMacroFunctions: MacroFunctionMap = {
   conditionalAll,
-  dateFilter,
-  fromTime,
-  fromTime_ms,
-  interval_s,
-  toTime,
-  toTime_ms,
-  dateTimeFilter,
-  dt: dateTimeFilter,
 };
 const astAwareMacroFunctions: MacroFunctionMap = {
   adHocFilter,
-  timeFilter,
-  timeFilter_ms,
-  timeInterval,
-  timeInterval_ms,
 };
 export const applyBaseMacros = async (sql: string, context: Context) =>
   applyMacros(sql, context, baseMacroFunctions);
@@ -45,9 +19,11 @@ const applyMacros = async (
   context: Context,
   macroFunctionMap: MacroFunctionMap
 ) => {
-  const macroNames = Object.keys(macroFunctionMap).join("|");
+  const macroNames = Object.keys(macroFunctionMap)
+    .map((v) => `\\$__(${v})`)
+    .join("|");
   const macrosRe = new RegExp(
-    `\\$__(${macroNames})(?:\\b\\(\\s*\\)|\\b)(?!(.|\\r\\n|\\r|\\n)*(${macroNames}))`
+    `(${macroNames})(?:\\b\\(\\s*\\)|\\b)(?!(.|\\r\\n|\\r|\\n)*(${macroNames}))`
   );
   //
   while (macrosRe.test(sql)) {
@@ -56,10 +32,10 @@ const applyMacros = async (
       break;
     }
     const macroName = match[1];
-    let argsIndex = match.index + `$__${macroName}`.length;
+    let argsIndex = match.index + `${macroName}`.length;
     let params = parseMacroArgs(sql, argsIndex);
     let hasParams = params && params.length > 0 && params[0] !== "";
-    let phrase = await macroFunctionMap[macroName](
+    let phrase = await macroFunctionMap[macroName.replace("$__", "")](
       params,
       context,
       match.index
@@ -110,8 +86,6 @@ export const parseMacroArgs = (query: string, argsIndex: number): string[] => {
 
 export const emptyContext: Context = {
   templateVars: [],
-  replaceFn: (s) => s,
-  pk: (s) => Promise.resolve(s),
   query: "",
   timeRange: {
     from: dateTime().subtract("5m"),

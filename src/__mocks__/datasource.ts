@@ -5,7 +5,7 @@ import {
   ScopedVars,
 } from "@grafana/data";
 import { DataSource } from "../datasource";
-import { AstResponse, HdxDataSourceOptions } from "../types";
+import { MacroCTEResponse, HdxDataSourceOptions } from "../types";
 import {
   DataSourceWithBackend,
   getBackendSrv,
@@ -53,12 +53,12 @@ const queryMock = jest.fn().mockReturnValue(of({ data: [] }));
 jest
   .spyOn(DataSourceWithBackend.prototype, "query")
   .mockImplementation((args) => queryMock(args));
-jest.spyOn(DataSource.prototype, "getAst").mockReturnValue(
+jest.spyOn(DataSource.prototype, "getMacroCTE").mockReturnValue(
   Promise.resolve({
     originalSql: "",
     error: false,
     data: {},
-  } as AstResponse)
+  } as MacroCTEResponse)
 );
 
 const separatorMap = new Map<string, string>([

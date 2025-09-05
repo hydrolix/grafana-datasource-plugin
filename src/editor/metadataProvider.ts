@@ -103,7 +103,6 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
           queryRunner(AD_HOC_KEY_QUERY.replaceAll("${table}", table)).pipe(
             map((r) => {
               try {
-                console.log("${table}", table);
                 return getKeyMap(r);
               } catch (e: any) {
                 throw new Error(

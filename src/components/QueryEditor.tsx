@@ -145,7 +145,7 @@ export function QueryEditor(props: Props) {
       if (showSql || SHOW_VALIDATION_BAR) {
         if (props.datasource.options) {
           let interpolatedQuery = await props.datasource.interpolateQuery(
-            props.query.rawSql,
+            props.query,
             interpolationId,
             {
               ...props.datasource.options,

@@ -3,11 +3,11 @@ package main
 
 import (
 	"github.com/hydrolix/plugin/pkg/build"
+	"github.com/hydrolix/plugin/pkg/plugin"
 	"os"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/datasource"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
-	"github.com/hydrolix/plugin/pkg/plugin"
 )
 
 func main() {
