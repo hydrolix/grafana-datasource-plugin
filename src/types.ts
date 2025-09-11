@@ -10,6 +10,7 @@ export interface HdxQuery extends DataQuery {
   rawSql: string;
   round: string;
   queryFormat?: string;
+  filters?: AdHocVariableFilter[];
   format?: number;
   skipNextRun?: () => boolean;
   querySettings: { [setting: string]: string };
@@ -170,21 +171,12 @@ export interface MacroFunctionMap {
     params: string[],
     context: Context,
     index: number
-  ) => Promise<string> | string;
+  ) => string;
 }
 
 export interface Context {
-  adHocFilter?: AdHocFilterContext;
   templateVars: TypedVariableModel[];
   query: string;
-  macroCTE?: MacroCTE[];
-  intervalMs?: number;
-  timeRange?: TimeRange;
-}
-
-interface AdHocFilterContext {
-  filters?: AdHocVariableFilter[];
-  keys: (table: string) => Promise<AdHocFilterKeys[]>;
 }
 
 export interface MacroCTE {

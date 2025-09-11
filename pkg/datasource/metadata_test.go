@@ -2,7 +2,7 @@ package datasource
 
 import (
 	"context"
-	"regexp"
+	"fmt"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -17,8 +17,7 @@ func TestQueryPK_Success(t *testing.T) {
 	p := "id"
 	rows := mock.NewRows([]string{"primary_key"}).AddRow(p)
 
-	mock.ExpectQuery(regexp.QuoteMeta(PRIMARY_KEY_QUERY_STRING)).
-		WithArgs("db1", "tbl1").
+	mock.ExpectQuery(fmt.Sprintf(PRIMARY_KEY_QUERY_STRING, "db1", "tbl1")).
 		WillReturnRows(rows)
 
 	ds := &HydrolixDatasource{
@@ -26,6 +25,7 @@ func TestQueryPK_Success(t *testing.T) {
 			db:  db,
 			uid: "uid-123",
 		},
+		rowLimit: defaultRowLimit,
 	}
 	provider := &MetaDataProvider{ds: ds}
 	pk, err := provider.QueryPK("db1", "tbl1")
@@ -51,8 +51,7 @@ func TestQueryPK_NoRows_ReturnsNotFound(t *testing.T) {
 
 	// Zero rows -> field.Len()==0 -> PRIMARY_KEY_NOT_FOUND_ERROR
 	rows := sqlmock.NewRows([]string{"primary_key"})
-	mock.ExpectQuery(regexp.QuoteMeta(PRIMARY_KEY_QUERY_STRING)).
-		WithArgs("db2", "tbl2").
+	mock.ExpectQuery(fmt.Sprintf(PRIMARY_KEY_QUERY_STRING, "db2", "tbl2")).
 		WillReturnRows(rows)
 
 	ds := &HydrolixDatasource{
@@ -60,6 +59,7 @@ func TestQueryPK_NoRows_ReturnsNotFound(t *testing.T) {
 			db:  db,
 			uid: "uid-abc",
 		},
+		rowLimit: defaultRowLimit,
 	}
 	provider := &MetaDataProvider{ds: ds}
 
@@ -82,14 +82,13 @@ func TestGetPK_UsesCache_AvoidsSecondQuery(t *testing.T) {
 
 	// First call: cache miss -> DB hit
 	rows := sqlmock.NewRows([]string{"primary_key"}).AddRow("event_id")
-	mock.ExpectQuery(regexp.QuoteMeta(PRIMARY_KEY_QUERY_STRING)).
-		WithArgs("analytics", "events").WillReturnRows(rows)
-
+	mock.ExpectQuery(fmt.Sprintf(PRIMARY_KEY_QUERY_STRING, "analytics", "events")).
+		WillReturnRows(rows)
 	mc := &MockConnector{
 		db:  db,
 		uid: "uid-cache",
 	}
-	ds := &HydrolixDatasource{Connector: mc}
+	ds := &HydrolixDatasource{Connector: mc, rowLimit: defaultRowLimit}
 	provider := NewMetaDataProvider(ds)
 
 	ctx := context.Background()

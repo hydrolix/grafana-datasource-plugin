@@ -309,10 +309,16 @@ func (m *MockConnector) storeDBConnection(_ string, _ dbConnection) {}
 func (m *MockConnector) Dispose() {}
 
 func (m *MockConnector) GetConnectionFromQuery(_ context.Context, _ *sqlutil.Query) (string, dbConnection, error) {
+	m.connCalls++
 	return "key", dbConnection{db: m.db}, nil
 }
 
-func (m *MockConnector) GetDriver() sqlds.Driver { return nil }
+func (m *MockConnector) GetDriver() sqlds.Driver {
+	return &stubDriver{
+		settings:   sqlds.DriverSettings{},
+		connectDBs: []*sql.DB{},
+	}
+}
 
 func (m *MockConnector) GetUID() string { return m.uid }
 

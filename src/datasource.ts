@@ -40,11 +40,9 @@ import {
   ZERO_TIME_RANGE,
 } from "./editor/metadataProvider";
 import { getColumnValuesStatement } from "./ast";
-import { getFirstValidRound, roundTimeRange } from "./editor/timeRangeUtils";
-import { applyAstAwareMacro, applyBaseMacros } from "./macros/macrosApplier";
-import { validateQuery } from "./editor/queryValidation";
 import { SYNTHETIC_EMPTY, SYNTHETIC_NULL } from "./constants";
 import { replace } from "./syntheticVariables";
+import { applyConditionalAll } from "./macros/macrosApplier";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -81,6 +79,7 @@ export class DataSource extends DataSourceWithBackend<
   }
 
   query(request: DataQueryRequest<HdxQuery>): Observable<DataQueryResponse> {
+    console.log("query  ", request.filters, request);
     if (request.range !== ZERO_TIME_RANGE) {
       this.options = request;
     }
@@ -146,24 +145,6 @@ export class DataSource extends DataSourceWithBackend<
     t: HdxQuery,
     request: DataQueryRequest<HdxQuery>
   ) {
-    let interpolationResult: InterpolationResult;
-    try {
-      interpolationResult = await this.preInterpolateQuery(
-        t.rawSql,
-        "",
-        request,
-        getFirstValidRound([
-          t.round,
-          this.instanceSettings.jsonData.defaultRound || "",
-        ])
-      );
-    } catch (e: any) {
-      console.error(e);
-      throw new Error(`cannot interpolate query, ${e?.message}`);
-    }
-    if (!interpolationResult.finalSql && interpolationResult.hasError) {
-      throw new Error(interpolationResult.error);
-    }
     const querySettings = (
       this.instanceSettings.jsonData.querySettings ?? []
     ).reduce((acc: { [key: string]: any }, s) => {
@@ -176,8 +157,6 @@ export class DataSource extends DataSourceWithBackend<
 
     return {
       ...t,
-      rawSql: interpolationResult.finalSql ?? "",
-      filters: undefined,
       querySettings,
       meta: {
         timezone: this.resolveTimezone(request),
@@ -187,137 +166,50 @@ export class DataSource extends DataSourceWithBackend<
 
   public async interpolateQuery(
     query: HdxQuery,
-    interpolationId: string,
-    request: Partial<DataQueryRequest<HdxQuery>>,
-    round?: string
+    interpolationId: string
   ): Promise<InterpolationResult> {
-    let result = await this.preInterpolateQuery(
-      query.rawSql,
+    let macroContext: Context = {
+      templateVars: this.templateSrv.getVariables(),
+      query: query.rawSql,
+    };
+    let sql = applyConditionalAll(query.rawSql, macroContext);
+
+    sql = this.templateSrv.replace(sql);
+
+    let result: InterpolationResult = {
+      originalSql: query.rawSql,
       interpolationId,
-      request,
-      round
-    );
-    if (!result.hasError) {
-      try {
-        let interpolationResponse = await this.getInterpolatedQuery({
-          ...query,
-          rawSql: result.interpolatedSql ?? "",
-          round: round ?? query.round,
-        });
-        if (interpolationResponse.error) {
-          result = {
-            ...result,
-            hasError: true,
-            error: interpolationResponse.errorMessage,
-          };
-        } else {
-          result = {
-            ...result,
-            interpolatedSql: interpolationResponse.data,
-          };
-        }
-      } catch (e: any) {
-        console.error(e);
+      interpolatedSql: sql,
+      finalSql: sql,
+      hasError: false,
+      hasWarning: false,
+    };
+    try {
+      let interpolationResponse = await this.getInterpolatedQuery({
+        ...query,
+        rawSql: sql,
+      });
+      if (interpolationResponse.error) {
         result = {
           ...result,
           hasError: true,
-          error: "Unknown ast parsing error",
+          error: interpolationResponse.errorMessage,
+        };
+      } else {
+        result = {
+          ...result,
+          interpolatedSql: interpolationResponse.data,
         };
       }
-    }
-    return result;
-  }
-
-  public async preInterpolateQuery(
-    sql: string,
-    interpolationId: string,
-    request: Partial<DataQueryRequest<HdxQuery>>,
-    round?: string
-  ): Promise<InterpolationResult> {
-    let preInterpolatedSql = sql;
-    try {
-      let macroContext: Context = {
-        templateVars: this.templateSrv.getVariables(),
-        intervalMs: request.intervalMs,
-        query: sql,
-        timeRange:
-          round && request.range
-            ? roundTimeRange(request.range, round)
-            : request.range,
-      };
-      preInterpolatedSql = await applyBaseMacros(sql, macroContext);
-
-      preInterpolatedSql = this.templateSrv.replace(preInterpolatedSql);
-
-      let macroCTEResponse;
-      try {
-        macroCTEResponse = await this.getMacroCTE(preInterpolatedSql);
-      } catch (e: any) {
-        console.error(e);
-        macroCTEResponse = {
-          originalSql: preInterpolatedSql,
-          error: true,
-          errorMessage: "Unknown ast parsing error",
-        };
-      }
-
-      try {
-        preInterpolatedSql = await applyAstAwareMacro(preInterpolatedSql, {
-          ...macroContext,
-          query: preInterpolatedSql,
-          macroCTE: macroCTEResponse.data,
-          adHocFilter: {
-            filters: request.filters,
-            keys: (table: string) => this.metadataProvider.tableKeys(table),
-          },
-        });
-      } catch (e: any) {
-        return {
-          originalSql: sql,
-          interpolationId,
-          interpolatedSql: preInterpolatedSql,
-          hasError: true,
-          hasWarning: false,
-          error: macroCTEResponse.error
-            ? this.wrapSyntaxError(
-                macroCTEResponse.errorMessage,
-                preInterpolatedSql
-              )
-            : e.message,
-        };
-      }
-      if (!macroCTEResponse.data) {
-        return {
-          originalSql: sql,
-          interpolationId,
-          interpolatedSql: preInterpolatedSql,
-          finalSql: preInterpolatedSql,
-          hasError: false,
-          hasWarning: false,
-        };
-      }
-      let validationResult = validateQuery(macroCTEResponse.data);
-      return {
-        originalSql: sql,
-        interpolationId,
-        interpolatedSql: preInterpolatedSql,
-        finalSql: preInterpolatedSql,
-        hasError: !!validationResult?.error,
-        hasWarning: !!validationResult?.warning,
-        error: validationResult?.error,
-        warning: validationResult?.warning,
-      };
     } catch (e: any) {
       console.error(e);
-      return {
-        originalSql: sql,
-        interpolationId,
-        interpolatedSql: preInterpolatedSql,
+      result = {
+        ...result,
         hasError: true,
-        hasWarning: false,
-        error: e.message || "Unknown Error",
+        error: "Unknown ast parsing error",
       };
     }
+    return result;
   }
 
   wrapSyntaxError(errorMessage: string, query: string) {
@@ -342,10 +234,19 @@ export class DataSource extends DataSourceWithBackend<
     return DEFAULT_QUERY;
   }
 
-  applyTemplateVariables(query: HdxQuery, scoped: ScopedVars): HdxQuery {
+  applyTemplateVariables(
+    query: HdxQuery,
+    scoped: ScopedVars,
+    filters: AdHocVariableFilter[] = []
+  ): HdxQuery {
     let rawQuery = query.rawSql || "";
+    rawQuery = applyConditionalAll(rawQuery, {
+      query: rawQuery,
+      templateVars: this.templateSrv.getVariables(),
+    });
     return {
       ...query,
+      filters,
       rawSql: this.replace(rawQuery, scoped) || "",
     };
   }
@@ -366,6 +267,7 @@ export class DataSource extends DataSourceWithBackend<
         rawSql: query.rawSql,
         range: this.options?.range,
         interval: this.options?.interval,
+        filters: this.filters,
         round: query.round,
       },
     }).then((a: any) => ({
@@ -429,17 +331,11 @@ export class DataSource extends DataSourceWithBackend<
     if (!sql) {
       return [];
     }
+    console.log("options.filters", options);
     let response = await this.metadataProvider.executeQuery(
-      (
-        await this.preInterpolateQuery(sql, "", {
-          ...this.options,
-          filters: options.filters,
-          range:
-            options.timeRange ||
-            this.instanceSettings.jsonData.adHocDefaultTimeRange,
-        })
-      ).interpolatedSql || "",
-      options.timeRange
+      sql,
+      options.timeRange,
+      options.filters
     );
     let fields: Field[] = response.data[0]?.fields?.length
       ? response.data[0].fields

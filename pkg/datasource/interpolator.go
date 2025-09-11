@@ -2,10 +2,10 @@ package datasource
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
-	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
 	"regexp"
 	"sort"
@@ -93,7 +93,11 @@ func parseArgs(argString string) ([]string, int) {
 }
 
 // Interpolate returns an interpolated query string given a backend.DataQuery
-func (i Interpolator) Interpolate(query *sqlutil.Query, ctx context.Context) (string, error) {
+func (i Interpolator) Interpolate(query *HDXQuery, ctx context.Context) (string, error) {
+	if query.Round != "" && query.Round != "0" {
+		query.TimeRange = RoundTimeRange(query.TimeRange, query.Round)
+	}
+
 	// sort macros so longer macros are applied first to prevent it from being
 	// overridden by a shorter macro that is a substring of the longer one
 	sortedMacroKeys := make([]string, 0, len(i.macros))
@@ -223,4 +227,64 @@ func GetMacroCTEs(ast []parser.Expr) (map[MacroId]CTE, error) {
 		}
 	}
 	return visitor.macroIds, nil
+}
+
+func GetQuery(query backend.DataQuery, timeRange *backend.TimeRange, interval *time.Duration) (*HDXQuery, error) {
+	q := &HDXQuery{}
+
+	if err := json.Unmarshal(query.JSON, &q); err != nil {
+		return nil, backend.DownstreamError(fmt.Errorf("error unmarshaling query JSON to the Query Model: %v", err))
+	}
+	if timeRange == nil {
+		timeRange = &query.TimeRange
+	}
+
+	if interval == nil {
+		interval = &query.Interval
+	}
+
+	// Copy directly from the well typed query
+	return &HDXQuery{
+		RawSQL:        q.RawSQL,
+		Format:        q.Format,
+		Round:         q.Round,
+		QuerySettings: q.QuerySettings,
+		Filters:       q.Filters,
+		Meta:          q.Meta,
+		TimeRange:     *timeRange,
+		Interval:      *interval,
+	}, nil
+}
+
+func (q *HDXQuery) WithSQL(rawSql string) *HDXQuery {
+	return &HDXQuery{
+		RawSQL:        rawSql,
+		Format:        q.Format,
+		Round:         q.Round,
+		QuerySettings: q.QuerySettings,
+		Filters:       q.Filters,
+		Meta:          q.Meta,
+		TimeRange:     q.TimeRange,
+		Interval:      q.Interval,
+	}
+}
+
+type HDXQuery struct {
+	RawSQL        string         `json:"rawSql"`
+	Format        int            `json:"format"`
+	Round         string         `json:"round,omitempty"`
+	QuerySettings map[string]any `json:"querySettings,omitempty"`
+	Filters       []AdHocFilter  `json:"filters,omitempty"`
+	Meta          struct {
+		TimeZone string `json:"timezone"`
+	} `json:"meta"`
+	TimeRange backend.TimeRange `json:"-"`
+	Interval  time.Duration     `json:"-"`
+}
+
+type AdHocFilter struct {
+	Key      string   `json:"key"`
+	Operator string   `json:"operator"`
+	Value    string   `json:"value"`
+	Values   []string `json:"values,omitempty"`
 }

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
 	"github.com/hydrolix/plugin/pkg/datasource"
 	"maps"
@@ -53,9 +52,6 @@ func Interpolate(ds *datasource.HydrolixDatasource, rw http.ResponseWriter, req 
 		return
 	}
 	timeRange := request.Data.Range.ToTimeRange()
-	if request.Data.Round != "" && request.Data.Round != "0" {
-		timeRange = datasource.RoundTimeRange(timeRange, request.Data.Round)
-	}
 	interval, err := time.ParseDuration(request.Data.Interval)
 
 	if err != nil {
@@ -64,8 +60,10 @@ func Interpolate(ds *datasource.HydrolixDatasource, rw http.ResponseWriter, req 
 	}
 
 	body, err := ds.Interpolator.Interpolate(
-		&sqlutil.Query{
+		&datasource.HDXQuery{
 			RawSQL:    request.Data.RawSql,
+			Filters:   request.Data.Filters,
+			Round:     request.Data.Round,
 			Interval:  interval,
 			TimeRange: timeRange,
 		}, req.Context())
@@ -147,10 +145,11 @@ type Request[T any] struct {
 	Data T
 }
 type QueryData struct {
-	RawSql   string `json:"rawSql"`
-	Round    string `json:"round"`
-	Range    Range  `json:"range"`
-	Interval string `json:"interval"`
+	RawSql   string                   `json:"rawSql"`
+	Round    string                   `json:"round"`
+	Filters  []datasource.AdHocFilter `json:"filters"`
+	Range    Range                    `json:"range"`
+	Interval string                   `json:"interval"`
 }
 
 type Range struct {
