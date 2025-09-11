@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/hydrolix/plugin/pkg/datasource"
 	"maps"
 	"strconv"
 	"time"
@@ -249,10 +248,6 @@ func (h *Hydrolix) MutateQuery(ctx context.Context, req backend.DataQuery) (cont
 
 	if err := json.Unmarshal(req.JSON, &dataQuery); err != nil {
 		return ctx, req
-	}
-
-	if dataQuery.Round != "" && dataQuery.Round != "0" {
-		req.TimeRange = datasource.RoundTimeRange(req.TimeRange, dataQuery.Round)
 	}
 
 	if dataQuery.Meta.TimeZone != "" {

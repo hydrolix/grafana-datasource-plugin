@@ -2,44 +2,8 @@ import { AdHocVariableFilter } from "@grafana/data";
 import { SYNTHETIC_EMPTY, SYNTHETIC_NULL, VARIABLE_REGEX } from "../constants";
 import { Context } from "types";
 
-export const adHocFilter = async (
-  _: string[],
-  context: Context,
-  index?: number
-): Promise<string> => {
-  let condition;
-  if (context.adHocFilter?.filters?.length) {
-    let tableName;
-    if (context?.macroCTE) {
-      tableName = context.macroCTE.find((t) => t.macroPos === index)?.cte;
-    }
-    if (!tableName) {
-      throw new Error(
-        `Cannot apply ad hoc filters: unable to resolve tableName for ad hoc filter at index ${index}`
-      );
-    }
-
-    let keys = await context.adHocFilter.keys(tableName);
-    let columns = keys.map((key) => key.text);
-    let typeByColumn = keys.reduce((acc, key) => {
-      acc[key.text] = key.type;
-      return acc;
-    }, {} as { [key: string]: string });
-    condition = context.adHocFilter.filters
-      .filter((f) => columns.includes(f.key))
-      .map((f) =>
-        getFilterExpression(
-          f,
-          (typeByColumn[f.key] ?? "").toLowerCase().includes("string")
-        )
-      )
-      .join(" AND ");
-  }
-  if (!condition) {
-    condition = "1=1";
-  }
-  return condition;
-};
+// adHocFilter moved to backend implementation
+// The functions below are kept for testing purposes only
 
 export const getFilterExpression = (
   filter: AdHocVariableFilter,
@@ -118,10 +82,7 @@ export const getFilterExpression = (
 export const prepareWildcardQuery = (v: string) =>
   v.replaceAll(/(?<!\\)\*/g, "%").replaceAll("\\*", "*");
 
-export const conditionalAll = async (
-  params: string[],
-  context: Context
-): Promise<string> => {
+export const conditionalAll = (params: string[], context: Context): string => {
   if (params.length !== 2) {
     throw new Error("Macro $__conditionalAll should contain 2 parameters");
   }

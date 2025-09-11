@@ -1,20 +1,10 @@
-import { dateTime } from "@grafana/data";
-import { adHocFilter, conditionalAll } from "./macroFunctions";
+import { conditionalAll } from "./macroFunctions";
 import { Context, MacroFunctionMap } from "../types";
 
-const baseMacroFunctions: MacroFunctionMap = {
-  conditionalAll,
-};
-const astAwareMacroFunctions: MacroFunctionMap = {
-  adHocFilter,
-};
-export const applyBaseMacros = async (sql: string, context: Context) =>
-  applyMacros(sql, context, baseMacroFunctions);
+export const applyConditionalAll = (sql: string, context: Context) =>
+  applyMacros(sql, context, { conditionalAll });
 
-export const applyAstAwareMacro = async (sql: string, context: Context) =>
-  applyMacros(sql, context, astAwareMacroFunctions);
-
-const applyMacros = async (
+const applyMacros = (
   sql: string,
   context: Context,
   macroFunctionMap: MacroFunctionMap
@@ -35,7 +25,7 @@ const applyMacros = async (
     let argsIndex = match.index + `${macroName}`.length;
     let params = parseMacroArgs(sql, argsIndex);
     let hasParams = params && params.length > 0 && params[0] !== "";
-    let phrase = await macroFunctionMap[macroName.replace("$__", "")](
+    let phrase = macroFunctionMap[macroName.replace("$__", "")](
       params,
       context,
       match.index
@@ -87,9 +77,4 @@ export const parseMacroArgs = (query: string, argsIndex: number): string[] => {
 export const emptyContext: Context = {
   templateVars: [],
   query: "",
-  timeRange: {
-    from: dateTime().subtract("5m"),
-    to: dateTime(),
-    raw: { from: "now-5m", to: "now" },
-  },
 };

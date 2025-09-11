@@ -25,10 +25,7 @@ import {
   Select,
   ToolbarButton,
 } from "@grafana/ui";
-import {
-  getFirstValidRound,
-  QUERY_DURATION_REGEX,
-} from "../editor/timeRangeUtils";
+import { QUERY_DURATION_REGEX } from "../editor/timeRangeUtils";
 import { InterpolatedQuery } from "./InterpolatedQuery";
 import { ValidationBar } from "./ValidationBar";
 import { useDebounce } from "react-use";
@@ -146,15 +143,7 @@ export function QueryEditor(props: Props) {
         if (props.datasource.options) {
           let interpolatedQuery = await props.datasource.interpolateQuery(
             props.query,
-            interpolationId,
-            {
-              ...props.datasource.options,
-              filters: props.datasource.filters,
-            },
-            getFirstValidRound([
-              props.query.round,
-              props.datasource.instanceSettings.jsonData.defaultRound || "",
-            ])
+            interpolationId
           );
           setInterpolationResult(interpolatedQuery);
         } else {

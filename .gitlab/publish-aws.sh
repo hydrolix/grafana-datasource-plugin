@@ -30,7 +30,7 @@ fi
 PATH_SUFFIX="grafana-datasource-plugin/$ZIP_NAME"
 
 S3_PATH="s3://hdx-public/$PATH_SUFFIX"
-PUBLIC_PATH="https://hdx-public.s3.us-east-2.amazonaws.com/$PATH_SUFFIX"
+PUBLIC_PATH="https://hdx-public.s3.us-east-2.amazonaws.com/${PATH_SUFFIX/+/%2B}"
 
 echo "Uploading $ZIP_NAME to $S3_PATH ..."
 aws s3 cp "$ZIP_NAME" "$S3_PATH"

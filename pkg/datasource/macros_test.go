@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 	"github.com/DATA-DOG/go-sqlmock"
-	"regexp"
 	"testing"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -50,7 +48,7 @@ func TestTimeToDateTime64(t *testing.T) {
 func TestMacroFromTimeFilter(t *testing.T) {
 	from, _ := time.Parse("2006-01-02T15:04:05.000Z", "2014-11-12T11:45:26.371Z")
 	to, _ := time.Parse("2006-01-02T15:04:05.000Z", "2015-11-12T11:45:26.371Z")
-	query := sqlutil.Query{
+	query := HDXQuery{
 		TimeRange: backend.TimeRange{
 			From: from,
 			To:   to,
@@ -82,7 +80,7 @@ func TestMacroFromTimeFilter(t *testing.T) {
 func TestMacroToTimeFilter(t *testing.T) {
 	from, _ := time.Parse("2006-01-02T15:04:05.000Z", "2014-11-12T11:45:26.371Z")
 	to, _ := time.Parse("2006-01-02T15:04:05.000Z", "2015-11-12T11:45:26.371Z")
-	query := sqlutil.Query{
+	query := HDXQuery{
 		TimeRange: backend.TimeRange{
 			From: from,
 			To:   to,
@@ -114,7 +112,7 @@ func TestMacroToTimeFilter(t *testing.T) {
 func TestMacroFromTimeFilterMs(t *testing.T) {
 	from, _ := time.Parse("2006-01-02T15:04:05.000Z", "2014-11-12T11:45:26.371Z")
 	to, _ := time.Parse("2006-01-02T15:04:05.000Z", "2015-11-12T11:45:26.371Z")
-	query := sqlutil.Query{
+	query := HDXQuery{
 		TimeRange: backend.TimeRange{
 			From: from,
 			To:   to,
@@ -146,7 +144,7 @@ func TestMacroFromTimeFilterMs(t *testing.T) {
 func TestMacroToTimeFilterMs(t *testing.T) {
 	from, _ := time.Parse("2006-01-02T15:04:05.000Z", "2014-11-12T11:45:26.371Z")
 	to, _ := time.Parse("2006-01-02T15:04:05.000Z", "2015-11-12T11:45:26.371Z")
-	query := sqlutil.Query{
+	query := HDXQuery{
 		TimeRange: backend.TimeRange{
 			From: from,
 			To:   to,
@@ -178,7 +176,7 @@ func TestMacroToTimeFilterMs(t *testing.T) {
 func TestMacroDateFilter(t *testing.T) {
 	from, _ := time.Parse("2006-01-02T15:04:05.000Z", "2014-11-12T11:45:26.371Z")
 	to, _ := time.Parse("2006-01-02T15:04:05.000Z", "2015-11-12T11:45:26.371Z")
-	query := sqlutil.Query{
+	query := HDXQuery{
 		TimeRange: backend.TimeRange{
 			From: from,
 			To:   to,
@@ -192,7 +190,7 @@ func TestMacroDateFilter(t *testing.T) {
 func TestMacroDateTimeFilter(t *testing.T) {
 	from, _ := time.Parse("2006-01-02T15:04:05.000Z", "2014-11-12T11:45:26.371Z")
 	to, _ := time.Parse("2006-01-02T15:04:05.000Z", "2015-11-12T11:45:26.371Z")
-	query := sqlutil.Query{
+	query := HDXQuery{
 		TimeRange: backend.TimeRange{
 			From: from,
 			To:   to,
@@ -204,7 +202,7 @@ func TestMacroDateTimeFilter(t *testing.T) {
 }
 
 func TestMacroTimeInterval(t *testing.T) {
-	query := sqlutil.Query{
+	query := HDXQuery{
 		RawSQL:   "select $__timeInterval(col) from foo",
 		Interval: time.Duration(20000000000),
 	}
@@ -214,7 +212,7 @@ func TestMacroTimeInterval(t *testing.T) {
 }
 
 func TestMacroTimeIntervalMs(t *testing.T) {
-	query := sqlutil.Query{
+	query := HDXQuery{
 		RawSQL:   "select $__timeInterval_ms(col) from foo",
 		Interval: time.Duration(20000000000),
 	}
@@ -224,7 +222,7 @@ func TestMacroTimeIntervalMs(t *testing.T) {
 }
 
 func TestMacroIntervalSeconds(t *testing.T) {
-	query := sqlutil.Query{
+	query := HDXQuery{
 		RawSQL:   "select toStartOfInterval(col, INTERVAL $__interval_s second) AS time from foo",
 		Interval: time.Duration(20000000000),
 	}
@@ -265,7 +263,7 @@ func TestInterpolate(t *testing.T) {
 			},
 		})
 		t.Run(fmt.Sprintf("[%d/%d] %s", i+1, len(tests), tc.name), func(t *testing.T) {
-			query := &sqlutil.Query{
+			query := &HDXQuery{
 				RawSQL: tc.input,
 				TimeRange: backend.TimeRange{
 					From: from,
@@ -305,8 +303,7 @@ func TestInterpolateWithAutomaticParams(t *testing.T) {
 		db, mock, _ := sqlmock.New()
 
 		rows := sqlmock.NewRows([]string{"primary_key"}).AddRow("timestamp")
-		mock.ExpectQuery(regexp.QuoteMeta(PRIMARY_KEY_QUERY_STRING)).
-			WithArgs("foo", "bar").
+		mock.ExpectQuery(fmt.Sprintf(PRIMARY_KEY_QUERY_STRING, "foo", "bar")).
 			WillReturnRows(rows)
 		interpolator := NewInterpolator(&HydrolixDatasource{
 
@@ -314,9 +311,10 @@ func TestInterpolateWithAutomaticParams(t *testing.T) {
 				db:  db,
 				uid: "uid-123",
 			},
+			rowLimit: defaultRowLimit,
 		})
 		t.Run(fmt.Sprintf("[%d/%d] %s", i+1, len(tests), tc.name), func(t *testing.T) {
-			query := &sqlutil.Query{
+			query := &HDXQuery{
 				RawSQL: tc.input,
 				TimeRange: backend.TimeRange{
 					From: from,
@@ -330,8 +328,7 @@ func TestInterpolateWithAutomaticParams(t *testing.T) {
 	}
 }
 
-// test sqlds query interpolation with clickhouse filters used
-func Test(t *testing.T) {
+func TestNegativeCases(t *testing.T) {
 
 	type test struct {
 		name  string
@@ -352,12 +349,311 @@ func Test(t *testing.T) {
 			},
 		})
 		t.Run(fmt.Sprintf("[%d/%d] %s", i+1, len(tests), tc.name), func(t *testing.T) {
-			query := &sqlutil.Query{
+			query := &HDXQuery{
 				RawSQL: tc.input,
 			}
 			_, err := interpolator.Interpolate(query, context.Background())
 			require.Error(t, err, tc.error)
 			require.Equal(t, err.Error(), tc.error)
+		})
+	}
+}
+
+func TestAdHocFilterMacro(t *testing.T) {
+	type test struct {
+		name    string
+		input   string
+		output  string
+		filters []AdHocFilter
+	}
+
+	tests := []test{
+		{
+			input:   "select * from foo where $__adHocFilter()",
+			output:  "select * from foo where 1=1",
+			filters: []AdHocFilter{},
+			name:    "no filters test",
+		},
+		{
+			input:   "select * from foo where $__adHocFilter()",
+			output:  "select * from foo where column = $$test$$",
+			filters: []AdHocFilter{{Key: "column", Operator: "=", Value: "test"}},
+			name:    "single equals filter",
+		},
+		{
+			input:  "select * from foo where $__adHocFilter()",
+			output: "select * from foo where column = $$test$$ AND column2 != $$value2$$",
+			filters: []AdHocFilter{
+				{Key: "column", Operator: "=", Value: "test"},
+				{Key: "column2", Operator: "!=", Value: "value2"},
+			},
+			name: "multiple filters",
+		},
+		{
+			input:   "select * from foo where $__adHocFilter()",
+			output:  "select * from foo where column IS NULL",
+			filters: []AdHocFilter{{Key: "column", Operator: "=", Value: "null"}},
+			name:    "null value filter",
+		},
+		{
+			input:   "select * from foo where $__adHocFilter()",
+			output:  "select * from foo where (column = '' OR column = '__empty__')",
+			filters: []AdHocFilter{{Key: "column", Operator: "=", Value: ""}},
+			name:    "empty value filter",
+		},
+		{
+			input:   "select * from foo where $__adHocFilter()",
+			output:  "select * from foo where toString(column) LIKE $$%pattern%$$",
+			filters: []AdHocFilter{{Key: "column", Operator: "=~", Value: "*pattern*"}},
+			name:    "regex wildcard filter",
+		},
+		{
+			input:   "select * from foo where $__adHocFilter()",
+			output:  "select * from foo where toString(column) NOT LIKE $$pattern$$",
+			filters: []AdHocFilter{{Key: "column", Operator: "!~", Value: "pattern"}},
+			name:    "regex not match filter",
+		},
+		{
+			input:   "select * from foo where $__adHocFilter()",
+			output:  "select * from foo where column IN ($$a$$, $$b$$, $$c$$)",
+			filters: []AdHocFilter{{Key: "column", Operator: "=|", Values: []string{"a", "b", "c"}}},
+			name:    "multi-value IN filter",
+		},
+		{
+			input:   "select * from foo where $__adHocFilter()",
+			output:  "select * from foo where column NOT IN ($$a$$, $$b$$, $$c$$)",
+			filters: []AdHocFilter{{Key: "column", Operator: "!=|", Values: []string{"a", "b", "c"}}},
+			name:    "multi-value NOT IN filter",
+		},
+		{
+			input:   "select * from foo where $__adHocFilter()",
+			output:  "select * from foo where column IS NULL OR column IN ($$a$$, $$c$$)",
+			filters: []AdHocFilter{{Key: "column", Operator: "=|", Values: []string{"a", "null", "c"}}},
+			name:    "multi-value IN with null",
+		},
+		{
+			input:   "select * from foo where $__adHocFilter()",
+			output:  "select * from foo where column IS NOT NULL AND column NOT IN ($$a$$, $$c$$)",
+			filters: []AdHocFilter{{Key: "column", Operator: "!=|", Values: []string{"a", "null", "c"}}},
+			name:    "multi-value NOT IN with null",
+		},
+		{
+			input:   "select * from foo where $__adHocFilter()",
+			output:  "select * from foo where 1=1",
+			filters: []AdHocFilter{{Key: "nonexistent", Operator: "=", Value: "test"}},
+			name:    "filter on non-existent column",
+		},
+		{
+			input:   "select * from foo where $__adHocFilter()",
+			output:  "select * from foo where column = $$val'ue$$",
+			filters: []AdHocFilter{{Key: "column", Operator: "=", Value: "val'ue"}},
+			name:    "value with single quotes",
+		},
+		{
+			input:   "select * from foo where $__adHocFilter()",
+			output:  "select * from foo where column IN ($$$$, $$b$$)",
+			filters: []AdHocFilter{{Key: "column", Operator: "=|", Values: []string{"", "b"}}},
+			name:    "multi-value IN with empty string",
+		},
+	}
+	for i, tc := range tests {
+		db, mock, _ := sqlmock.New()
+
+		rows := sqlmock.NewRows([]string{"name", "type"}).
+			AddRow("column", "Nullable(String)").
+			AddRow("column2", "UInt64")
+		mock.ExpectQuery(fmt.Sprintf(AD_HOC_KEY_QUERY, "foo")).
+			WillReturnRows(rows)
+		interpolator := NewInterpolator(&HydrolixDatasource{
+
+			Connector: &MockConnector{
+				db:  db,
+				uid: "uid-123",
+			},
+			rowLimit: defaultRowLimit,
+		})
+		t.Run(fmt.Sprintf("[%d/%d] %s", i+1, len(tests), tc.name), func(t *testing.T) {
+			query := &HDXQuery{
+				RawSQL:  tc.input,
+				Filters: tc.filters,
+			}
+			interpolatedQuery, err := interpolator.Interpolate(query, context.Background())
+			require.Nil(t, err)
+			assert.Equal(t, tc.output, interpolatedQuery)
+		})
+	}
+}
+
+func TestBuildFilterCondition(t *testing.T) {
+	tests := []struct {
+		name     string
+		filter   AdHocFilter
+		expected string
+		wantErr  bool
+	}{
+		{
+			name:     "equals operator",
+			filter:   AdHocFilter{Key: "column", Operator: "=", Value: "value"},
+			expected: "column = $$value$$",
+		},
+		{
+			name:     "equals with empty string",
+			filter:   AdHocFilter{Key: "column", Operator: "=", Value: ""},
+			expected: "(column = '' OR column = '__empty__')",
+		},
+		{
+			name:     "equals with null string",
+			filter:   AdHocFilter{Key: "column", Operator: "=", Value: "null"},
+			expected: "column IS NULL OR column = __null__",
+		},
+		{
+			name:     "not equals operator",
+			filter:   AdHocFilter{Key: "column", Operator: "!=", Value: "value"},
+			expected: "column != $$value$$",
+		},
+		{
+			name:     "not equals with empty string",
+			filter:   AdHocFilter{Key: "column", Operator: "!=", Value: ""},
+			expected: "(column != '' AND column != '__empty__')",
+		},
+		{
+			name:     "not equals with null",
+			filter:   AdHocFilter{Key: "column", Operator: "!=", Value: "null"},
+			expected: "column IS NOT NULL OR column != __null__",
+		},
+		{
+			name:     "regex match",
+			filter:   AdHocFilter{Key: "column", Operator: "=~", Value: "pattern"},
+			expected: "toString(column) LIKE $$pattern$$",
+		},
+		{
+			name:     "regex match with wildcards",
+			filter:   AdHocFilter{Key: "column", Operator: "=~", Value: "*test*"},
+			expected: "toString(column) LIKE $$%test%$$",
+		},
+		{
+			name:     "regex not match",
+			filter:   AdHocFilter{Key: "column", Operator: "!~", Value: "pattern"},
+			expected: "toString(column) NOT LIKE $$pattern$$",
+		},
+		{
+			name:     "multi-value IN",
+			filter:   AdHocFilter{Key: "column", Operator: "=|", Values: []string{"a", "b", "c"}},
+			expected: "column IN ($$a$$, $$b$$, $$c$$)",
+		},
+		{
+			name:     "multi-value IN with null",
+			filter:   AdHocFilter{Key: "column", Operator: "=|", Values: []string{"a", "null", "c"}},
+			expected: "column IS NULL OR column IN ($$a$$, $$c$$)",
+		},
+		{
+			name:     "multi-value IN with empty",
+			filter:   AdHocFilter{Key: "column", Operator: "=|", Values: []string{"a", "", "c"}},
+			expected: "column IN ($$a$$, $$$$, $$c$$)",
+		},
+		{
+			name:     "multi-value NOT IN",
+			filter:   AdHocFilter{Key: "column", Operator: "!=|", Values: []string{"a", "b", "c"}},
+			expected: "column NOT IN ($$a$$, $$b$$, $$c$$)",
+		},
+		{
+			name:     "multi-value NOT IN with null",
+			filter:   AdHocFilter{Key: "column", Operator: "!=|", Values: []string{"a", "null", "c"}},
+			expected: "column IS NOT NULL AND column NOT IN ($$a$$, $$c$$)",
+		},
+		{
+			name:     "single quote escaping",
+			filter:   AdHocFilter{Key: "column", Operator: "=", Value: "val'ue"},
+			expected: "column = $$val'ue$$",
+		},
+		{
+			name:     "less than operator",
+			filter:   AdHocFilter{Key: "column", Operator: "<", Value: "100"},
+			expected: "column < $$100$$",
+		},
+		{
+			name:     "greater than operator",
+			filter:   AdHocFilter{Key: "column", Operator: ">", Value: "50"},
+			expected: "column > $$50$$",
+		},
+		{
+			name:     "multi-value IN empty values",
+			filter:   AdHocFilter{Key: "column", Operator: "=|", Values: []string{}},
+			expected: "",
+		},
+		{
+			name:     "multi-value NOT IN empty values",
+			filter:   AdHocFilter{Key: "column", Operator: "!=|", Values: []string{}},
+			expected: "",
+		},
+		{
+			name:     "multi-value IN only null",
+			filter:   AdHocFilter{Key: "column", Operator: "=|", Values: []string{"null"}},
+			expected: "column IS NULL",
+		},
+		{
+			name:     "multi-value NOT IN only null",
+			filter:   AdHocFilter{Key: "column", Operator: "!=|", Values: []string{"null"}},
+			expected: "column IS NOT NULL",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := buildFilterCondition(tt.filter, true)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestEscapeWildcard(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "no wildcards",
+			input:    "pattern",
+			expected: "pattern",
+		},
+		{
+			name:     "single wildcard",
+			input:    "patt*ern",
+			expected: "patt%ern",
+		},
+		{
+			name:     "multiple wildcards",
+			input:    "*pattern*",
+			expected: "%pattern%",
+		},
+		{
+			name:     "only wildcards",
+			input:    "***",
+			expected: "%%%",
+		},
+		{
+			name:     "escaped wildcard",
+			input:    "foo\\*bar",
+			expected: "foo*bar",
+		},
+		{
+			name:     "escaped and unescaped wildcard",
+			input:    "a*b\\*c*d",
+			expected: "a%b*c%d",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := escapeWildcard(tt.input)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
