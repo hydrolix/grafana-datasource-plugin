@@ -46,7 +46,6 @@ export const getQueryRunner = (
     timeRange?: TimeRange,
     filters?: AdHocVariableFilter[]
   ) => {
-    console.log("filters", filters);
     return ds.query({
       requestId: v4(),
       interval: "0",
