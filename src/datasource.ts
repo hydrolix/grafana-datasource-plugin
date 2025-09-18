@@ -79,7 +79,6 @@ export class DataSource extends DataSourceWithBackend<
   }
 
   query(request: DataQueryRequest<HdxQuery>): Observable<DataQueryResponse> {
-    console.log("query  ", request.filters, request);
     if (request.range !== ZERO_TIME_RANGE) {
       this.options = request;
     }
@@ -331,7 +330,6 @@ export class DataSource extends DataSourceWithBackend<
     if (!sql) {
       return [];
     }
-    console.log("options.filters", options);
     let response = await this.metadataProvider.executeQuery(
       sql,
       options.timeRange,
