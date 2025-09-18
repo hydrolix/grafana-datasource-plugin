@@ -10,6 +10,7 @@ export interface HdxQuery extends DataQuery {
   rawSql: string;
   round: string;
   queryFormat?: string;
+  filters?: AdHocVariableFilter[];
   format?: number;
   skipNextRun?: () => boolean;
   querySettings: { [setting: string]: string };
@@ -89,11 +90,14 @@ export interface AdHocFilterKeys {
   type: string;
 }
 
-export interface AstResponse {
+export interface MacroCTEResponse extends ResourceResponse<MacroCTE[]> {}
+export interface InterpolationResponse extends ResourceResponse<string> {}
+
+export interface ResourceResponse<T> {
   originalSql: string;
   error: boolean;
-  error_message: string;
-  data: any;
+  errorMessage: string;
+  data: T;
 }
 
 export interface InterpolationResult {
@@ -167,21 +171,16 @@ export interface MacroFunctionMap {
     params: string[],
     context: Context,
     index: number
-  ) => Promise<string> | string;
+  ) => string;
 }
 
 export interface Context {
-  adHocFilter?: AdHocFilterContext;
   templateVars: TypedVariableModel[];
-  replaceFn: (s: string) => string;
-  ast?: any;
-  pk: (t: string) => Promise<string>;
   query: string;
-  intervalMs?: number;
-  timeRange?: TimeRange;
 }
 
-interface AdHocFilterContext {
-  filters?: AdHocVariableFilter[];
-  keys: (table: string) => Promise<AdHocFilterKeys[]>;
+export interface MacroCTE {
+  macro: string;
+  macroPos: number;
+  cte: string;
 }

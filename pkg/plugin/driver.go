@@ -60,7 +60,7 @@ func getClientInfoProducts(ctx context.Context) (products []struct{ Name, Versio
 }
 
 // Connect opens a sql.DB connection using datasource settings
-func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanceSettings, message json.RawMessage) (*sql.DB, error) {
+func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanceSettings, _ json.RawMessage) (*sql.DB, error) {
 	settings, err := models.NewPluginSettings(ctx, config)
 	if err != nil {
 		return nil, err
@@ -250,10 +250,6 @@ func (h *Hydrolix) MutateQuery(ctx context.Context, req backend.DataQuery) (cont
 		return ctx, req
 	}
 
-	if dataQuery.Round != "" && dataQuery.Round != "0" {
-		req.TimeRange = roundTimeRange(req.TimeRange, dataQuery.Round)
-	}
-
 	if dataQuery.Meta.TimeZone != "" {
 		loc, _ := time.LoadLocation(dataQuery.Meta.TimeZone)
 		log.DefaultLogger.Info("Update query context with location info", "location", loc.String())
@@ -270,20 +266,6 @@ func (h *Hydrolix) MutateQuery(ctx context.Context, req backend.DataQuery) (cont
 	}
 
 	return ctx, req
-}
-
-// roundTimeRange rounds the time range to provided time interval
-func roundTimeRange(timeRange backend.TimeRange, interval string) backend.TimeRange {
-	if dInterval, err := time.ParseDuration(interval); err == nil && dInterval.Seconds() >= 1 {
-		To := timeRange.To.Round(dInterval)
-		From := timeRange.From.Round(dInterval)
-
-		log.DefaultLogger.Debug("Time range rounded", "original", timeRange, "from", From, "to", To, "interval", interval)
-		return backend.TimeRange{To: To, From: From}
-	}
-
-	log.DefaultLogger.Warn("Using default time range, provided round interval is invalid", "interval", interval)
-	return timeRange
 }
 
 // jsonSet update raw message's root object by applying a value to a key property
@@ -306,7 +288,7 @@ func clickhouseContextHandler(ctx context.Context, settings map[string]any) cont
 
 // MutateResponse converts fields of type FieldTypeNullableJSON to string, except for specific visualizations - traces,
 // tables, and logs.
-func (h *Hydrolix) MutateResponse(ctx context.Context, res data.Frames) (data.Frames, error) {
+func (h *Hydrolix) MutateResponse(_ context.Context, res data.Frames) (data.Frames, error) {
 	for _, frame := range res {
 		if shouldConvertFields(frame.Meta.PreferredVisualization) {
 			if err := convertNullableJSONFields(frame); err != nil {

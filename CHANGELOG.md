@@ -1,4 +1,11 @@
 # Changelog
+## 0.7.0
+
+- **Feature**: Support externally shared dashboards (GRAP-39)
+- **Fix**: All macros support for alerts (GRAP-79)
+- **Fix**: Support of Math expressions using Hydrolix queries (GRAP-104)
+- **Fix**: failing when macro name is present in comment (GRAP-102)
+
 ## 0.6.0
 
 - **Feature**: Service Account support (GRAP-41)

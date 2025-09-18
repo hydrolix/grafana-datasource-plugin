@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/grafana/sqlds/v4"
+	"github.com/hydrolix/plugin/pkg/datasource"
 	"github.com/hydrolix/plugin/pkg/plugin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
@@ -74,7 +74,7 @@ func (s *DatasourceTestSuite) TestDatasourceRunQuery() {
 		assert.NoError(t, err)
 
 		switch ds := db.(type) {
-		case *sqlds.SQLDatasource:
+		case *datasource.HydrolixDatasource:
 			_, err := ds.QueryData(context.Background(), &backend.QueryDataRequest{
 				PluginContext: backend.PluginContext{DataSourceInstanceSettings: &settings},
 				Queries: []backend.DataQuery{
@@ -102,7 +102,7 @@ func (s *DatasourceTestSuite) TestDatasourceRunQuery() {
 		assert.NoError(t, err)
 
 		switch ds := db.(type) {
-		case *sqlds.SQLDatasource:
+		case *datasource.HydrolixDatasource:
 			_, err := ds.QueryData(context.Background(), &backend.QueryDataRequest{
 				PluginContext: backend.PluginContext{DataSourceInstanceSettings: &settings},
 				Queries: []backend.DataQuery{

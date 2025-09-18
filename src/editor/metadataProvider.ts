@@ -1,5 +1,11 @@
 import { firstValueFrom, map, Observable, tap } from "rxjs";
-import { CoreApp, DataQueryResponse, dateTime, TimeRange } from "@grafana/data";
+import {
+  AdHocVariableFilter,
+  CoreApp,
+  DataQueryResponse,
+  dateTime,
+  TimeRange,
+} from "@grafana/data";
 import { v4 } from "uuid";
 import {
   ColumnDefinition,
@@ -30,8 +36,16 @@ export const ZERO_TIME_RANGE = {
 };
 export const getQueryRunner = (
   ds: DataSource
-): ((sql: string, timeRange?: TimeRange) => Observable<DataQueryResponse>) => {
-  return (sql: string, timeRange?: TimeRange) => {
+): ((
+  sql: string,
+  timeRange?: TimeRange,
+  filters?: AdHocVariableFilter[]
+) => Observable<DataQueryResponse>) => {
+  return (
+    sql: string,
+    timeRange?: TimeRange,
+    filters?: AdHocVariableFilter[]
+  ) => {
     return ds.query({
       requestId: v4(),
       interval: "0",
@@ -44,6 +58,7 @@ export const getQueryRunner = (
           refId: "MD",
           round: "",
           querySettings: {},
+          filters,
         },
       ],
       timezone: "UTC",
@@ -64,7 +79,8 @@ export interface MetadataProvider {
   tableKeys: (table: string) => Promise<AdHocFilterKeys[]>;
   executeQuery: (
     query: string,
-    timeRange?: TimeRange
+    timeRange?: TimeRange,
+    filters?: AdHocVariableFilter[]
   ) => Promise<DataQueryResponse>;
 }
 
@@ -103,7 +119,6 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
           queryRunner(AD_HOC_KEY_QUERY.replaceAll("${table}", table)).pipe(
             map((r) => {
               try {
-                console.log("${table}", table);
                 return getKeyMap(r);
               } catch (e: any) {
                 throw new Error(
@@ -175,8 +190,11 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
         : Promise.resolve(primaryKeys[`${t.schema}.${t.table}`]);
     },
     tableKeys: tableKeysFn,
-    executeQuery: (sql: string, timeRange?: TimeRange) =>
-      firstValueFrom(queryRunner(sql, timeRange)),
+    executeQuery: (
+      sql: string,
+      timeRange?: TimeRange,
+      filters?: AdHocVariableFilter[]
+    ) => firstValueFrom(queryRunner(sql, timeRange, filters)),
   };
 };
 

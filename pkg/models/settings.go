@@ -19,8 +19,6 @@ var (
 	ErrorMessageInvalidJSON         = errors.New("invalid settings json")
 	ErrorMessageInvalidHost         = errors.New("Server address is missing")
 	ErrorMessageInvalidPort         = errors.New("Server port is missing")
-	ErrorMessageInvalidUserName     = errors.New("Username is missing")
-	ErrorMessageInvalidPassword     = errors.New("Password is missing")
 	ErrorMessageInvalidProtocol     = errors.New("Protocol should be either native or http")
 	ErrorMessageInvalidQueryTimeout = errors.New("Invalid Query Timeout")
 	ErrorMessageInvalidDialTimeout  = errors.New("Invalid Connect Timeout")
@@ -108,7 +106,7 @@ func (settings *PluginSettings) SetDefaults() {
 }
 
 // NewPluginSettings initializes PluginSettings with data provided by Grafana
-func NewPluginSettings(ctx context.Context, source backend.DataSourceInstanceSettings) (settings PluginSettings, e error) {
+func NewPluginSettings(_ context.Context, source backend.DataSourceInstanceSettings) (settings PluginSettings, e error) {
 	var jsonData map[string]interface{}
 	if err := json.Unmarshal(source.JSONData, &jsonData); err != nil {
 		return settings, fmt.Errorf("%s: %w", err.Error(), ErrorMessageInvalidJSON)
