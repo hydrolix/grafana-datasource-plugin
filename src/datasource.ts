@@ -16,7 +16,10 @@ import {
   TestDataSourceResponse,
 } from "@grafana/data";
 import {
+  BackendSrvRequest,
   DataSourceWithBackend,
+  FetchResponse,
+  getBackendSrv,
   getTemplateSrv,
   logError,
   logWarning,
@@ -32,7 +35,7 @@ import {
   TableIdentifier,
   InterpolationResponse,
 } from "./types";
-import { from, Observable, switchMap } from "rxjs";
+import { from, lastValueFrom, Observable, switchMap } from "rxjs";
 import { map } from "rxjs/operators";
 import { ErrorMessageBeautifier } from "./errorBeautifier";
 import {
@@ -43,6 +46,7 @@ import { getColumnValuesStatement } from "./ast";
 import { SYNTHETIC_EMPTY, SYNTHETIC_NULL } from "./constants";
 import { replace } from "./syntheticVariables";
 import { applyConditionalAll } from "./macros/macrosApplier";
+import { AssistantConfig } from "./assistant/assistantConversation";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -53,11 +57,35 @@ export class DataSource extends DataSourceWithBackend<
   public options: DataQueryRequest<HdxQuery> | undefined;
   public filters: AdHocVariableFilter[] | undefined;
 
+  public readonly aiAssistantConfig?: AssistantConfig;
+
   constructor(
     public instanceSettings: DataSourceInstanceSettings<HdxDataSourceOptions>,
     readonly templateSrv: TemplateSrv = getTemplateSrv()
   ) {
     super(instanceSettings);
+
+    if (!instanceSettings.jsonData.aiEnabled) {
+      this.aiAssistantConfig = undefined;
+    } else {
+      this.aiAssistantConfig = {
+        fetch: async <T = unknown>(
+          path: string,
+          data?: BackendSrvRequest["data"],
+          options?: Partial<BackendSrvRequest>
+        ): Promise<FetchResponse> => {
+          return await lastValueFrom(
+            getBackendSrv().fetch<T>({
+              ...options,
+              method: "POST",
+              headers: options?.headers,
+              data: data ?? { ...data },
+              url: `/api/datasources/uid/${this.uid}/resources/assistant/${path}`,
+            })
+          );
+        },
+      };
+    }
   }
 
   async metricFindQuery(query: Partial<HdxQuery> | string, options?: any) {
