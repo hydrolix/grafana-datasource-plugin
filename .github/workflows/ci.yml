@@ -1,0 +1,302 @@
+name: CI Pipeline
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * *'  # Run security scan at 2 AM daily
+
+env:
+  NODE_VERSION: '22'
+  GO_VERSION: '1.24.4'
+  KUBERNETES_CPU_LIMIT: '12'
+  KUBERNETES_CPU_REQUEST: '12'
+  KUBERNETES_MEMORY_REQUEST: '16Gi'
+  KUBERNETES_MEMORY_LIMIT: '16Gi'
+
+jobs:
+  prepare-frontend:
+    name: Prepare Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: Set version
+        run: ./.github/scripts/set-version.sh
+        
+      - name: Install dependencies
+        run: npm install
+        
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules/
+            package-lock.json
+          key: npm-${{ github.ref_name }}-${{ hashFiles('package-lock.json') }}
+
+  build-frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    needs: prepare-frontend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: Restore node_modules cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules/
+            package-lock.json
+          key: npm-${{ github.ref_name }}-${{ hashFiles('package-lock.json') }}
+          
+      - name: Set version
+        run: ./.github/scripts/set-version.sh
+        
+      - name: Lint code
+        run: npm run lint
+        
+      - name: Type check
+        run: npm run typecheck
+        
+      - name: Build frontend
+        run: npm run build
+        
+      - name: Upload frontend artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+          retention-days: 1
+
+  test-frontend:
+    name: Test Frontend
+    runs-on: ubuntu-latest
+    needs: prepare-frontend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: Restore node_modules cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules/
+            package-lock.json
+          key: npm-${{ github.ref_name }}-${{ hashFiles('package-lock.json') }}
+          
+      - name: Set version
+        run: ./.github/scripts/set-version.sh
+        
+      - name: Run tests
+        run: npm run test:ci
+        env:
+          ESLINT_CODE_QUALITY_REPORT: eslint_report.json
+          JEST_JUNIT_OUTPUT_FILE: junit_report.xml
+          
+      - name: Upload test reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-test-reports
+          path: |
+            eslint_report.json
+            junit_report.xml
+            coverage/
+          retention-days: 7
+          
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: coverage/cobertura-coverage.xml
+          flags: frontend
+
+  build-backend:
+    name: Build Backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          
+      - name: Install Mage
+        run: go install github.com/magefile/mage@latest
+        
+      - name: Set version
+        run: ./.github/scripts/set-version.sh
+        
+      - name: Build backend
+        run: mage
+        
+      - name: Upload backend artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-dist
+          path: dist/
+          retention-days: 1
+
+  test-backend:
+    name: Test Backend
+    runs-on: ubuntu-latest
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:latest
+        env:
+          CLICKHOUSE_SKIP_USER_SETUP: 1
+        options: >-
+          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 8123:8123
+          - 9000:9000
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          
+      - name: Configure ClickHouse
+        run: |
+          docker exec $(docker ps -q --filter "ancestor=clickhouse/clickhouse-server:latest") \
+            sed -i 's|<custom_settings_prefixes>SQL_</custom_settings_prefixes>|<custom_settings_prefixes>hdx_</custom_settings_prefixes>|' \
+            /etc/clickhouse-server/config.xml || true
+          
+      - name: Install test tools
+        run: |
+          go install gotest.tools/gotestsum@latest
+          go install github.com/boumenot/gocover-cobertura@latest
+          
+      - name: Set version
+        run: ./.github/scripts/set-version.sh
+        
+      - name: Run tests
+        run: |
+          gotestsum --junitfile junit_report.xml --format testname -- \
+            -race -coverprofile=coverage.txt -covermode atomic \
+            $(go list ./... | grep -v /testhelpers)
+        env:
+          CLICKHOUSE_HOSTNAME: localhost
+          
+      - name: Generate coverage report
+        run: |
+          gocover-cobertura < coverage.txt > cobertura-coverage.xml
+          go tool cover -func coverage.txt
+          
+      - name: Upload test reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-test-reports
+          path: |
+            junit_report.xml
+            coverage.txt
+            cobertura-coverage.xml
+          retention-days: 7
+          
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: cobertura-coverage.xml
+          flags: backend
+
+  package:
+    name: Package Plugin
+    runs-on: ubuntu-latest
+    needs: [build-frontend, build-backend]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: Download frontend artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+          
+      - name: Download backend artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-dist
+          path: dist/
+          
+      - name: Set version
+        run: ./.github/scripts/set-version.sh
+        
+      - name: Sign plugin
+        run: npx --yes @grafana/sign-plugin@latest
+        
+      - name: Create package
+        run: |
+          PLUGIN_NAME=$(npm pkg get name | tr -d '"')
+          PLUGIN_VERSION=$(npm pkg get version | tr -d '"')
+          ZIP_NAME=$PLUGIN_NAME-$PLUGIN_VERSION.zip
+          mv dist/ $PLUGIN_NAME/
+          zip $ZIP_NAME $PLUGIN_NAME -r
+          
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-package
+          path: "*.zip"
+          retention-days: 7
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Run Semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: auto
+          
+      - name: Run GitLeaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Run Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'grafana-datasource-plugin'
+          path: '.'
+          format: 'ALL'
