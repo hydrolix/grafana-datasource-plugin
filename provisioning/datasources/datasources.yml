@@ -7,7 +7,7 @@ datasources:
     isDefault: true
     orgId: 1
     version: 1
-    editable: false
+    editable: true
     uid: P5F37BC6C98DC765D
     jsonData:
       protocol: "http"
@@ -20,14 +20,14 @@ datasources:
       defaultRound: 1m
       adHocTableVariable: table
     secureJsonData:
-      password: '${HYDROLIX_PASSWORD}'
+      password: "${HYDROLIX_PASSWORD}"
   - name: "ClickHouse"
     type: "grafana-clickhouse-datasource"
     access: proxy
     isDefault: false
     orgId: 1
     version: 1
-    editable: false
+    editable: true
     uid: PDEE91DDB90597936
     jsonData:
       protocol: "native"
@@ -37,14 +37,14 @@ datasources:
       username: "${HYDROLIX_USERNAME}"
       defaultDatabase: akamai
     secureJsonData:
-      password: '${HYDROLIX_PASSWORD}'
+      password: "${HYDROLIX_PASSWORD}"
   - name: "Prometheus"
     type: "prometheus"
     access: proxy
     isDefault: false
     orgId: 1
     version: 1
-    editable: false
+    editable: true
     url: http://prometheus:9090
     uid: PBFA97CFB590B2093
     jsonData:

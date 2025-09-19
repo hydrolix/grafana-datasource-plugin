@@ -39,7 +39,7 @@
 
 - **Feature**: Add support for `one-of` (`=|`) and `not-one-of` (`!=|`) ad hoc filter operators (HDX-8336)
 - **Fix**: Do not crash on complex queries with ad hoc filters (HDX-8193)
-- **Data source config**:  Drop support for ad hoc query definitions in data source settings (HDX-8173)
+- **Data source config**: Drop support for ad hoc query definitions in data source settings (HDX-8173)
 - **Chore**: Update plugin screenshots and exclude test Go code from release build (HDX-8422)
 
 ## 0.1.6

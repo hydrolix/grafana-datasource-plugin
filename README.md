@@ -193,7 +193,7 @@ ORDER BY time
 
 ### Ad hoc filters
 
-Ad hoc filters allow flexible,  column-value filtering dynamically applied across queries. These filters are injected into
+Ad hoc filters allow flexible, column-value filtering dynamically applied across queries. These filters are injected into
 queries via the `$__adHocFilter` macro, which must be explicitly included in the `WHERE` clause:
 
 ```sql
@@ -235,7 +235,7 @@ To apply the limit ad hoc filters, both the data source and the dashboard must b
 
 
 
-####  Empty and null values
+#### Empty and null values
 
 Ad hoc filters support two synthetic values to help identify and query rows with missing or blank data:
 
@@ -263,9 +263,9 @@ To match a literal asterisk (`*`), escape it with a backslash (`\*`). For exampl
 
 To apply a wildcard filter:
 
-1. On the dashboard, click inside the filter field. 
-2. Select the column you want to filter, such as `message`. 
-3. Choose the operator `=~` or `!~`. 
+1. On the dashboard, click inside the filter field.
+2. Select the column you want to filter, such as `message`.
+3. Choose the operator `=~` or `!~`.
 4. Type your full wildcard pattern, for example `*user*`.
 5. Do not select any of the suggested values while typing.
 6. As you type, an option appears at the bottom of the suggestion list: `Use custom value: *user*`.

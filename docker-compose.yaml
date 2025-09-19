@@ -15,12 +15,6 @@ services:
       service: grafana
     container_name: grafana-dashboards
     environment: *common-variables
-#    cap_add:
-#      - SYS_PTRACE
-#    security_opt:
-#      - seccomp=unconfined
-#    ports:
-#      - "2345:2345"
     build:
       args:
-        development: true
+        development: false

@@ -32,6 +32,8 @@
     "@testing-library/react": "14.0.0",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.8.7",
+    "@types/uuid": "^10.0.0",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "@types/testing-library__jest-dom": "5.14.8",
     "@types/webpack-livereload-plugin": "^2.3.6",
     "@typescript-eslint/eslint-plugin": "^6.18.0",
@@ -80,13 +82,20 @@
     "@grafana/runtime": "^10.4.0",
     "@grafana/schema": "^10.4.0",
     "@grafana/ui": "^10.4.0",
+    "@react-hook/throttle": "^2.2.0",
     "lodash": "^4.17.21",
     "monaco-editor": "^0.34.0",
+    "polished": "^4.3.1",
     "react": "18.2.0",
     "react-dom": "18.2.0",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^15.6.1",
     "react-use": "17.6.0",
+    "remark-gfm": "^4.0.1",
     "rxjs": "7.8.1",
-    "sql-formatter": "^15.4.11"
+    "sql-formatter": "^15.4.11",
+    "zustand": "^5.0.6",
+    "uuid": "^11.1.0"
   },
   "packageManager": "npm@10.9.2"
 }

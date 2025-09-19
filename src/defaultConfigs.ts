@@ -14,5 +14,6 @@ export default {
     raw: { from: "now-5m", to: "now" },
   },
   path: "/query",
-  settings: {},
+  aiEnabled: false,
+  querySettings: [],
 };

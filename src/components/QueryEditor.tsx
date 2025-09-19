@@ -35,6 +35,9 @@ import {
 } from "../constants";
 
 import { css } from "@emotion/css";
+import { AssistantPanel } from "./assistant/AssistantPanel";
+import { AssistantConversationProvider } from "./assistant/AssistantContext";
+import allLabels from "../labels";
 
 export type Props = QueryEditorProps<
   DataSource,
@@ -43,6 +46,7 @@ export type Props = QueryEditorProps<
 >;
 
 export function QueryEditor(props: Props) {
+  const labels = allLabels.components.query.editor;
   const alertStyle = css`
     div:has(> div[role="alert"]) {
       min-width: 10rem;
@@ -85,6 +89,7 @@ export function QueryEditor(props: Props) {
   );
 
   const [showSql, setShowSql] = useState(false);
+  const [showAiAssistant, setShowAiAssistant] = useState(false);
   const [dryRunTriggered, setDryRunTriggered] = useState(false);
   const [interpolationResult, setInterpolationResult] =
     useState<InterpolationResult>({
@@ -121,6 +126,11 @@ export function QueryEditor(props: Props) {
 
     invalidDuration.current = !QUERY_DURATION_REGEX.test(round);
     props.onChange({ ...props.query, round: round });
+  };
+
+  const onApplyQuery = (queryText: string) => {
+    onQueryTextChange(queryText);
+    setShowAiAssistant(false);
   };
 
   // track values change and refresh interpolated query
@@ -184,8 +194,8 @@ export function QueryEditor(props: Props) {
                 <InlineField
                   data-testid="data-testid query type"
                   label={
-                    <InlineLabel width={15} tooltip="Set query type">
-                      Query Type
+                    <InlineLabel width={15} tooltip={labels.queryType.tooltip}>
+                      {labels.queryType.label}
                     </InlineLabel>
                   }
                 >
@@ -201,11 +211,8 @@ export function QueryEditor(props: Props) {
                   error={"invalid duration"}
                   invalid={invalidDuration.current}
                   label={
-                    <InlineLabel
-                      width={10}
-                      tooltip="Round $from and $to timestamps to the nearest multiple of the specified value (1m rounds to the nearest whole minute). Supports time units: ms, s, m, h. No value means that the default round value will be used. A value of 0 means no rounding is applied"
-                    >
-                      Round
+                    <InlineLabel width={10} tooltip={labels.round.tooltip}>
+                      {labels.round.label}
                     </InlineLabel>
                   }
                 >
@@ -217,25 +224,42 @@ export function QueryEditor(props: Props) {
                   />
                 </InlineField>
                 {showSql ? (
-                  <Button icon="eye-slash" onClick={() => setShowSql(false)}>
-                    Hide Interpolated Query
+                  <Button
+                    variant={"secondary"}
+                    icon="eye-slash"
+                    onClick={() => setShowSql(false)}
+                  >
+                    {labels.hideInterpolatedQuery.label}
                   </Button>
                 ) : (
-                  <Button icon="eye" onClick={() => setShowSql(true)}>
-                    Show Interpolated Query
+                  <Button
+                    variant={"secondary"}
+                    icon="eye"
+                    onClick={() => setShowSql(true)}
+                  >
+                    {labels.showInterpolatedQuery.label}
+                  </Button>
+                )}
+                {props.datasource.aiAssistantConfig && (
+                  <Button
+                    variant={"secondary"}
+                    icon="ai"
+                    onClick={() => setShowAiAssistant(!showAiAssistant)}
+                  >
+                    {labels.showAiAssistant.label}
                   </Button>
                 )}
                 <div style={{ marginLeft: "auto", order: 2, display: "table" }}>
                   <ToolbarButton
                     style={{ display: "table-cell" }}
-                    tooltip="Format query"
+                    tooltip={labels.formatQuery.tooltip}
                     onClick={formatQuery}
                   >
                     <Icon name="brackets-curly" />
                   </ToolbarButton>
                   <ToolbarButton
                     style={{ display: "table-cell" }}
-                    tooltip="Click or hit CTRL/CMD+Return to run query"
+                    tooltip={labels.runQuery.tooltip}
                     onClick={props.onRunQuery}
                   >
                     <Icon name="play" />
@@ -253,6 +277,19 @@ export function QueryEditor(props: Props) {
         dirty={dirty}
         showErrors={SHOW_INTERPOLATED_QUERY_ERRORS}
       />
+      {props.datasource.aiAssistantConfig && (
+        <AssistantConversationProvider
+          config={props.datasource.aiAssistantConfig}
+        >
+          {showAiAssistant && (
+            <AssistantPanel
+              query={props.query.rawSql ?? ""}
+              onClose={() => setShowAiAssistant(false)}
+              onApplyQuery={onApplyQuery}
+            />
+          )}
+        </AssistantConversationProvider>
+      )}
     </div>
   );
 }

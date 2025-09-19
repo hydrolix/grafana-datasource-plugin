@@ -49,12 +49,12 @@ export default {
         credentialsType: {
           testId: "data-testid data-testid hdx_credentialsType",
           label: "Credentials Type",
-          description: "User account or Service account",
+          description: "User or service account",
         },
         token: {
           testId: "data-testid hdx_token",
           label: "Token",
-          description: "Service Account Token",
+          description: "Service account token",
           placeholder: "default",
         },
         username: {
@@ -115,6 +115,22 @@ export default {
           testId: "data-testid hdx_additionalSection",
           label: "Additional Settings",
           description: "",
+        },
+        aiEnabled: {
+          testId: "data-testid hdx_aiEnabled",
+          label: "Enable Hydrolix Assistant",
+          description: "Toggle on to enable Hydrolix Assistant",
+        },
+        aiBaseUrl: {
+          testId: "data-testid hdx_aiEnabled",
+          label: "Hydrolix Assistant API base URL",
+          description:
+            "Base URL for Hydrolix Assistant API",
+        },
+        useDefaultAiBaseUrl: {
+          testId: "data-testid hdx_useDefaultPortAiBaseUrl",
+          label: "Use default",
+          description: "Use default Hydrolix Assistant API base URL",
         },
         querySettings: {
           testId: "data-testid hdx_querySettings",
@@ -261,6 +277,34 @@ export default {
                 "Set the TTL for queries executed through the HTTP proxy. Supports values in seconds (e.g., 60) or duration expressions (e.g., 10s, 5m, 1h).",
             },
           ],
+        },
+      },
+    },
+    query: {
+      editor: {
+        queryType: {
+          label: "Query Type",
+          tooltip: "Set query type",
+        },
+        round: {
+          label: "Round",
+          tooltip:
+            "Round $from and $to timestamps to the nearest multiple of the specified value (1m rounds to the nearest whole minute). Supports time units: ms, s, m, h. No value means that the default round value will be used. A value of 0 means no rounding is applied",
+        },
+        showInterpolatedQuery: {
+          label: "Show Interpolated Query",
+        },
+        hideInterpolatedQuery: {
+          label: "Hide Interpolated Query",
+        },
+        formatQuery: {
+          tooltip: "Format Query",
+        },
+        runQuery: {
+          tooltip: "Click or hit CTRL/CMD+Return to run query",
+        },
+        showAiAssistant: {
+          label: "Ask Hydrolix Assistant",
         },
       },
     },

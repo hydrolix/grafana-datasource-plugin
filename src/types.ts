@@ -58,6 +58,9 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   dialTimeout?: string;
   queryTimeout?: string;
   querySettings?: QuerySetting[];
+  aiEnabled?: boolean;
+  aiBaseUrl?: string;
+  useDefaultAiBaseUrl?: boolean;
 }
 
 export interface QuerySetting {
