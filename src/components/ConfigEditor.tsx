@@ -688,7 +688,7 @@ export function ConfigEditor(props: Props) {
             />
           </Field>
           <Divider />
-          <ConfigSection title="Hydrolix Assistant">
+          <ConfigSection title="Assistant">
             <Field
               data-testid={labels.aiEnabled.testId}
               label={labels.aiEnabled.label}
