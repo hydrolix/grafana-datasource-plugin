@@ -118,19 +118,19 @@ export default {
         },
         aiEnabled: {
           testId: "data-testid hdx_aiEnabled",
-          label: "Enable Hydrolix Assistant",
-          description: "Toggle on to enable Hydrolix Assistant",
+          label: "Enable Assistant",
+          description: "Toggle on to enable Assistant",
         },
         aiBaseUrl: {
           testId: "data-testid hdx_aiEnabled",
-          label: "Hydrolix Assistant API base URL",
+          label: "Assistant API base URL",
           description:
-            "Base URL for Hydrolix Assistant API",
+            "Base URL for Assistant API",
         },
         useDefaultAiBaseUrl: {
           testId: "data-testid hdx_useDefaultPortAiBaseUrl",
           label: "Use default",
-          description: "Use default Hydrolix Assistant API base URL",
+          description: "Use default Assistant API base URL",
         },
         querySettings: {
           testId: "data-testid hdx_querySettings",

@@ -139,7 +139,7 @@ func wrapError(rw http.ResponseWriter, err error) {
 	return
 }
 
-func NewAiAssistantProxyHandler(routePrefix string, settings models.PluginSettings) (http.HandlerFunc, error) {
+func NewAssistantProxyHandler(routePrefix string, settings models.PluginSettings) (http.HandlerFunc, error) {
 	errorHandler := func(rw http.ResponseWriter, req *http.Request, err error) {
 		status := http.StatusBadGateway
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -147,7 +147,7 @@ func NewAiAssistantProxyHandler(routePrefix string, settings models.PluginSettin
 		}
 
 		log.DefaultLogger.Error(
-			"AI Assistant proxy error",
+			"Assistant proxy error",
 			"method", req.Method,
 			"url", req.URL.String(),
 			"status", status,
@@ -194,8 +194,8 @@ func Routes(ds *datasource.HydrolixDatasource, ctx context.Context, settings bac
 		return nil, err
 	}
 
-	aiAssistantPrefix := "/assistant"
-	assistantHandler, err := NewAiAssistantProxyHandler(aiAssistantPrefix, pluginSettings)
+	assistantPrefix := "/assistant"
+	assistantHandler, err := NewAssistantProxyHandler(assistantPrefix, pluginSettings)
 	if err != nil {
 		return nil, err
 	}
@@ -205,8 +205,8 @@ func Routes(ds *datasource.HydrolixDatasource, ctx context.Context, settings bac
 		"/interpolate": func(writer http.ResponseWriter, request *http.Request) {
 			Interpolate(ds, writer, request)
 		},
-		"/macroCTE":             MacroCTEs,
-		aiAssistantPrefix + "/": assistantHandler,
+		"/macroCTE":           MacroCTEs,
+		assistantPrefix + "/": assistantHandler,
 	}, nil
 }
 
