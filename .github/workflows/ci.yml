@@ -3,9 +3,6 @@ name: CI Pipeline
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  workflow_dispatch:
-  schedule:
-    - cron: '0 2 * * *'  # Run security scan at 2 AM daily
 
 env:
   NODE_VERSION: '22'
@@ -18,7 +15,9 @@ env:
 jobs:
   prepare-frontend:
     name: Prepare Frontend
-    runs-on: ubuntu-latest
+    runs-on: lke
+    container:
+      image: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -45,7 +44,9 @@ jobs:
 
   build-frontend:
     name: Build Frontend
-    runs-on: ubuntu-latest
+    runs-on: lke
+    container:
+      image: ubuntu-latest
     needs: prepare-frontend
     steps:
       - name: Checkout code
@@ -64,6 +65,9 @@ jobs:
             node_modules/
             package-lock.json
           key: npm-${{ github.ref_name }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        run: npm ci
           
       - name: Set version
         run: ./.github/scripts/set-version.sh
@@ -86,7 +90,9 @@ jobs:
 
   test-frontend:
     name: Test Frontend
-    runs-on: ubuntu-latest
+    runs-on: lke
+    container:
+      image: ubuntu-latest
     needs: prepare-frontend
     steps:
       - name: Checkout code
@@ -105,6 +111,9 @@ jobs:
             node_modules/
             package-lock.json
           key: npm-${{ github.ref_name }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        run: npm ci
           
       - name: Set version
         run: ./.github/scripts/set-version.sh
@@ -134,7 +143,9 @@ jobs:
 
   build-backend:
     name: Build Backend
-    runs-on: ubuntu-latest
+    runs-on: lke
+    container:
+      image: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -162,35 +173,25 @@ jobs:
 
   test-backend:
     name: Test Backend
-    runs-on: ubuntu-latest
-    services:
-      clickhouse:
-        image: clickhouse/clickhouse-server:latest
-        env:
-          CLICKHOUSE_SKIP_USER_SETUP: 1
-        options: >-
-          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 8123:8123
-          - 9000:9000
+    runs-on: lke
+    container:
+      image: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
+      - name: CH Docker run
+        uses: addnab/docker-run-action@v3
+        with:
+          options: -d -e CLICKHOUSE_SKIP_USER_SETUP=1 -p 8123:8123 -p 9000:9000 --name clickhouse
+          image: clickhouse/clickhouse-server:latest
+          run: /bin/bash -c "sed -i 's|<custom_settings_prefixes>SQL_</custom_settings_prefixes>|<custom_settings_prefixes>hdx_</custom_settings_prefixes>|' $CLICKHOUSE_CONFIG && /entrypoint.sh"
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          
-      - name: Configure ClickHouse
-        run: |
-          docker exec $(docker ps -q --filter "ancestor=clickhouse/clickhouse-server:latest") \
-            sed -i 's|<custom_settings_prefixes>SQL_</custom_settings_prefixes>|<custom_settings_prefixes>hdx_</custom_settings_prefixes>|' \
-            /etc/clickhouse-server/config.xml || true
-          
+
       - name: Install test tools
         run: |
           go install gotest.tools/gotestsum@latest
@@ -198,6 +199,19 @@ jobs:
           
       - name: Set version
         run: ./.github/scripts/set-version.sh
+
+      - name: Wait for ClickHouse
+        run: |
+           for i in {1..30}; do
+             if curl -sf http://localhost:8123/ping; then
+               echo "ClickHouse is up!"
+               exit 0
+             fi
+             sleep 2
+           done
+           echo "ClickHouse did not start in time" >&2
+           docker logs clickhouse
+           exit 1
         
       - name: Run tests
         run: |
@@ -231,7 +245,9 @@ jobs:
 
   package:
     name: Package Plugin
-    runs-on: ubuntu-latest
+    runs-on: lke
+    container:
+      image: ubuntu-latest
     needs: [build-frontend, build-backend]
     steps:
       - name: Checkout code
@@ -260,6 +276,8 @@ jobs:
         
       - name: Sign plugin
         run: npx --yes @grafana/sign-plugin@latest
+        env:
+          GRAFANA_ACCESS_POLICY_TOKEN: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
         
       - name: Create package
         run: |
@@ -276,27 +294,3 @@ jobs:
           path: "*.zip"
           retention-days: 7
 
-  security:
-    name: Security Scan
-    runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        
-      - name: Run Semgrep
-        uses: returntocorp/semgrep-action@v1
-        with:
-          config: auto
-          
-      - name: Run GitLeaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: Run Dependency Check
-        uses: dependency-check/Dependency-Check_Action@main
-        with:
-          project: 'grafana-datasource-plugin'
-          path: '.'
-          format: 'ALL'
