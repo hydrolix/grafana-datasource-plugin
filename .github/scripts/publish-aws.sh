@@ -15,17 +15,12 @@ if [ -z "$PACKAGE_NAME" ] || [ -z "$PACKAGE_VERSION" ]; then
     exit 1
 fi
 
-# AWS S3 bucket and path configuration
-S3_BUCKET="${AWS_S3_BUCKET:-grafana-plugins}"
-S3_PATH="hydrolix/$PACKAGE_NAME/$PACKAGE_VERSION"
+PATH_SUFFIX="grafana-datasource-plugin/$ZIP_NAME"
 
-echo "Uploading $ZIP_NAME to s3://$S3_BUCKET/$S3_PATH/$ZIP_NAME"
+S3_PATH="s3://hdx-public/$PATH_SUFFIX"
+PUBLIC_PATH="https://hdx-public.s3.us-east-2.amazonaws.com/${PATH_SUFFIX/+/%2B}"
 
-# Upload to S3
-aws s3 cp "$ZIP_NAME" "s3://$S3_BUCKET/$S3_PATH/$ZIP_NAME" --acl public-read
+echo "Uploading $ZIP_NAME to $S3_PATH ..."
+aws s3 cp "$ZIP_NAME" "$S3_PATH"
 
-# Create latest symlink
-echo "Creating latest version link"
-aws s3 cp "s3://$S3_BUCKET/$S3_PATH/$ZIP_NAME" "s3://$S3_BUCKET/hydrolix/$PACKAGE_NAME/latest/$ZIP_NAME" --acl public-read
-
-echo "Successfully published $ZIP_NAME to AWS S3"
+echo "Run curl -O $PUBLIC_PATH to get it"

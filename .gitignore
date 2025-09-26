@@ -7,5 +7,4 @@ coverage/
 .vscode/
 .idea/
 .eslintcache
-package-lock.json
 .bra.toml

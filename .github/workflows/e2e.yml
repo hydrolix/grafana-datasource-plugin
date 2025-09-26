@@ -4,125 +4,55 @@ on:
   workflow_run:
     workflows: ["CI Pipeline"]
     types: [completed]
-    branches: [main, develop]
-  workflow_dispatch:
 
 jobs:
   e2e-test:
     name: E2E Test - Grafana ${{ matrix.grafana_version }}
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request'
     strategy:
       matrix:
         grafana_name: ["grafana-enterprise"]
-        grafana_version: ["10.4.18", "11.6.1"]
-    
-    services:
-      clickhouse:
-        image: clickhouse/clickhouse-server:latest
-        env:
-          CLICKHOUSE_ALWAYS_RUN_INITDB_SCRIPTS: 1
-          CLICKHOUSE_SKIP_USER_SETUP: 0
-          CLICKHOUSE_USER: testuser
-          CLICKHOUSE_PASSWORD: testpass
-          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
-        options: >-
-          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 8123:8123
-          - 9000:9000
-
+        grafana_version: ["10.4.18", "11.6.1", "12.2.0"]
+    env:
+      GRAFANA_VERSION: ${{ matrix.grafana_version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'npm'
-          
-      - name: Download plugin package
-        uses: actions/download-artifact@v4
+          ref: ${{ github.event.workflow_run.head_branch }}
+
+      - name: Download artifact
+        id: download-artifact
+        uses: dawidd6/action-download-artifact@v11
         with:
+          workflow: ci.yml
+          commit: ${{ github.event.pull_request.head.sha }}
           name: plugin-package
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: Setup ClickHouse test data
-        run: |
-          # Wait for ClickHouse to be ready
-          timeout 60s bash -c 'until wget --spider -q http://localhost:8123/ping; do sleep 1; done'
-          
-          # Create test database and data
-          curl -X POST 'http://testuser:testpass@localhost:8123/' -d "
-            CREATE DATABASE IF NOT EXISTS e2e;
-            DROP TABLE IF EXISTS e2e.macros;
-            CREATE TABLE e2e.macros (
-              datetime DateTime,
-              date Date,
-              v1 INT
-            ) ENGINE = MergeTree() ORDER BY datetime;
-            
-            INSERT INTO e2e.macros (datetime, date, v1) VALUES
-            ('2025-04-09 00:00:00', '2025-04-09', 0),
-            ('2025-04-09 00:10:00', '2025-04-09', 1000),
-            ('2025-04-09 00:20:00', '2025-04-09', 2000),
-            ('2025-04-09 00:30:00', '2025-04-09', 3000),
-            ('2025-04-09 00:40:00', '2025-04-09', 4000),
-            ('2025-04-09 00:50:00', '2025-04-09', 5000),
-            ('2025-04-09 01:00:00', '2025-04-09', 10000),
-            ('2025-04-09 01:10:10', '2025-04-09', 11010),
-            ('2025-04-09 01:10:30', '2025-04-09', 11030),
-            ('2025-04-09 01:11:00', '2025-04-09', 11100),
-            ('2025-04-10 00:10:00', '2025-04-10', 1000),
-            ('2025-04-10 00:20:00', '2025-04-10', 2000),
-            ('2025-04-10 00:30:00', '2025-04-10', 3000);
-          "
-          
+
       - name: Extract and prepare plugin
         run: |
-          unzip "$(ls -1 *.zip | head -n 1)" -d .
-          PLUGIN_NAME=$(npm pkg get name | tr -d '"')
-          echo "PLUGIN_NAME=$PLUGIN_NAME" >> $GITHUB_ENV
-          
-      - name: Build E2E Docker image
-        run: |
-          docker build -f .github/e2e.Dockerfile \
-            -t e2e-grafana:${{ matrix.grafana_version }} \
-            --build-arg E2E_GRAFANA_NAME=${{ matrix.grafana_name }} \
-            --build-arg E2E_GRAFANA_VERSION=${{ matrix.grafana_version }} \
-            .
-            
-      - name: Start Grafana container
-        run: |
-          docker run -d \
-            --name grafana-e2e \
-            --network host \
-            -e CLICKHOUSE_HOSTNAME=localhost \
-            -e CLICKHOUSE_USERNAME=testuser \
-            -e CLICKHOUSE_PASSWORD=testpass \
-            e2e-grafana:${{ matrix.grafana_version }}
-            
-      - name: Wait for Grafana
-        run: |
-          timeout 60s bash -c 'until curl -s http://localhost:3000/api/health; do sleep 2; done'
-          
+          unzip hydrolix-hydrolix-datasource*.zip
+          chmod +x hydrolix-hydrolix-datasource/gpx*
+
+      - name: Install and run Docker Compose
+        uses: hoverkraft-tech/compose-action@40041ff1b97dbf152cd2361138c2b03fa29139df
+        with:
+          compose-file: '.github/e2e-docker-compose.yml'
+
       - name: Install Playwright
         run: |
           npm install
           npx playwright install
+
+      - name: Wait for Grafana
+        run: |
+          timeout 60s bash -c 'until curl -s http://localhost:3000/api/health; do sleep 2; done'
           
       - name: Run E2E tests
         run: npx playwright test --reporter=junit
         env:
           E2E_GRAFANA_URL: http://localhost:3000
-          CLICKHOUSE_HOSTNAME: localhost
-          CLICKHOUSE_USERNAME: testuser
-          CLICKHOUSE_PASSWORD: testpass
           PLAYWRIGHT_JUNIT_OUTPUT_FILE: junit_report.xml
           
       - name: Upload test results
@@ -135,9 +65,3 @@ jobs:
             test-results/**/*.zip
             junit_report.xml
           retention-days: 7
-          
-      - name: Cleanup
-        if: always()
-        run: |
-          docker stop grafana-e2e || true
-          docker rm grafana-e2e || true

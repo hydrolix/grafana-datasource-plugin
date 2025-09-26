@@ -3,63 +3,13 @@ name: Publish Plugin
 on:
   workflow_dispatch:
     inputs:
-      publish_to_github:
-        description: 'Publish to GitHub Releases'
-        required: true
-        default: true
-        type: boolean
       publish_to_aws:
         description: 'Publish to AWS S3'
         required: true
-        default: false
+        default: true
         type: boolean
 
 jobs:
-  publish-github:
-    name: Publish to GitHub
-    runs-on: ubuntu-latest
-    if: inputs.publish_to_github
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        
-      - name: Download plugin package
-        uses: actions/download-artifact@v4
-        with:
-          name: plugin-package
-          
-      - name: Extract version information
-        run: |
-          ZIP_NAME=$(ls -1 *.zip 2>/dev/null | head -n 1)
-          if [ -z "$ZIP_NAME" ]; then
-            echo "No zip file found"
-            exit 1
-          fi
-          
-          PACKAGE_NAME="${ZIP_NAME%-*.*.zip}"
-          PACKAGE_VERSION=$(echo "$ZIP_NAME" | sed -E 's/^.*-([0-9]+\.[0-9]+\.[0-9]+[^/]*)\.zip$/\1/')
-          
-          echo "PACKAGE_NAME=$PACKAGE_NAME" >> $GITHUB_ENV
-          echo "PACKAGE_VERSION=$PACKAGE_VERSION" >> $GITHUB_ENV
-          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
-          
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ env.PACKAGE_VERSION }}
-          name: Release ${{ env.PACKAGE_VERSION }}
-          body: |
-            ## What's Changed
-            
-            * Plugin release ${{ env.PACKAGE_VERSION }}
-            
-            **Full Changelog**: https://github.com/${{ github.repository }}/compare/v${{ env.PREVIOUS_VERSION }}...v${{ env.PACKAGE_VERSION }}
-          files: ${{ env.ZIP_NAME }}
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   publish-aws:
     name: Publish to AWS S3
     runs-on: ubuntu-latest
@@ -68,17 +18,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         
-      - name: Download plugin package
-        uses: actions/download-artifact@v4
+      - name: Download artifact
+        id: download-artifact
+        uses: dawidd6/action-download-artifact@v11
         with:
+          workflow: ci.yml
+          commit: ${{github.event.pull_request.head.sha}}
           name: plugin-package
           
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
-          
       - name: Publish to S3
+        env:
+         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: ./.github/scripts/publish-aws.sh
