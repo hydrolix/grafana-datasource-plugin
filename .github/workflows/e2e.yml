@@ -8,9 +8,7 @@ on:
 jobs:
   e2e-test:
     name: E2E Test - Grafana ${{ matrix.grafana_version }}
-    runs-on: lke
-    container:
-      image: ubuntu-latest
+    runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request'
     strategy:
       matrix:

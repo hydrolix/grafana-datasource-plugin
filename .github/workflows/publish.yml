@@ -12,9 +12,7 @@ on:
 jobs:
   publish-aws:
     name: Publish to AWS S3
-    runs-on: lke
-    container:
-      image: ubuntu-latest
+    runs-on: ubuntu-latest
     if: inputs.publish_to_aws
     steps:
       - name: Checkout code

@@ -15,9 +15,7 @@ env:
 jobs:
   prepare-frontend:
     name: Prepare Frontend
-    runs-on: lke
-    container:
-      image: ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -44,9 +42,7 @@ jobs:
 
   build-frontend:
     name: Build Frontend
-    runs-on: lke
-    container:
-      image: ubuntu-latest
+    runs-on: ubuntu-latest
     needs: prepare-frontend
     steps:
       - name: Checkout code
@@ -90,9 +86,7 @@ jobs:
 
   test-frontend:
     name: Test Frontend
-    runs-on: lke
-    container:
-      image: ubuntu-latest
+    runs-on: ubuntu-latest
     needs: prepare-frontend
     steps:
       - name: Checkout code
@@ -143,9 +137,7 @@ jobs:
 
   build-backend:
     name: Build Backend
-    runs-on: lke
-    container:
-      image: ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -173,9 +165,7 @@ jobs:
 
   test-backend:
     name: Test Backend
-    runs-on: lke
-    container:
-      image: ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -245,9 +235,7 @@ jobs:
 
   package:
     name: Package Plugin
-    runs-on: lke
-    container:
-      image: ubuntu-latest
+    runs-on: ubuntu-latest
     needs: [build-frontend, build-backend]
     steps:
       - name: Checkout code
