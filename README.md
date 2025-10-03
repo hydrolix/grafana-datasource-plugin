@@ -9,7 +9,7 @@ To install the Hydrolix data source plugin:
 
 1. Open the [Grafana Plugin Catalog](https://grafana.com/grafana/plugins/).
 2. Search for **Hydrolix Data Source**.
-3. Select the plugin and click **Install Plugin**.
+3. Select the plugin and click **Install Plugin**. 
 
 After installation:
 
