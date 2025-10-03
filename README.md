@@ -61,6 +61,12 @@ Following is the list of Hydrolix configuration options.
 - **Dial timeout** (optional) - Connection timeout in seconds.
 - **Query timeout** (optional) - Read timeout in seconds.
 
+**Hydrolix Assistant subsection:**
+
+- **Enable Hydrolix Assistant** - Toggle on to enable Hydrolix Assistant
+- **Hydrolix Assistant API base URL** - Base URL for Hydrolix Assistant API
+- **Use default** - Toggle to use the default API base URL instead of specifying a custom one
+
 **Query Settings subsection:**
 
 You can configure [Hydrolix query settings](https://docs.hydrolix.io/docs/query-options-reference) that will be sent
