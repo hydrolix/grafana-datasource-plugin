@@ -63,9 +63,9 @@ Following is the list of Hydrolix configuration options.
 
 **Hydrolix Assistant subsection:**
 
-- **Enable Hydrolix Assistant** - Toggle on to enable Hydrolix Assistant
-- **Hydrolix Assistant API base URL** - Base URL for Hydrolix Assistant API
-- **Use default** - Toggle to use the default API base URL instead of specifying a custom one
+- **Enable Hydrolix Assistant** - Toggle on to enable Hydrolix Assistant.
+- **Hydrolix Assistant API base URL** - Base URL for Hydrolix Assistant API.
+- **Use default** - Toggle to use the default API base URL instead of specifying a custom one.
 
 **Query Settings subsection:**
 
