@@ -234,7 +234,7 @@ func GetMacroCTEs(ast []parser.Expr) (map[MacroId]CTE, error) {
 	return visitor.macroIds, nil
 }
 
-func GetQuery(query backend.DataQuery, timeRange *backend.TimeRange, interval *time.Duration) (*HDXQuery, error) {
+func GetHdxQuery(query backend.DataQuery, timeRange *backend.TimeRange, interval *time.Duration) (*HDXQuery, error) {
 	q := &HDXQuery{}
 
 	if err := json.Unmarshal(query.JSON, &q); err != nil {
