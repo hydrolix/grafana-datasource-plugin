@@ -56,7 +56,7 @@ jobs:
           PLAYWRIGHT_JUNIT_OUTPUT_FILE: junit_report.xml
           
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always()
         with:
           name: e2e-results-${{ matrix.grafana_version }}
