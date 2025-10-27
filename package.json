@@ -93,7 +93,7 @@
     "react-use": "17.6.0",
     "remark-gfm": "^4.0.1",
     "rxjs": "7.8.1",
-    "sql-formatter": "^15.4.11",
+    "sql-formatter": "^15.6.10",
     "zustand": "^5.0.6",
     "uuid": "^11.1.0"
   },
