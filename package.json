@@ -80,7 +80,7 @@
     "@grafana/data": "^10.4.0",
     "@grafana/plugin-ui": "^0.9.6",
     "@grafana/runtime": "^10.4.0",
-    "@grafana/schema": "^10.4.0",
+    "@grafana/schema": "^12.2.1",
     "@grafana/ui": "^10.4.0",
     "@react-hook/throttle": "^2.2.0",
     "lodash": "^4.17.21",
