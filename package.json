@@ -81,7 +81,7 @@
     "@grafana/plugin-ui": "^0.9.6",
     "@grafana/runtime": "^10.4.0",
     "@grafana/schema": "^10.4.0",
-    "@grafana/ui": "^10.4.0",
+    "@grafana/ui": "^12.2.1",
     "@react-hook/throttle": "^2.2.0",
     "lodash": "^4.17.21",
     "monaco-editor": "^0.34.0",
