@@ -49,7 +49,6 @@ jobs:
 
       - name: Sign plugin
         run: npx --yes @grafana/sign-plugin@latest
-        if: false
         env:
           GRAFANA_ACCESS_POLICY_TOKEN: ${{ secrets.grafana_token }}
 
