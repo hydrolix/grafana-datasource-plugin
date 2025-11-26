@@ -1,0 +1,72 @@
+name: Packege
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: "Node.js version to use"
+        required: true
+        type: string
+    secrets:
+      grafana_token:
+        description: "Grafana access policy token for signing"
+        required: true
+    outputs:
+      version:
+        description: "Plugin version"
+        value: ${{ jobs.package.outputs.version }}
+
+jobs:
+  package:
+    name: Package Plugin
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.create.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: 'npm'
+
+      - name: Download frontend artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+
+      - name: Download backend artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-dist
+          path: dist/
+
+      - name: Set version
+        run: ./.github/scripts/set-version.sh
+
+      - name: Sign plugin
+        run: npx --yes @grafana/sign-plugin@latest
+        if: false
+        env:
+          GRAFANA_ACCESS_POLICY_TOKEN: ${{ secrets.grafana_token }}
+
+      - name: Create package
+        id: create
+        run: |
+          PLUGIN_NAME=$(npm pkg get name | tr -d '"')
+          PLUGIN_VERSION=$(npm pkg get version | tr -d '"')
+          echo "version=$PLUGIN_VERSION" >> $GITHUB_OUTPUT
+          ZIP_NAME=$PLUGIN_NAME-$PLUGIN_VERSION.zip
+          chmod 0775 dist/gpx_*
+          mv dist/ $PLUGIN_NAME/
+          zip $ZIP_NAME $PLUGIN_NAME -r
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-package
+          path: "*.zip"
+          retention-days: 7

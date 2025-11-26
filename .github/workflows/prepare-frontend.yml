@@ -1,0 +1,37 @@
+name: Prepare Frontend
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: "Node.js version to use"
+        required: true
+        type: string
+
+jobs:
+  prepare-frontend:
+    name: Prepare Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: 'npm'
+
+      - name: Set version
+        run: ./.github/scripts/set-version.sh
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules/
+            package-lock.json
+          key: npm-${{ github.ref_name }}-${{ hashFiles('package-lock.json') }}
