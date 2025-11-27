@@ -41,12 +41,21 @@ export interface Props
 export function ConfigEditor(props: Props) {
   const { onOptionsChange, options } = props;
   if (!Object.keys(options.jsonData).length) {
-    options.jsonData = defaultConfigs;
+    onOptionsChange({
+      ...options,
+      jsonData: defaultConfigs,
+    });
   }
   const { jsonData, secureJsonFields } = options;
 
-  if (!jsonData.adHocDefaultTimeRange) {
-    jsonData.adHocDefaultTimeRange = defaultConfigs.adHocDefaultTimeRange;
+  if (Object.keys(options.jsonData).length && !jsonData.adHocDefaultTimeRange) {
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...options.jsonData,
+        adHocDefaultTimeRange: defaultConfigs.adHocDefaultTimeRange,
+      },
+    });
   }
 
   const labels = allLabels.components.config.editor;
