@@ -1,15 +1,13 @@
 name: E2E Tests
 
 on:
-  workflow_run:
-    workflows: ["CI Pipeline"]
-    types: [completed]
+  workflow_call:
+
 
 jobs:
   e2e-test:
     name: E2E Test - Grafana ${{ matrix.grafana_version }}
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request'
     strategy:
       matrix:
         grafana_name: ["grafana-enterprise"]
@@ -19,15 +17,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_branch }}
 
-      - name: Download artifact
-        id: download-artifact
-        uses: dawidd6/action-download-artifact@v11
+      - name: Download GitHub artifact
+        uses: actions/download-artifact@v4
         with:
-          workflow: ci.yml
-          commit: ${{ github.event.pull_request.head.sha }}
           name: plugin-package
 
       - name: Extract and prepare plugin

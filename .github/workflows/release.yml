@@ -1,0 +1,60 @@
+name: GitHub Release
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "plugin version to release"
+        required: true
+        type: string
+
+jobs:
+  create-github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Display all outputs as JSON
+        run: |
+          echo "${{ toJSON(github) }}"
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Download GitHub artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: plugin-package
+          path: /tmp/plugin-package
+      - name: Parse changelog
+        id: parse
+        run: |
+          changelog=`.github/scripts/parse-changelog.sh CHANGELOG.md`
+          echo 'changelog<<EOF' >> "$GITHUB_OUTPUT"
+          echo "$changelog" >> "$GITHUB_OUTPUT"
+          echo 'EOF' >> "$GITHUB_OUTPUT"
+        shell: bash
+      - name: Create tag
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        # Allow the tag creation to fail, in case it already exists
+        # (e.g.: created manually, or re-triggering a release).
+        continue-on-error: true
+        with:
+          script: |
+            const { PLUGIN_VERSION } = process.env
+            github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/tags/v${PLUGIN_VERSION}`,
+              sha: context.sha
+            })
+        env:
+          PLUGIN_VERSION: ${{ inputs.version }}
+
+      - name: Create Github release
+        uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090 # v2.4.1
+        with:
+          draft: ${{ contains(inputs.version, 'dev') }}
+          name: ${{ inputs.version }}
+          tag_name: v${{ inputs.version }}
+          files: |
+            /tmp/plugin-package/*.zip
+          fail_on_unmatched_files: true
+          body: ${{ steps.parse.outputs.changelog }}
