@@ -111,9 +111,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 			opts.Auth = clickhouse.Auth{
 				Database: settings.DefaultDatabase,
 			}
-			if settings.Secure {
-				opts.HttpHeaders = map[string]string{"Authorization": "Bearer " + settings.Token}
-			}
+			opts.HttpHeaders = map[string]string{"Authorization": "Bearer " + settings.Token}
 			// native format
 			opts.Settings = map[string]any{"hdx_query_output_format": "Native"}
 		} else {
@@ -131,10 +129,8 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		}
 
 		if protocol == clickhouse.HTTP {
-			// https & basic auth
-			if settings.Secure {
-				opts.HttpHeaders = map[string]string{"Authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", settings.UserName, settings.Password)))}
-			}
+			// basic auth
+			opts.HttpHeaders = map[string]string{"Authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", settings.UserName, settings.Password)))}
 
 			// native format
 			opts.Settings = map[string]any{"hdx_query_output_format": "Native"}

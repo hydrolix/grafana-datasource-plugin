@@ -6,6 +6,7 @@ import {
   TimeRange,
 } from "@grafana/data";
 import {
+  Alert,
   Button,
   Divider,
   Field,
@@ -416,7 +417,13 @@ export function ConfigEditor(props: Props) {
               onChange={(e) => onProtocolToggle(e!)}
             />
           </Field>
-
+          {jsonData.protocol === Protocol.Http &&
+            !jsonData.secure &&
+            secureJsonFields.password && (
+              <Alert title={labels.secure.alertTitle} severity={"warning"}>
+                {labels.secure.alertMessage}
+              </Alert>
+            )}
           <Field
             data-testid={labels.secure.testId}
             label={labels.secure.label}
