@@ -5,6 +5,7 @@ import "@testing-library/jest-dom";
 import fs from "fs";
 import { HdxDataSourceOptions } from "types";
 import allLabels from "labels";
+import defaultConfigs from "defaultConfigs";
 
 const pluginJson = JSON.parse(fs.readFileSync("./src/plugin.json", "utf-8"));
 
@@ -28,6 +29,7 @@ function getDefaultProps(overrides: HdxDataSourceOptions) {
         port: 433,
         useDefaultPort: false,
         username: "use",
+        adHocDefaultTimeRange: defaultConfigs.adHocDefaultTimeRange,
         ...overrides,
       },
       secureJsonData: { password: "pass" },

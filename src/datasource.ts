@@ -363,7 +363,7 @@ export class DataSource extends DataSourceWithBackend<
   private adHocFilterTableName() {
     let table = this.replace(
       `$\{${this.instanceSettings.jsonData.adHocTableVariable}}`
-    );
+    )?.trim();
 
     if (table && !table.startsWith("${")) {
       if (table.includes(".")) {

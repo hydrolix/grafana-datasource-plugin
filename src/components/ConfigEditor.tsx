@@ -6,6 +6,7 @@ import {
   TimeRange,
 } from "@grafana/data";
 import {
+  Alert,
   Button,
   Divider,
   Field,
@@ -41,12 +42,21 @@ export interface Props
 export function ConfigEditor(props: Props) {
   const { onOptionsChange, options } = props;
   if (!Object.keys(options.jsonData).length) {
-    options.jsonData = defaultConfigs;
+    onOptionsChange({
+      ...options,
+      jsonData: defaultConfigs,
+    });
   }
   const { jsonData, secureJsonFields } = options;
 
-  if (!jsonData.adHocDefaultTimeRange) {
-    jsonData.adHocDefaultTimeRange = defaultConfigs.adHocDefaultTimeRange;
+  if (Object.keys(options.jsonData).length && !jsonData.adHocDefaultTimeRange) {
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...options.jsonData,
+        adHocDefaultTimeRange: defaultConfigs.adHocDefaultTimeRange,
+      },
+    });
   }
 
   const labels = allLabels.components.config.editor;
@@ -407,7 +417,13 @@ export function ConfigEditor(props: Props) {
               onChange={(e) => onProtocolToggle(e!)}
             />
           </Field>
-
+          {jsonData.protocol === Protocol.Http &&
+            !jsonData.secure &&
+            secureJsonFields.password && (
+              <Alert title={labels.secure.alertTitle} severity={"warning"}>
+                {labels.secure.alertMessage}
+              </Alert>
+            )}
           <Field
             data-testid={labels.secure.testId}
             label={labels.secure.label}
