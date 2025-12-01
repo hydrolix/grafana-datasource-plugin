@@ -16,13 +16,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: CH Docker run
-        uses: addnab/docker-run-action@v3
-        with:
-          options: -d -e CLICKHOUSE_SKIP_USER_SETUP=1 -p 8123:8123 -p 9000:9000 --name clickhouse
-          image: clickhouse/clickhouse-server:latest
-          run: /bin/bash -c "sed -i 's|<custom_settings_prefixes>SQL_</custom_settings_prefixes>|<custom_settings_prefixes>hdx_</custom_settings_prefixes>|' $CLICKHOUSE_CONFIG && /entrypoint.sh"
-
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -36,26 +29,11 @@ jobs:
       - name: Set version
         run: ./.github/scripts/set-version.sh
 
-      - name: Wait for ClickHouse
-        run: |
-          for i in {1..30}; do
-            if curl -sf http://localhost:8123/ping; then
-              echo "ClickHouse is up!"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "ClickHouse did not start in time" >&2
-          docker logs clickhouse
-          exit 1
-
       - name: Run tests
         run: |
           gotestsum --junitfile junit_report.xml --format testname -- \
             -race -coverprofile=coverage.txt -covermode atomic \
             $(go list ./... | grep -v /testhelpers)
-        env:
-          CLICKHOUSE_HOSTNAME: localhost
 
       - name: Generate coverage report
         run: |
