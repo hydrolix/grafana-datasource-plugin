@@ -19,10 +19,11 @@ type Interpolator struct {
 }
 
 type macroMatch struct {
-	full string
-	name string
-	args []string
-	pos  parser.Pos
+	full    string
+	name    string
+	args    []string
+	escaped bool
+	pos     parser.Pos
 }
 
 func NewInterpolator(ds *HydrolixDatasource) Interpolator {
@@ -32,7 +33,7 @@ func NewInterpolator(ds *HydrolixDatasource) Interpolator {
 // getMacroMatches extracts macro strings with their respective arguments from the sql input given
 // It manually parses the string to find the closing parenthesis of the macro (because regex has no memory)
 func getMacroMatches(input string, name string) ([]macroMatch, error) {
-	rgx, err := regexp.Compile(fmt.Sprintf(`\$__%s\b`, name))
+	rgx, err := regexp.Compile(fmt.Sprintf(`\$+__%s\b`, name))
 
 	if err != nil {
 		return nil, err
@@ -45,7 +46,7 @@ func getMacroMatches(input string, name string) ([]macroMatch, error) {
 		if length < 0 {
 			return nil, fmt.Errorf("failed to parse macro arguments (missing close bracket?)")
 		}
-		matches = append(matches, macroMatch{full: input[start : end+length], args: args, pos: parser.Pos(start), name: name})
+		matches = append(matches, macroMatch{full: input[start : end+length], args: args, escaped: input[start+1] == '$', pos: parser.Pos(start), name: name})
 	}
 	return matches, nil
 }
@@ -121,13 +122,17 @@ func (i Interpolator) Interpolate(query *HDXQuery, ctx context.Context) (string,
 		return macroMatches[i].pos > macroMatches[j].pos
 	})
 	for _, match := range macroMatches {
-		macro := i.macros[match.name]
-		res, err := macro(query.WithSQL(rawSQL), match.args, match.pos, i.md, ctx)
-		if err != nil {
-			return rawSQL, err
-		}
+		if match.escaped {
+			rawSQL = rawSQL[0:match.pos] + strings.Replace(rawSQL[match.pos:], "$", "", 1)
+		} else {
+			macro := i.macros[match.name]
+			res, err := macro(query.WithSQL(rawSQL), match.args, match.pos, i.md, ctx)
+			if err != nil {
+				return rawSQL, err
+			}
 
-		rawSQL = rawSQL[0:match.pos] + strings.Replace(rawSQL[match.pos:], match.full, res, 1)
+			rawSQL = rawSQL[0:match.pos] + strings.Replace(rawSQL[match.pos:], match.full, res, 1)
+		}
 	}
 	return rawSQL, nil
 }
