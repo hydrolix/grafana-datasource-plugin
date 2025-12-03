@@ -163,8 +163,8 @@ github.com/hashicorp/go-plugin v1.6.3 h1:xgHB+ZUSYeuJi96WtxEjzi23uh7YQpznjGh0U0U
 github.com/hashicorp/go-plugin v1.6.3/go.mod h1:MRobyh+Wc/nYy1V4KAXUiYfzxoYhs7V1mlH1Z7iY2h0=
 github.com/hashicorp/yamux v0.1.1 h1:yrQxtgseBDrq9Y652vSRDvsKCJKOUD+GzTS4Y0Y8pvE=
 github.com/hashicorp/yamux v0.1.1/go.mod h1:CtWFDAQgb7dxtzFs4tWbplKIe2jSi3+5vKbgIO0SLnQ=
-github.com/hydrolix/clickhouse-sql-parser v0.1.1 h1:iKUvC0KAuB26ZeZr1802FsWlPTiqa+Al5QOXAxMq/cA=
-github.com/hydrolix/clickhouse-sql-parser v0.1.1/go.mod h1:XM12SuNWq8DPbgWQ6mB8tIxg2BucGZrX6636VuSk2No=
+github.com/hydrolix/clickhouse-sql-parser v0.2.0 h1:UsFfpdBRRihjUBB/1aLFinIc6+f+i6/sM4iiKkKHDzY=
+github.com/hydrolix/clickhouse-sql-parser v0.2.0/go.mod h1:XM12SuNWq8DPbgWQ6mB8tIxg2BucGZrX6636VuSk2No=
 github.com/jellydator/ttlcache/v3 v3.4.0 h1:YS4P125qQS0tNhtL6aeYkheEaB/m8HCqdMMP4mnWdTY=
 github.com/jellydator/ttlcache/v3 v3.4.0/go.mod h1:Hw9EgjymziQD3yGsQdf1FqFdpp7YjFMd4Srg5EJlgD4=
 github.com/jhump/protoreflect v1.15.1 h1:HUMERORf3I3ZdX05WaQ6MIpd/NJ434hTp5YiKgfCL6c=

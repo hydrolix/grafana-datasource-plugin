@@ -10,7 +10,7 @@ require (
 	github.com/docker/go-connections v0.5.0
 	github.com/grafana/grafana-plugin-sdk-go v0.277.1
 	github.com/grafana/sqlds/v4 v4.2.3
-	github.com/hydrolix/clickhouse-sql-parser v0.1.1
+	github.com/hydrolix/clickhouse-sql-parser v0.2.0
 	github.com/jellydator/ttlcache/v3 v3.4.0
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.10.0
