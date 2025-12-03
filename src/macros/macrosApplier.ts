@@ -32,7 +32,10 @@ const applyMacros = (
 
   // Process each match
   for (const match of allMatches) {
-    if (!match.escaped) {
+    if (match.escaped) {
+      // If escaped, remove one dollar sign
+      sql = sql.substring(0, match.pos) + sql.substring(match.pos).replace("$", "");
+    } else {
       // Apply the macro function
       const macroFunc = macroFunctionMap[match.name];
       const result = macroFunc(match.args, context, match.pos);
