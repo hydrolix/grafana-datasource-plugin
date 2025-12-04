@@ -17,6 +17,7 @@ import (
 const (
 	SyntheticNull  = "__null__"
 	SyntheticEmpty = "__empty__"
+	RegexPrefix    = "regex:"
 )
 
 type MacroFunc func(*HDXQuery, []string, parser.Pos, *MetaDataProvider, context.Context) (string, error)
@@ -285,11 +286,31 @@ func buildFilterCondition(filter AdHocFilter, isString bool) (string, error) {
 		}
 
 	} else if operator == "=~" {
-		return fmt.Sprintf("toString(%s) LIKE $$%s$$", key, escapeWildcard(value)), nil
+		regex, isRegex := getRegexValue(value)
+		if isRegex {
+			return fmt.Sprintf("match(toString(%s), '%s')", key, regex), nil
+		} else {
+			return fmt.Sprintf("toString(%s) LIKE $$%s$$", key, escapeWildcard(value)), nil
+		}
 	} else if operator == "!~" {
-		return fmt.Sprintf("toString(%s) NOT LIKE $$%s$$", key, escapeWildcard(value)), nil
+		regex, isRegex := getRegexValue(value)
+		if isRegex {
+			return fmt.Sprintf("not match(toString(%s), '%s')", key, regex), nil
+		} else {
+			return fmt.Sprintf("toString(%s) NOT LIKE $$%s$$", key, escapeWildcard(value)), nil
+		}
 	} else {
 		return fmt.Sprintf("%s %s $$%s$$", key, operator, value), nil
+	}
+}
+
+func getRegexValue(value string) (string, bool) {
+
+	isRegex := strings.HasPrefix(value, RegexPrefix)
+	if isRegex {
+		return value[len(RegexPrefix):], true
+	} else {
+		return "", false
 	}
 }
 

@@ -1,13 +1,16 @@
 package datasource
 
 import (
+	"context"
 	"fmt"
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"maps"
 	"slices"
 	"testing"
+	"time"
 )
 
 func TestGetMacroCTEs(t *testing.T) {
@@ -58,5 +61,266 @@ func TestGetMacroCTEsForComplexQuery(t *testing.T) {
 	fmt.Println(res)
 	for i, v := range slices.SortedFunc(maps.Values(res), func(a, b CTE) int { return int(a.MacroPos) - int(b.MacroPos) }) {
 		assert.Equal(t, expected[i], v.CTE, fmt.Sprintf("For macro %s at index %d", v.Macro, v.MacroPos))
+	}
+}
+
+func TestGetMacroMatches(t *testing.T) {
+	type test struct {
+		name     string
+		input    string
+		macro    string
+		expected []macroMatch
+	}
+
+	tests := []test{
+		{
+			name:  "should match unescaped macro",
+			input: "SELECT * FROM table WHERE $__timeFilter(timestamp)",
+			macro: "timeFilter",
+			expected: []macroMatch{
+				{
+					full:    "$__timeFilter(timestamp)",
+					name:    "timeFilter",
+					args:    []string{"timestamp"},
+					escaped: false,
+					pos:     parser.Pos(26),
+				},
+			},
+		},
+		{
+			name:  "should match escaped macro with double dollar sign",
+			input: "SELECT * FROM table WHERE $$__timeFilter(timestamp)",
+			macro: "timeFilter",
+			expected: []macroMatch{
+				{
+					full:    "$$__timeFilter(timestamp)",
+					name:    "timeFilter",
+					args:    []string{"timestamp"},
+					escaped: true,
+					pos:     parser.Pos(26),
+				},
+			},
+		},
+		{
+			name:  "should match multiple unescaped macros",
+			input: "SELECT $__timeInterval(value) FROM table WHERE $__timeFilter(timestamp)",
+			macro: "timeFilter",
+			expected: []macroMatch{
+				{
+					full:    "$__timeFilter(timestamp)",
+					name:    "timeFilter",
+					args:    []string{"timestamp"},
+					escaped: false,
+					pos:     parser.Pos(47),
+				},
+			},
+		},
+		{
+			name:  "should match macro with no arguments",
+			input: "SELECT * FROM table WHERE $__adHocFilter()",
+			macro: "adHocFilter",
+			expected: []macroMatch{
+				{
+					full:    "$__adHocFilter()",
+					name:    "adHocFilter",
+					args:    []string{""},
+					escaped: false,
+					pos:     parser.Pos(26),
+				},
+			},
+		},
+		{
+			name:  "should match escaped macro with no arguments",
+			input: "SELECT * FROM table WHERE $$__adHocFilter()",
+			macro: "adHocFilter",
+			expected: []macroMatch{
+				{
+					full:    "$$__adHocFilter()",
+					name:    "adHocFilter",
+					args:    []string{""},
+					escaped: true,
+					pos:     parser.Pos(26),
+				},
+			},
+		},
+		{
+			name:  "should match macro with multiple arguments",
+			input: "SELECT * FROM table WHERE $__dateTimeFilter(timestamp, created_at)",
+			macro: "dateTimeFilter",
+			expected: []macroMatch{
+				{
+					full:    "$__dateTimeFilter(timestamp, created_at)",
+					name:    "dateTimeFilter",
+					args:    []string{"timestamp", "created_at"},
+					escaped: false,
+					pos:     parser.Pos(26),
+				},
+			},
+		},
+		{
+			name:  "should match escaped macro with multiple arguments",
+			input: "SELECT * FROM table WHERE $$__dateTimeFilter(timestamp, created_at)",
+			macro: "dateTimeFilter",
+			expected: []macroMatch{
+				{
+					full:    "$$__dateTimeFilter(timestamp, created_at)",
+					name:    "dateTimeFilter",
+					args:    []string{"timestamp", "created_at"},
+					escaped: true,
+					pos:     parser.Pos(26),
+				},
+			},
+		},
+		{
+			name:     "should not match macro without dollar sign",
+			input:    "SELECT * FROM table WHERE __timeFilter(timestamp)",
+			macro:    "timeFilter",
+			expected: []macroMatch{},
+		},
+	}
+
+	for i, tc := range tests {
+		t.Run(fmt.Sprintf("[%d/%d] %s", i+1, len(tests), tc.name), func(t *testing.T) {
+			matches, err := getMacroMatches(tc.input, tc.macro)
+			require.NoError(t, err)
+			assert.Equal(t, len(tc.expected), len(matches))
+			for j, expected := range tc.expected {
+				assert.Equal(t, expected.full, matches[j].full, "full macro text should match")
+				assert.Equal(t, expected.name, matches[j].name, "macro name should match")
+				assert.Equal(t, expected.args, matches[j].args, "macro args should match")
+				assert.Equal(t, expected.escaped, matches[j].escaped, "escaped flag should match")
+				assert.Equal(t, expected.pos, matches[j].pos, "position should match")
+			}
+		})
+	}
+}
+
+func TestGetMacroMatches_ErrorCases(t *testing.T) {
+	type test struct {
+		name      string
+		input     string
+		macro     string
+		expectErr bool
+	}
+
+	tests := []test{
+		{
+			name:      "should return error for unclosed macro",
+			input:     "SELECT * FROM table WHERE $__timeFilter(timestamp",
+			macro:     "timeFilter",
+			expectErr: true,
+		},
+		{
+			name:      "should return error for unclosed nested parenthesis",
+			input:     "SELECT * FROM table WHERE $__macro(func(arg)",
+			macro:     "macro",
+			expectErr: true,
+		},
+	}
+
+	for i, tc := range tests {
+		t.Run(fmt.Sprintf("[%d/%d] %s", i+1, len(tests), tc.name), func(t *testing.T) {
+			_, err := getMacroMatches(tc.input, tc.macro)
+			if tc.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestInterpolateMacroEscaping(t *testing.T) {
+	type test struct {
+		name   string
+		input  string
+		output string
+	}
+
+	tests := []test{
+		{
+			name:   "should escape macro with double dollar sign",
+			input:  "SELECT * FROM table WHERE $$__timeFilter(timestamp)",
+			output: "SELECT * FROM table WHERE $__timeFilter(timestamp)",
+		},
+		{
+			name:   "should escape multiple macros",
+			input:  "SELECT $$__timeInterval(value) FROM table WHERE $$__timeFilter(timestamp)",
+			output: "SELECT $__timeInterval(value) FROM table WHERE $__timeFilter(timestamp)",
+		},
+		{
+			name:   "should handle mix of escaped and unescaped macros",
+			input:  "SELECT * FROM table WHERE $__timeFilter(timestamp) AND $$__adHocFilter()",
+			output: "SELECT * FROM table WHERE timestamp >= toDateTime(1415792726) AND timestamp <= toDateTime(1447328726) AND $__adHocFilter()",
+		},
+		{
+			name:   "should escape macro with no arguments",
+			input:  "SELECT * FROM table WHERE $$__adHocFilter()",
+			output: "SELECT * FROM table WHERE $__adHocFilter()",
+		},
+		{
+			name:   "should escape macro with multiple arguments",
+			input:  "SELECT * FROM table WHERE $$__dateTimeFilter(timestamp, created_at)",
+			output: "SELECT * FROM table WHERE $__dateTimeFilter(timestamp, created_at)",
+		},
+		{
+			name:   "should process unescaped macro normally",
+			input:  "SELECT * FROM table WHERE $__fromTime",
+			output: "SELECT * FROM table WHERE toDateTime(1415792726)",
+		},
+		{
+			name:   "should escape fromTime and toTime macros",
+			input:  "SELECT * FROM table WHERE $$__fromTime AND $$__toTime",
+			output: "SELECT * FROM table WHERE $__fromTime AND $__toTime",
+		},
+		{
+			name:   "should handle escaped timeFilter_ms",
+			input:  "SELECT * FROM table WHERE $$__timeFilter_ms(timestamp)",
+			output: "SELECT * FROM table WHERE $__timeFilter_ms(timestamp)",
+		},
+		{
+			name:   "should handle complex query with mix of escaped and unescaped",
+			input:  "SELECT * FROM table WHERE $__timeFilter(timestamp) AND status = 'active' OR $$__timeFilter_ms(created_at)",
+			output: "SELECT * FROM table WHERE timestamp >= toDateTime(1415792726) AND timestamp <= toDateTime(1447328726) AND status = 'active' OR $__timeFilter_ms(created_at)",
+		},
+		{
+			name:   "should handle multiple escaped macros in different positions",
+			input:  "SELECT $$__fromTime, $$__toTime, $__interval_s FROM table WHERE $$__timeFilter(timestamp)",
+			output: "SELECT $__fromTime, $__toTime, 1 FROM table WHERE $__timeFilter(timestamp)",
+		},
+		{
+			name:   "should handle macros escaped multiple times",
+			input:  "SELECT * FROM table WHERE $$$$__timeFilter(timestamp)",
+			output: "SELECT * FROM table WHERE $$$__timeFilter(timestamp)",
+		},
+		{
+			name:   "should handle macros escaped multiple times",
+			input:  "SELECT * FROM table WHERE $$$__timeFilter(timestamp)",
+			output: "SELECT * FROM table WHERE $$__timeFilter(timestamp)",
+		},
+	}
+
+	from, _ := time.Parse("2006-01-02T15:04:05.000Z", "2014-11-12T11:45:26.123Z")
+	to, _ := time.Parse("2006-01-02T15:04:05.000Z", "2015-11-12T11:45:26.456Z")
+
+	for i, tc := range tests {
+		interpolator := NewInterpolator(&HydrolixDatasource{
+			Connector: &MockConnector{
+				uid: "uid-123",
+			},
+		})
+		t.Run(fmt.Sprintf("[%d/%d] %s", i+1, len(tests), tc.name), func(t *testing.T) {
+			query := &HDXQuery{
+				RawSQL: tc.input,
+				TimeRange: backend.TimeRange{
+					From: from,
+					To:   to,
+				},
+				Interval: time.Duration(1000000000),
+			}
+			interpolatedQuery, err := interpolator.Interpolate(query, context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, tc.output, interpolatedQuery)
+		})
 	}
 }
