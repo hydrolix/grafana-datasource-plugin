@@ -183,24 +183,35 @@ func IntervalSeconds(query *HDXQuery, _ []string, _ parser.Pos, _ *MetaDataProvi
 }
 
 // AdHocFilterMacro implements the $__adHocFilter() macro
-func AdHocFilterMacro(query *HDXQuery, _ []string, pos parser.Pos, mdProvider *MetaDataProvider, _ context.Context) (string, error) {
+func AdHocFilterMacro(query *HDXQuery, params []string, pos parser.Pos, mdProvider *MetaDataProvider, _ context.Context) (string, error) {
 	if query.Filters == nil || len(query.Filters) == 0 {
 		return "1=1", nil
 	}
-	expr, err := parser.NewParser(query.RawSQL).ParseStmts()
-	if err != nil {
-		return "", err
+	if len(params) > 1 {
+		return "", backend.DownstreamError(fmt.Errorf("%w: expected 0 or 1 argument, received %d", sqlutil.ErrorBadArgumentCount, len(params)))
 	}
 
-	macroCTEs, err := GetMacroCTEs(expr)
-	if err != nil {
-		return "", err
-	}
 	var cte = ""
-	for _, macroCTE := range macroCTEs {
-		if macroCTE.MacroPos == pos {
-			cte = macroCTE.CTE
-			break
+	if len(params) == 1 {
+		cte = params[0]
+	}
+
+	if cte == "" {
+		expr, err := parser.NewParser(query.RawSQL).ParseStmts()
+		if err != nil {
+			return "", err
+		}
+
+		macroCTEs, err := GetMacroCTEs(expr)
+		if err != nil {
+			return "", err
+		}
+
+		for _, macroCTE := range macroCTEs {
+			if macroCTE.MacroPos == pos {
+				cte = macroCTE.CTE
+				break
+			}
 		}
 	}
 	if cte == "" {
