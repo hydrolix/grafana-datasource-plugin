@@ -7,16 +7,16 @@ describe("ErrorMessageBeautifier", () => {
     beautifier = new ErrorMessageBeautifier();
   });
 
-  test("should return null if input string does not contain valid JSON", () => {
+  test("should return raw string when no recognizable error pattern found", () => {
     const input = "Invalid string without JSON";
     const result = beautifier.beautify(input);
-    expect(result).toBeUndefined();
+    expect(result).toEqual("Invalid string without JSON");
   });
 
-  test("should return null if parsed JSON does not contain an error property", () => {
+  test("should return raw string when JSON has no error property", () => {
     const input = 'prefix {"query": "SELECT *"} suffix';
     const result = beautifier.beautify(input);
-    expect(result).toBeUndefined();
+    expect(result).toEqual('prefix {"query": "SELECT *"} suffix');
   });
 
   test("should extract default CH message", () => {
@@ -111,5 +111,75 @@ describe("ErrorMessageBeautifier", () => {
       "failed to authenticate user 'default@aa.aa':\n" +
         "detail: Could not login"
     );
+  });
+
+  test("should format HTTP auth error with 400 status", () => {
+    const input =
+      'prefix {"error": "<TurbineApiAuthenticatorError api login failed with provided username/password \'test@example.com\'. {\\"username\\":[\\"Enter a valid email.\\"],\\"password\\":[\\"Required field.\\"]} (Hydrolix)>"} suffix';
+    const result = beautifier.beautify(input);
+    expect(result).toEqual(
+      "api login failed with provided username/password 'test@example.com'.:\n" +
+        "username: Enter a valid email.\n" +
+        "password: Required field."
+    );
+  });
+
+  test("should format HTTP auth error without embedded JSON", () => {
+    const input =
+      'prefix {"error": "<TurbineApiAuthenticatorError api login failed with provided username/password \'admin\'. (Hydrolix)>"} suffix';
+    const result = beautifier.beautify(input);
+    expect(result).toEqual(
+      "api login failed with provided username/password 'admin'.:\n"
+    );
+  });
+
+  test("should handle malformed JSON in HTTP auth error gracefully", () => {
+    const input =
+      'prefix {"error": "<TurbineApiAuthenticatorError api login failed with provided username/password \'user\'. {invalid json} (Hydrolix)>"} suffix';
+    const result = beautifier.beautify(input);
+    expect(result).toEqual(
+      "api login failed with provided username/password 'user'.:\n"
+    );
+  });
+
+  test("should return raw error when HTTP auth pattern does not match", () => {
+    const input =
+      'prefix {"error": "<DifferentError api login failed \'user\'. (Hydrolix)>"} suffix';
+    const result = beautifier.beautify(input);
+    expect(result).toEqual(
+      "<DifferentError api login failed 'user'. (Hydrolix)>"
+    );
+  });
+
+  test("should extract native protocol error format", () => {
+    const input =
+      "code: 62, message: Syntax error: failed at position 10 (line 1, col 10): SELECT * FORM table";
+    const result = beautifier.beautify(input);
+    expect(result).toEqual(
+      " Syntax error: failed at position 10 (line 1, col 10): SELECT * FORM table"
+    );
+  });
+
+  test("should parse code with case-insensitive regex", () => {
+    const input =
+      'prefix {"error": "code: 123. DB::Exception: Something went wrong. (ABC)", "query": "SELECT * FROM table"} suffix';
+    const result = beautifier.beautify(input);
+    expect(result).toEqual("Something went wrong");
+  });
+
+  test("should handle native error with newlines replaced", () => {
+    const input =
+      "code: 62, message: Syntax error: failed\nat position 10\n(line 1, col 10)";
+    const result = beautifier.beautify(input);
+    expect(result).toEqual(
+      " Syntax error: failed at position 10 (line 1, col 10)"
+    );
+  });
+
+  test("should handle error code with lowercase 'code' at start", () => {
+    const input =
+      'prefix {"error": "code: 999. DB::Exception: Lowercase code prefix. (TEST)", "query": "SELECT 1"} suffix';
+    const result = beautifier.beautify(input);
+    expect(result).toEqual("Lowercase code prefix");
   });
 });
