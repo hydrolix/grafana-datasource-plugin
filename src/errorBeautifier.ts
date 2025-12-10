@@ -55,7 +55,6 @@ export class ErrorMessageBeautifier {
 
   private handleDBErrors(s: string, json: any): string | undefined {
     const error = this.parseDBError(s, json);
-    console.log(error);
     if (!error) {
       return undefined;
     }
@@ -96,9 +95,7 @@ export class ErrorMessageBeautifier {
 
   private parseDBError(s: string, parsed: any) {
     const error = (parsed?.error || s).replace(/\r?\n/g, " ");
-    console.log("error", error);
     // let error = parsed && parsed.error ? parsed.error : s; //.replace(/\r?\n/g, " ");
-    console.log("regex", error.match(ErrorMessageBeautifier.CH_CODE_REGEX));
     let code: number | undefined = Number(
       error.match(ErrorMessageBeautifier.CH_CODE_REGEX)?.[1]
     );
