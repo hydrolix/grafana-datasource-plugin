@@ -95,7 +95,6 @@ export class ErrorMessageBeautifier {
 
   private parseDBError(s: string, parsed: any) {
     const error = (parsed?.error || s).replace(/\r?\n/g, " ");
-    // let error = parsed && parsed.error ? parsed.error : s; //.replace(/\r?\n/g, " ");
     let code: number | undefined = Number(
       error.match(ErrorMessageBeautifier.CH_CODE_REGEX)?.[1]
     );
