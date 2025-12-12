@@ -10,13 +10,13 @@ describe("ErrorMessageBeautifier", () => {
   test("should return raw string when no recognizable error pattern found", () => {
     const input = "Invalid string without JSON";
     const result = beautifier.beautify(input);
-    expect(result).toEqual("Invalid string without JSON");
+    expect(result).toEqual(input);
   });
 
   test("should return raw string when JSON has no error property", () => {
     const input = 'prefix {"query": "SELECT *"} suffix';
     const result = beautifier.beautify(input);
-    expect(result).toEqual('prefix {"query": "SELECT *"} suffix');
+    expect(result).toEqual(input);
   });
 
   test("should extract default CH message", () => {
