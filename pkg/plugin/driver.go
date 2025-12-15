@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -29,9 +30,11 @@ type Hydrolix struct {
 }
 
 var (
-	_ sqlds.Driver           = (*Hydrolix)(nil)
-	_ sqlds.QueryMutator     = (*Hydrolix)(nil)
-	_ sqlds.QueryDataMutator = (*Hydrolix)(nil)
+	_                   sqlds.Driver           = (*Hydrolix)(nil)
+	_                   sqlds.QueryMutator     = (*Hydrolix)(nil)
+	_                   sqlds.QueryDataMutator = (*Hydrolix)(nil)
+	HeaderKey                                  = "grafana-http-headers"
+	AuthorizationHeader                        = "Authorization"
 )
 
 // NewHydrolix creates plugin instance with default parameters
@@ -60,7 +63,7 @@ func getClientInfoProducts(ctx context.Context) (products []struct{ Name, Versio
 }
 
 // Connect opens a sql.DB connection using datasource settings
-func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanceSettings, _ json.RawMessage) (*sql.DB, error) {
+func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanceSettings, args json.RawMessage) (*sql.DB, error) {
 	settings, err := models.NewPluginSettings(ctx, config)
 	if err != nil {
 		return nil, err
@@ -106,24 +109,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 
 		BlockBufferSize: 2,
 	}
-	if settings.CredentialsType == "serviceAccount" {
-		if protocol == clickhouse.HTTP {
-			opts.Auth = clickhouse.Auth{
-				Database: settings.DefaultDatabase,
-			}
-			if settings.Token != "" {
-				opts.HttpHeaders = map[string]string{"Authorization": "Bearer " + settings.Token}
-			}
-			// native format
-			opts.Settings = map[string]any{"hdx_query_output_format": "Native"}
-		} else {
-			opts.Auth = clickhouse.Auth{
-				Database: settings.DefaultDatabase,
-				Username: "__api_token__",
-				Password: settings.Token,
-			}
-		}
-	} else {
+	if settings.CredentialsType == "userAccount" {
 		opts.Auth = clickhouse.Auth{
 			Database: settings.DefaultDatabase,
 			Username: settings.UserName,
@@ -137,6 +123,35 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 			}
 			// native format
 			opts.Settings = map[string]any{"hdx_query_output_format": "Native"}
+		}
+	} else {
+		token := ""
+		if settings.CredentialsType == "forwardOAuth" {
+			oAuthToken, ok := getOAuthToken(args)
+			if ok {
+				token = oAuthToken
+			} else {
+				return nil, fmt.Errorf("cannot get auth header")
+			}
+		} else {
+			token = settings.Token
+		}
+
+		if protocol == clickhouse.HTTP {
+			opts.Auth = clickhouse.Auth{
+				Database: settings.DefaultDatabase,
+			}
+			if token != "" {
+				opts.HttpHeaders = map[string]string{"Authorization": "Bearer " + token}
+			}
+			// native format
+			opts.Settings = map[string]any{"hdx_query_output_format": "Native"}
+		} else {
+			opts.Auth = clickhouse.Auth{
+				Database: settings.DefaultDatabase,
+				Username: "__api_token__",
+				Password: settings.Token,
+			}
 		}
 	}
 
@@ -152,13 +167,15 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 	case <-ctx.Done():
 		return db, fmt.Errorf("connect to database was cancelled: %w", ctx.Err())
 	default:
-		err := db.PingContext(ctx)
-		if err != nil {
-			var ex *clickhouse.Exception
-			if errors.As(err, &ex) {
-				log.DefaultLogger.Error("[%d] %s \n%s\n", ex.Code, ex.Message, ex.StackTrace)
+		if settings.CredentialsType != "forwardOAuth" {
+			err := db.PingContext(ctx)
+			if err != nil {
+				var ex *clickhouse.Exception
+				if errors.As(err, &ex) {
+					log.DefaultLogger.Error("[%d] %s \n%s\n", ex.Code, ex.Message, ex.StackTrace)
+				}
+				return db, err
 			}
-			return db, err
 		}
 	}
 	log.DefaultLogger.Info("connect datasource", "name", config.Name)
@@ -189,7 +206,7 @@ func (h *Hydrolix) Settings(ctx context.Context, config backend.DataSourceInstan
 		FillMode: &data.FillMissing{
 			Mode: data.FillModeNull,
 		},
-		ForwardHeaders: false,
+		ForwardHeaders: settings.CredentialsType == "forwardOAuth",
 	}
 }
 
@@ -265,6 +282,20 @@ func (h *Hydrolix) MutateQuery(ctx context.Context, req backend.DataQuery) (cont
 	}
 
 	return ctx, req
+}
+
+func getOAuthToken(jmsg json.RawMessage) (string, bool) {
+	var m map[string]map[string][]string
+	if jmsg != nil {
+		err := json.Unmarshal(jmsg, &m)
+		if err == nil && m != nil && m[HeaderKey] != nil && m[HeaderKey][AuthorizationHeader] != nil && len(m[HeaderKey][AuthorizationHeader]) > 0 {
+			header := m[HeaderKey][AuthorizationHeader][0]
+			if header != "" && strings.HasPrefix(header, "Bearer ") {
+				return strings.TrimPrefix(header, "Bearer "), true
+			}
+		}
+	}
+	return "", false
 }
 
 // jsonSet update raw message's root object by applying a value to a key property
