@@ -63,6 +63,9 @@ jobs:
     uses: ./.github/workflows/s3_publish.yml
     if: inputs.publish_to_aws
     needs: [package]
+    secrets:
+      aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
   create-github-release:
     name: Create GitHub Release
