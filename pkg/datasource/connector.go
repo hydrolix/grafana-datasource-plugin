@@ -43,9 +43,8 @@ type HydrolixConnector struct {
 
 func NewConnector(ctx context.Context, driver sqlds.Driver, settings backend.DataSourceInstanceSettings) (Connector, error) {
 	pluginSettings, err := models.NewPluginSettings(ctx, settings)
-	println("test", err)
 	if err != nil {
-		return nil, err
+		return nil, backend.DownstreamError(err)
 	}
 
 	ds := driver.Settings(ctx, settings)
