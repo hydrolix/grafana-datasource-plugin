@@ -58,6 +58,7 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   dialTimeout?: string;
   queryTimeout?: string;
   querySettings?: QuerySetting[];
+  oauthPassThru?: boolean;
 }
 
 export interface QuerySetting {
@@ -81,6 +82,7 @@ export enum Protocol {
 export enum CredentialsType {
   UserAccount = "userAccount",
   ServiceAccount = "serviceAccount",
+  ForwardOAuth = "forwardOAuth",
 }
 
 export interface AdHocFilterKeys {

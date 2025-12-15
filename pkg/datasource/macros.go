@@ -6,6 +6,7 @@ import (
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
 	"maps"
 	"math"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -71,7 +72,7 @@ func TimeFilter(query *HDXQuery, args []string, pos parser.Pos, mdProvider *Meta
 	if len(args) == 1 && args[0] != "" {
 		column = args[0]
 	} else {
-		pk, err := getPK(query.RawSQL, pos, mdProvider, context)
+		pk, err := getPK(query.RawSQL, pos, mdProvider, query.Headers, context)
 		if err != nil {
 			return "", err
 		}
@@ -95,7 +96,7 @@ func TimeFilterMs(query *HDXQuery, args []string, pos parser.Pos, mdProvider *Me
 	if len(args) == 1 && args[0] != "" {
 		column = args[0]
 	} else {
-		pk, err := getPK(query.RawSQL, pos, mdProvider, context)
+		pk, err := getPK(query.RawSQL, pos, mdProvider, query.Headers, context)
 		if err != nil {
 			return "", err
 		}
@@ -145,7 +146,7 @@ func TimeInterval(query *HDXQuery, args []string, pos parser.Pos, mdProvider *Me
 	if len(args) == 1 && args[0] != "" {
 		column = args[0]
 	} else {
-		pk, err := getPK(query.RawSQL, pos, mdProvider, context)
+		pk, err := getPK(query.RawSQL, pos, mdProvider, query.Headers, context)
 		if err != nil {
 			return "", err
 		}
@@ -167,7 +168,7 @@ func TimeIntervalMs(query *HDXQuery, args []string, pos parser.Pos, mdProvider *
 	if len(args) == 1 && args[0] != "" {
 		column = args[0]
 	} else {
-		pk, err := getPK(query.RawSQL, pos, mdProvider, context)
+		pk, err := getPK(query.RawSQL, pos, mdProvider, query.Headers, context)
 		if err != nil {
 			return "", err
 		}
@@ -217,7 +218,7 @@ func AdHocFilterMacro(query *HDXQuery, params []string, pos parser.Pos, mdProvid
 	if cte == "" {
 		return "", fmt.Errorf("cannot apply ad hoc filters: unable to resolve tableName for ad hoc filter at index %d", pos)
 	}
-	keys, err := mdProvider.GetKeys(cte)
+	keys, err := mdProvider.GetKeys(cte, query.Headers)
 
 	if err != nil {
 		return "", fmt.Errorf("cannot apply ad hoc filters: unable to resolve keys for cte: %s", cte)
@@ -357,7 +358,7 @@ func Stub(_ *HDXQuery, _ []string, _ parser.Pos, _ *MetaDataProvider, _ context.
 	return "1=1", nil
 }
 
-func getPK(rawSQL string, pos parser.Pos, mdProvider *MetaDataProvider, context context.Context) (string, error) {
+func getPK(rawSQL string, pos parser.Pos, mdProvider *MetaDataProvider, headers http.Header, context context.Context) (string, error) {
 	expr, err := parser.NewParser(rawSQL).ParseStmts()
 	if err != nil {
 		return rawSQL, err
@@ -376,7 +377,7 @@ func getPK(rawSQL string, pos parser.Pos, mdProvider *MetaDataProvider, context 
 	if cte == nil {
 		return rawSQL, fmt.Errorf("no CTE found for macro at pos %d", pos)
 	}
-	return mdProvider.GetPK(context, cte.Database, cte.Table)
+	return mdProvider.GetPK(context, headers, cte.Database, cte.Table)
 }
 
 // Macros is a map of all macro functions

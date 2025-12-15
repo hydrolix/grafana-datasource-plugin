@@ -51,10 +51,11 @@ func (s *DsTestSuite) TearDownSuite() {
 
 func (s *DsTestSuite) DatasourceSettings(protocol string, port uint16) backend.DataSourceInstanceSettings {
 	settings, err := json.Marshal(models.PluginSettings{
-		Host:     s.ChContainer.Hostname,
-		UserName: s.ChContainer.Username,
-		Protocol: protocol,
-		Port:     port,
+		Host:            s.ChContainer.Hostname,
+		UserName:        s.ChContainer.Username,
+		Protocol:        protocol,
+		Port:            port,
+		CredentialsType: "userAccount",
 	})
 	if err != nil {
 		panic(err)

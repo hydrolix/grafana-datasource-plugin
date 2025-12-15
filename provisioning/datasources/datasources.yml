@@ -19,6 +19,8 @@ datasources:
       defaultDatabase: akamai
       defaultRound: 1m
       adHocTableVariable: table
+      oauthPassThru: true
+      credentialsType: "userAccount"
     secureJsonData:
       password: "${HYDROLIX_PASSWORD}"
   - name: "ClickHouse"

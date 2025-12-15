@@ -38,6 +38,7 @@ func (s *DatasourceTestSuite) TestNewDatasourceCreation() {
 			JSONData: []byte(fmt.Sprintf(`{
 			"host": "%s","port": %d,"protocol": "http",
 			"username": "%s", "password": "%s", 
+			"credentialsType": "userAccount",
 			"secure": false, "path": "/query", "skipTlsVerify": true
 		}`, s.ChContainer.Hostname, s.ChContainer.HttpPort, s.ChContainer.Username, s.ChContainer.Password)),
 		}
@@ -51,6 +52,7 @@ func (s *DatasourceTestSuite) TestNewDatasourceCreation() {
 			JSONData: []byte(fmt.Sprintf(`{
 			"host": "%s","port": %d,"protocol": "native",
 			"username": "%s", "password": "%s", 
+			"credentialsType": "userAccount",
 			"secure": false, "path": "/query", "skipTlsVerify": true
 		}`, s.ChContainer.Hostname, s.ChContainer.NativePort, s.ChContainer.Username, s.ChContainer.Password)),
 		}
@@ -67,6 +69,7 @@ func (s *DatasourceTestSuite) TestDatasourceRunQuery() {
 			JSONData: []byte(fmt.Sprintf(`{
 			"host": "%s","port": %d,"protocol": "http",
 			"username": "%s", "password": "%s", 
+			"credentialsType": "userAccount",
 			"secure": false, "path": "/query", "skipTlsVerify": true
 		}`, s.ChContainer.Hostname, s.ChContainer.HttpPort, s.ChContainer.Username, s.ChContainer.Password)),
 		}
@@ -95,6 +98,7 @@ func (s *DatasourceTestSuite) TestDatasourceRunQuery() {
 			JSONData: []byte(fmt.Sprintf(`{
 			"host": "%s","port": %d,"protocol": "native",
 			"username": "%s", "password": "%s", 
+			"credentialsType": "userAccount",
 			"secure": false, "path": "/query", "skipTlsVerify": true
 		}`, s.ChContainer.Hostname, s.ChContainer.NativePort, s.ChContainer.Username, s.ChContainer.Password)),
 		}

@@ -66,6 +66,7 @@ func Interpolate(ds *datasource.HydrolixDatasource, rw http.ResponseWriter, req 
 			Round:     request.Data.Round,
 			Interval:  interval,
 			TimeRange: timeRange,
+			Headers:   req.Header,
 		}, req.Context())
 
 	if err != nil {

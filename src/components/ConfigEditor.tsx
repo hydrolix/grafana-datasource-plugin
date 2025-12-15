@@ -68,6 +68,7 @@ export function ConfigEditor(props: Props) {
   const credentialsTypesOptions = [
     { label: "User Account", value: CredentialsType.UserAccount },
     { label: "Service Account", value: CredentialsType.ServiceAccount },
+    { label: "Forward OAuth Identity", value: CredentialsType.ForwardOAuth },
   ];
   let querySettingDefinitions = useMemo(() => {
     return labels.querySettings.values.reduce((acc, cur) => {
@@ -182,6 +183,7 @@ export function ConfigEditor(props: Props) {
       jsonData: {
         ...options.jsonData,
         credentialsType,
+        oauthPassThru: credentialsType === CredentialsType.ForwardOAuth,
       },
     });
   };
@@ -490,7 +492,8 @@ export function ConfigEditor(props: Props) {
               onChange={(e) => onCredentialsTypeToggle(e!)}
             />
           </Field>
-          {jsonData.credentialsType !== CredentialsType.ServiceAccount && (
+          {(!jsonData.credentialsType ||
+            jsonData.credentialsType === CredentialsType.UserAccount) && (
             <>
               <Field
                 data-testid={labels.username.testId}

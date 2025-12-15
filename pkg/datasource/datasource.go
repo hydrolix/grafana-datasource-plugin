@@ -27,9 +27,8 @@ const defaultRowLimit = int64(-1)
 const envRowLimit = "GF_DATAPROXY_ROW_LIMIT"
 
 var (
-	ErrorMissingMultipleConnectionsConfig = backend.PluginError(errors.New("received connection arguments but the feature is not enabled"))
-	ErrorMissingDBConnection              = backend.PluginError(errors.New("unable to get default db connection"))
-	HeaderKey                             = "grafana-http-headers"
+	ErrorMissingDBConnection = backend.PluginError(errors.New("unable to get default db connection"))
+	HeaderKey                = "grafana-http-headers"
 )
 
 func defaultKey(datasourceUID string) string {
@@ -160,7 +159,7 @@ func (ds *HydrolixDatasource) handleQuery(ctx context.Context, req backend.DataQ
 		return nil, err
 	}
 
-	hdxQuery, err := GetQuery(req, nil, nil)
+	hdxQuery, err := GetQuery(req, headers, nil, nil)
 	if err != nil {
 		return nil, err
 	}
