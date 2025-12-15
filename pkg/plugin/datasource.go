@@ -9,7 +9,7 @@ import (
 )
 
 func NewDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-	conn, err := datasource.NewConnector(ctx, NewHydrolix(), settings, true)
+	conn, err := datasource.NewConnector(ctx, NewHydrolix(), settings)
 	if err != nil {
 		return nil, backend.DownstreamError(err)
 	}

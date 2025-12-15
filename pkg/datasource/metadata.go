@@ -9,6 +9,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/hydrolix/plugin/pkg/models"
 	"github.com/jellydator/ttlcache/v3"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -32,7 +33,7 @@ func NewMetaDataProvider(ds *HydrolixDatasource) *MetaDataProvider {
 	return &MetaDataProvider{ds: ds, pkCache: pkCache, keyCache: keyCache}
 }
 
-func (p *MetaDataProvider) GetPK(context context.Context, database string, table string) (string, error) {
+func (p *MetaDataProvider) GetPK(context context.Context, headers http.Header, database string, table string) (string, error) {
 
 	if database == "" {
 		defaultDB, err := p.getDefaultDatabase(context)
@@ -47,7 +48,7 @@ func (p *MetaDataProvider) GetPK(context context.Context, database string, table
 	entry := p.pkCache.Get(cacheKey)
 	if entry == nil {
 		fmt.Println("Cache miss for:", cacheKey)
-		pk, err := p.QueryPK(database, table)
+		pk, err := p.QueryPK(database, table, headers)
 		if err != nil {
 			return "", err
 		}
@@ -61,13 +62,13 @@ func (p *MetaDataProvider) GetPK(context context.Context, database string, table
 
 }
 
-func (p *MetaDataProvider) GetKeys(cte string) (map[string]string, error) {
+func (p *MetaDataProvider) GetKeys(cte string, headers http.Header) (map[string]string, error) {
 	cacheKey := cte
 
 	entry := p.keyCache.Get(cacheKey)
 	if entry == nil {
 		fmt.Println("Cache miss for:", cacheKey)
-		keys, err := p.QueryKeys(cte)
+		keys, err := p.QueryKeys(cte, headers)
 		if err != nil {
 			return nil, err
 		}
@@ -89,7 +90,7 @@ func (p *MetaDataProvider) getDefaultDatabase(context context.Context) (string, 
 }
 
 // executeQuery executes a SQL query using the QueryData method and returns the resulting frame
-func (p *MetaDataProvider) executeQuery(sql string, queryID string) (*data.Frame, error) {
+func (p *MetaDataProvider) executeQuery(sql string, queryID string, headers http.Header) (*data.Frame, error) {
 	// Create a query using QueryData method
 	queryJSON, err := json.Marshal(map[string]interface{}{
 		"rawSql": sql,
@@ -110,6 +111,7 @@ func (p *MetaDataProvider) executeQuery(sql string, queryID string) (*data.Frame
 			DataSourceInstanceSettings: &settings,
 		},
 		Queries: []backend.DataQuery{dataQuery},
+		Headers: map[string]string{"Authorization": headers.Get("Authorization")},
 	}
 
 	// Execute the query using QueryData
@@ -135,11 +137,11 @@ func (p *MetaDataProvider) executeQuery(sql string, queryID string) (*data.Frame
 	return dataResponse.Frames[0], nil
 }
 
-func (p *MetaDataProvider) QueryPK(database string, table string) (string, error) {
+func (p *MetaDataProvider) QueryPK(database string, table string, headers http.Header) (string, error) {
 	// Format the SQL query with actual parameter values
 	formattedSQL := fmt.Sprintf(PRIMARY_KEY_QUERY_STRING, database, table)
 
-	frame, err := p.executeQuery(formattedSQL, "pk_query")
+	frame, err := p.executeQuery(formattedSQL, "pk_query", headers)
 	if err != nil {
 		return "", err
 	}
@@ -158,13 +160,13 @@ func (p *MetaDataProvider) QueryPK(database string, table string) (string, error
 	return v, err
 }
 
-func (p *MetaDataProvider) QueryKeys(cte string) (map[string]string, error) {
+func (p *MetaDataProvider) QueryKeys(cte string, headers http.Header) (map[string]string, error) {
 	if strings.Contains(strings.ToUpper(cte), "SELECT") {
 		cte = fmt.Sprintf("(%s)", cte)
 	}
 	formattedSQL := fmt.Sprintf(AD_HOC_KEY_QUERY, cte)
 
-	frame, err := p.executeQuery(formattedSQL, "key_query")
+	frame, err := p.executeQuery(formattedSQL, "key_query", headers)
 	if err != nil {
 		return nil, err
 	}
