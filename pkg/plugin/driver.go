@@ -30,11 +30,10 @@ type Hydrolix struct {
 }
 
 var (
-	_                   sqlds.Driver           = (*Hydrolix)(nil)
-	_                   sqlds.QueryMutator     = (*Hydrolix)(nil)
-	_                   sqlds.QueryDataMutator = (*Hydrolix)(nil)
-	HeaderKey                                  = "grafana-http-headers"
-	AuthorizationHeader                        = "Authorization"
+	_         sqlds.Driver           = (*Hydrolix)(nil)
+	_         sqlds.QueryMutator     = (*Hydrolix)(nil)
+	_         sqlds.QueryDataMutator = (*Hydrolix)(nil)
+	HeaderKey                        = "grafana-http-headers"
 )
 
 // NewHydrolix creates plugin instance with default parameters
@@ -288,9 +287,17 @@ func getOAuthToken(jmsg json.RawMessage) (string, bool) {
 	var m map[string]map[string][]string
 	if jmsg != nil {
 		err := json.Unmarshal(jmsg, &m)
-		if err == nil && m != nil && m[HeaderKey] != nil && m[HeaderKey][AuthorizationHeader] != nil && len(m[HeaderKey][AuthorizationHeader]) > 0 {
-			header := m[HeaderKey][AuthorizationHeader][0]
-			if header != "" && strings.HasPrefix(header, "Bearer ") {
+		if err == nil && m != nil && m[HeaderKey] != nil {
+			headers := m[HeaderKey]
+
+			header := ""
+			if headers[backend.OAuthIdentityTokenHeaderName] != nil && len(headers[backend.OAuthIdentityTokenHeaderName]) > 0 {
+				header = headers[backend.OAuthIdentityTokenHeaderName][0]
+			}
+			if header == "" && headers[backend.GrafanaUserSignInTokenHeaderName] != nil && len(headers[backend.GrafanaUserSignInTokenHeaderName]) > 0 {
+				header = headers[backend.GrafanaUserSignInTokenHeaderName][0]
+			}
+			if header != "" {
 				return strings.TrimPrefix(header, "Bearer "), true
 			}
 		}
