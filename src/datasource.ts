@@ -43,6 +43,7 @@ import { getColumnValuesStatement } from "./ast";
 import { SYNTHETIC_EMPTY, SYNTHETIC_NULL } from "./constants";
 import { replace } from "./syntheticVariables";
 import { applyConditionalAll } from "./macros/macrosApplier";
+import { errorOverlayManager } from "./errorOverlayManager";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -120,14 +121,34 @@ export class DataSource extends DataSourceWithBackend<
                   }
                 );
 
+                // Find the matching target to get the SQL query
+                const matchingTarget = targets.find(t => t.refId === error.refId);
+
+                // Beautify error message
+                let beautifiedMessage = error.message;
                 if (error.message) {
                   const message = this.beautifier.beautify(error.message);
                   if (message) {
-                    return { ...error, message: message };
+                    beautifiedMessage = message;
                   }
                 }
-                return error;
+
+                return {
+                  ...error,
+                  message: beautifiedMessage,
+                  data: {
+                    ...error.data,
+                    rawSql: matchingTarget?.rawSql,
+                  },
+                };
               });
+
+              // Show error overlay if there are errors
+              if (errors && errors.length > 0) {
+                // Use the first error's refId or 'default' as the overlay key
+                const overlayKey = errors[0]?.refId || 'default';
+                errorOverlayManager.showOverlay(overlayKey, errors);
+              }
 
               return {
                 ...response,

@@ -111,6 +111,15 @@ export interface InterpolationResult {
   warning?: string;
 }
 
+/**
+ * Extended error data that includes the SQL query for better error reporting
+ */
+export interface HdxErrorData {
+  rawSql?: string;
+  message?: string;
+  error?: string;
+}
+
 export interface ValidationResult {
   error?: string;
   warning?: string;
