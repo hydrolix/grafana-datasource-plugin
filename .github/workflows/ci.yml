@@ -36,6 +36,9 @@ jobs:
     name: Compatibility Check
     uses: ./.github/workflows/compatibility-check.yml
     needs: build-frontend
+    permissions:
+      pull-requests: write
+      contents: read
 
   build-backend:
     name: Build Backend
