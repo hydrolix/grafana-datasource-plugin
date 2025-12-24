@@ -32,6 +32,11 @@ jobs:
     with:
       node_version: '22'
 
+  compatibility-check:
+    name: Compatibility Check
+    uses: ./.github/workflows/compatibility-check.yml
+    needs: build-frontend
+
   build-backend:
     name: Build Backend
     uses: ./.github/workflows/build-backend.yml
