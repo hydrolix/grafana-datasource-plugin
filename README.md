@@ -61,12 +61,6 @@ Following is the list of Hydrolix configuration options.
 - **Dial timeout** (optional) - Connection timeout in seconds.
 - **Query timeout** (optional) - Read timeout in seconds.
 
-**Hydrolix Assistant subsection:**
-
-- **Enable Hydrolix Assistant** - Toggle on to enable Hydrolix Assistant.
-- **Hydrolix Assistant API base URL** - Base URL for Hydrolix Assistant API.
-- **Use default** - Toggle to use the default API base URL instead of specifying a custom one.
-
 **Query Settings subsection:**
 
 You can configure [Hydrolix query settings](https://docs.hydrolix.io/docs/query-options-reference) that will be sent
@@ -186,6 +180,29 @@ To simplify syntax and to allow for dynamic parts, like date range filters, the 
 | `$__timeInterval([column])`                  | Calculates intervals based on panel width, useful for grouping data in seconds. Accepts an optional column name. If no column is provided, the primary key is used automatically.       | `toStartOfInterval(toDateTime(column), INTERVAL 20 second)`                                           |
 | `$__timeInterval_ms([column])`               | Calculates intervals based on panel width, useful for grouping data in milliseconds. Accepts an optional column name. If no column is provided, the primary key is used automatically.  | `toStartOfInterval(toDateTime64(column, 3), INTERVAL 20 millisecond)`                                 |
 | `$__conditionalAll(condition, $templateVar)` | Includes the provided condition only if the template variable does not select all values, defaults to `1=1` otherwise                                                                   | `condition` or `1=1`                                                                                  |
+
+#### Escaping macros
+
+Sometimes you may need to include macro syntax in your query as literal text without it being evaluated. To escape a macro, prefix it with an additional dollar sign (`$`).
+
+**Examples:**
+
+- `$$__timeFilter(timestamp)` → Outputs `$__timeFilter(timestamp)` as literal text
+- `$$__adHocFilter()` → Outputs `$__adHocFilter()` as literal text
+
+**Multiple escaping:**
+
+You can escape multiple times by adding more dollar signs:
+
+- `$$$__timeFilter(timestamp)` → Outputs `$$__timeFilter(timestamp)` as literal text
+- `$$$$__timeFilter(timestamp)` → Outputs `$$$__timeFilter(timestamp)` as literal text
+
+Each additional `$` at the beginning removes one level of escaping. Only the first `$` is removed, and the rest of the macro text remains unchanged.
+
+**Use cases:**
+
+- Documenting macro usage in comments
+- Using macro in dashboard variables queries where inner queries should not be interpolated
 
 Below is an example of a query with the `$__timeFilter` macro:
 

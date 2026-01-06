@@ -657,3 +657,98 @@ func TestEscapeWildcard(t *testing.T) {
 		})
 	}
 }
+
+// TestAdHocFilterMacroWithExplicitTable tests the AdHocFilterMacro with an explicit table parameter
+func TestAdHocFilterMacroWithExplicitTable(t *testing.T) {
+	type test struct {
+		name    string
+		input   string
+		output  string
+		filters []AdHocFilter
+		table   string
+	}
+
+	tests := []test{
+		{
+			input:   "select * from bar where $__adHocFilter(foo)",
+			output:  "select * from bar where column = $$test$$",
+			filters: []AdHocFilter{{Key: "column", Operator: "=", Value: "test"}},
+			table:   "foo",
+			name:    "explicit table parameter",
+		},
+		{
+			input:  "select * from bar where $__adHocFilter(baz)",
+			output: "select * from bar where column = $$test$$ AND column2 != $$value2$$",
+			filters: []AdHocFilter{
+				{Key: "column", Operator: "=", Value: "test"},
+				{Key: "column2", Operator: "!=", Value: "value2"},
+			},
+			table: "baz",
+			name:  "explicit table with multiple filters",
+		},
+		{
+			input:   "select * from bar where $__adHocFilter(myTable)",
+			output:  "select * from bar where 1=1",
+			filters: []AdHocFilter{},
+			table:   "myTable",
+			name:    "explicit table with no filters",
+		},
+		{
+			input:   "select * from bar where $__adHocFilter(foo)",
+			output:  "select * from bar where 1=1",
+			filters: []AdHocFilter{{Key: "nonexistent", Operator: "=", Value: "test"}},
+			table:   "foo",
+			name:    "explicit table with filter on non-existent column",
+		},
+	}
+
+	for i, tc := range tests {
+		db, mock, _ := sqlmock.New()
+
+		rows := sqlmock.NewRows([]string{"name", "type"}).
+			AddRow("column", "Nullable(String)").
+			AddRow("column2", "UInt64")
+		mock.ExpectQuery(fmt.Sprintf(AD_HOC_KEY_QUERY, tc.table)).
+			WillReturnRows(rows)
+
+		interpolator := NewInterpolator(&HydrolixDatasource{
+			Connector: &MockConnector{
+				db:  db,
+				uid: "uid-123",
+			},
+			rowLimit: defaultRowLimit,
+		})
+
+		t.Run(fmt.Sprintf("[%d/%d] %s", i+1, len(tests), tc.name), func(t *testing.T) {
+			query := &HDXQuery{
+				RawSQL:  tc.input,
+				Filters: tc.filters,
+			}
+			interpolatedQuery, err := interpolator.Interpolate(query, context.Background())
+			require.Nil(t, err)
+			assert.Equal(t, tc.output, interpolatedQuery)
+		})
+	}
+}
+
+// TestAdHocFilterMacroWithTooManyParams tests that AdHocFilterMacro returns an error with too many parameters
+func TestAdHocFilterMacroWithTooManyParams(t *testing.T) {
+	db, _, _ := sqlmock.New()
+
+	interpolator := NewInterpolator(&HydrolixDatasource{
+		Connector: &MockConnector{
+			db:  db,
+			uid: "uid-123",
+		},
+		rowLimit: defaultRowLimit,
+	})
+
+	query := &HDXQuery{
+		RawSQL:  "select * from foo where $__adHocFilter(table1, table2)",
+		Filters: []AdHocFilter{{Key: "column", Operator: "=", Value: "test"}},
+	}
+
+	_, err := interpolator.Interpolate(query, context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "expected 0 or 1 argument, received 2")
+}

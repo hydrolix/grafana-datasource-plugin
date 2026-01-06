@@ -15,15 +15,19 @@ class HdxDBError {
 }
 
 export class ErrorMessageBeautifier {
-  private static readonly AUTH_ERROR =
+  private static readonly AUTH_NATIVE_ERROR =
     /^.*\s\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5}\s(failed\sto\sauthenticate\suser\s'.*').*TurbineApiAuthenticatorError.*$/;
+  private static readonly AUTH_HTTP_ERROR =
+    /^<TurbineApiAuthenticatorError\s(api login failed with provided username\/password\s\S*)/;
   private static readonly CONNECTION_HTTP_REFUSED =
     /^Post.* \d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5}:\s(.*)$/;
   private static readonly CONNECTION_NATIVE_REFUSED =
     /^dial\stcp.* \d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5}:\s(.*)$/;
-  private static readonly CH_CODE_REGEX = /^Code:\s+(\d+)\./;
-  private static readonly CH_MESSAGE_REGEX =
+  private static readonly CH_CODE_REGEX = /Code:\s+(\d+)[.|,]/i;
+  private static readonly CH_MESSAGE_HTTP_REGEX =
     /DB::Exception:\s+(?<message>.*?)(?:\.(?=\s+\(\w+\)$))?\s+\(\w+\)/m;
+  private static readonly CH_MESSAGE_NATIVE_REGEX =
+    /code:\s(?<code>\d+),\smessage:(?<message>.+)$/;
   private static readonly HYDROLIX_MESSAGE_REGEX =
     /^<\w+\s+(?<message>.+)\s+\(Hydrolix.+\)>$/m;
 
@@ -36,30 +40,33 @@ export class ErrorMessageBeautifier {
     }
 
     const json = this.parseJson(s);
-    if (!json) {
-      return undefined;
-    }
+
     message = this.handleAuthError(s, json);
     if (message) {
       return message;
     }
 
-    message = this.handleDBErrors(json);
+    message = this.handleDBErrors(s, json);
     if (message) {
       return message;
     }
     return undefined;
   }
 
-  private handleDBErrors(json: any): string | undefined {
-    const error = this.parseDBError(json);
+  private handleDBErrors(s: string, json: any): string | undefined {
+    const error = this.parseDBError(s, json);
     if (!error) {
       return undefined;
     }
 
     let message: string | undefined = error.message.match(
-      ErrorMessageBeautifier.CH_MESSAGE_REGEX
+      ErrorMessageBeautifier.CH_MESSAGE_HTTP_REGEX
     )?.groups?.message;
+    if (!message) {
+      message = error.message.match(
+        ErrorMessageBeautifier.CH_MESSAGE_NATIVE_REGEX
+      )?.groups?.message;
+    }
     if (!error.code) {
       message =
         error.message.match(ErrorMessageBeautifier.HYDROLIX_MESSAGE_REGEX)
@@ -86,20 +93,15 @@ export class ErrorMessageBeautifier {
       .find((e) => !!e);
   }
 
-  private parseDBError(parsed: any) {
-    if (!parsed || !parsed?.error) {
-      return undefined;
-    }
-
-    parsed.error = parsed.error.replace(/\r?\n/g, " ");
-
+  private parseDBError(s: string, parsed: any) {
+    const error = (parsed?.error || s).replace(/\r?\n/g, " ");
     let code: number | undefined = Number(
-      parsed.error.match(ErrorMessageBeautifier.CH_CODE_REGEX)?.[1]
+      error.match(ErrorMessageBeautifier.CH_CODE_REGEX)?.[1]
     );
     if (Number.isNaN(code)) {
       code = undefined;
     }
-    return new HdxDBError(code, parsed.error, parsed?.query);
+    return new HdxDBError(code, error, parsed?.query);
   }
 
   private parseJson(s: string): any {
@@ -117,13 +119,53 @@ export class ErrorMessageBeautifier {
   }
 
   private handleAuthError(s: string, json: any): string | undefined {
+    let message = undefined;
     try {
-      if (ErrorMessageBeautifier.AUTH_ERROR.test(s) && json) {
-        let match = ErrorMessageBeautifier.AUTH_ERROR.exec(s)!;
-        let message = "";
-        if (match.length > 1) {
-          message += `${match[1]}:\n`;
-        }
+      message = this.handleNativeAuthError(s, json);
+      if (message) {
+        return message;
+      }
+      message = this.handleHTTPAuthError(json);
+      if (message) {
+        return message;
+      }
+    } catch (ex) {
+      console.error(ex);
+    }
+    return message;
+  }
+
+  private handleHTTPAuthError(json: any): string | undefined {
+    if (json && json["error"]) {
+      const innerJson = this.parseJson(json["error"]);
+      return this.parseAuthError(
+        json["error"],
+        innerJson,
+        ErrorMessageBeautifier.AUTH_HTTP_ERROR
+      );
+    }
+    return undefined;
+  }
+
+  private handleNativeAuthError(s: string, json: any): string | undefined {
+    return this.parseAuthError(
+      s,
+      json,
+      ErrorMessageBeautifier.AUTH_NATIVE_ERROR
+    );
+  }
+  private parseAuthError(
+    error: string,
+    json: any,
+    regex: RegExp
+  ): string | undefined {
+    if (regex.test(error)) {
+      let message = "";
+      let match = regex.exec(error)!;
+      if (match.length > 1) {
+        message += `${match[1]}:\n`;
+      }
+      if (json) {
         message += Object.keys(json)
           .map(
             (key) =>
@@ -132,10 +174,8 @@ export class ErrorMessageBeautifier {
               }`
           )
           .join("\n");
-        return message;
       }
-    } catch (ex) {
-      console.error(ex);
+      return message;
     }
     return undefined;
   }

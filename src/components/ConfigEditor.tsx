@@ -6,6 +6,7 @@ import {
   TimeRange,
 } from "@grafana/data";
 import {
+  Alert,
   Button,
   Divider,
   Field,
@@ -41,12 +42,21 @@ export interface Props
 export function ConfigEditor(props: Props) {
   const { onOptionsChange, options } = props;
   if (!Object.keys(options.jsonData).length) {
-    options.jsonData = defaultConfigs;
+    onOptionsChange({
+      ...options,
+      jsonData: defaultConfigs,
+    });
   }
   const { jsonData, secureJsonFields } = options;
 
-  if (!jsonData.adHocDefaultTimeRange) {
-    jsonData.adHocDefaultTimeRange = defaultConfigs.adHocDefaultTimeRange;
+  if (Object.keys(options.jsonData).length && !jsonData.adHocDefaultTimeRange) {
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...options.jsonData,
+        adHocDefaultTimeRange: defaultConfigs.adHocDefaultTimeRange,
+      },
+    });
   }
 
   const labels = allLabels.components.config.editor;
@@ -154,7 +164,6 @@ export function ConfigEditor(props: Props) {
       },
     });
   };
-
   const onProtocolToggle = (protocol: Protocol) => {
     onOptionsChange({
       ...options,
@@ -234,33 +243,6 @@ export function ConfigEditor(props: Props) {
       },
     });
   };
-
-  const onAiEnabledChange = (value: boolean) => {
-    let jsonData = {
-      ...options.jsonData,
-      aiEnabled: value,
-    };
-    if (value && !jsonData.aiBaseUrl) {
-      jsonData["useDefaultAiBaseUrl"] = true;
-      jsonData["aiBaseUrl"] = `https://${jsonData.host}:4040/assistant`;
-    }
-    onOptionsChange({
-      ...options,
-      jsonData,
-    });
-  };
-
-  const onUseDefaultAiBaseUrlChange = (useDefault: boolean) => {
-    onOptionsChange({
-      ...options,
-      jsonData: {
-        ...options.jsonData,
-        useDefaultAiBaseUrl: useDefault,
-        aiBaseUrl: `https://${jsonData.host}:4040/assistant`,
-      },
-    });
-  };
-
   const onQuerySettingsChange = (key: string) => {
     return (value: string) => {
       let querySettings = jsonData?.querySettings ?? [];
@@ -435,7 +417,13 @@ export function ConfigEditor(props: Props) {
               onChange={(e) => onProtocolToggle(e!)}
             />
           </Field>
-
+          {jsonData.protocol === Protocol.Http &&
+            !jsonData.secure &&
+            secureJsonFields.password && (
+              <Alert title={labels.secure.alertTitle} severity={"warning"}>
+                {labels.secure.alertMessage}
+              </Alert>
+            )}
           <Field
             data-testid={labels.secure.testId}
             label={labels.secure.label}
@@ -687,57 +675,6 @@ export function ConfigEditor(props: Props) {
               type="number"
             />
           </Field>
-          <Divider />
-          <ConfigSection title="Assistant">
-            <Field
-              data-testid={labels.aiEnabled.testId}
-              label={labels.aiEnabled.label}
-              description={labels.aiEnabled.description}
-            >
-              <Switch
-                name={"aiEnabled"}
-                className="gf-form"
-                value={jsonData.aiEnabled}
-                onChange={(e) => onAiEnabledChange(e.currentTarget.checked)}
-              />
-            </Field>
-            {jsonData.aiEnabled && (
-              <div>
-                <Field
-                  data-testid={labels.aiBaseUrl.testId}
-                  label={labels.aiBaseUrl.label}
-                  description={labels.aiBaseUrl.description}
-                >
-                  <Stack direction="row">
-                    <Input
-                      name={"aiBaseUrl"}
-                      width={40}
-                      value={jsonData.aiBaseUrl || ""}
-                      onChange={onUpdateDatasourceJsonDataOption(
-                        props,
-                        "aiBaseUrl"
-                      )}
-                      disabled={jsonData.useDefaultAiBaseUrl}
-                      label={labels.aiBaseUrl.label}
-                      aria-label={labels.aiBaseUrl.label}
-                    />
-                    <InlineField
-                      data-testId={labels.useDefaultAiBaseUrl.testId}
-                      label={labels.useDefaultAiBaseUrl.label}
-                      interactive
-                    >
-                      <InlineSwitch
-                        onChange={(e) =>
-                          onUseDefaultAiBaseUrlChange(e.currentTarget.checked)
-                        }
-                        value={jsonData.useDefaultAiBaseUrl}
-                      />
-                    </InlineField>
-                  </Stack>
-                </Field>
-              </div>
-            )}
-          </ConfigSection>
           <Divider />
           <ConfigSection title="Query Settings">
             <div style={{ marginBottom: "20px" }}>

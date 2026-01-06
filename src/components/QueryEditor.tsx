@@ -35,8 +35,6 @@ import {
 } from "../constants";
 
 import { css } from "@emotion/css";
-import { AssistantPanel } from "./assistant/AssistantPanel";
-import { AssistantConversationProvider } from "./assistant/AssistantContext";
 import allLabels from "../labels";
 
 export type Props = QueryEditorProps<
@@ -89,7 +87,6 @@ export function QueryEditor(props: Props) {
   );
 
   const [showSql, setShowSql] = useState(false);
-  const [showAiAssistant, setShowAiAssistant] = useState(false);
   const [dryRunTriggered, setDryRunTriggered] = useState(false);
   const [interpolationResult, setInterpolationResult] =
     useState<InterpolationResult>({
@@ -126,11 +123,6 @@ export function QueryEditor(props: Props) {
 
     invalidDuration.current = !QUERY_DURATION_REGEX.test(round);
     props.onChange({ ...props.query, round: round });
-  };
-
-  const onApplyQuery = (queryText: string) => {
-    onQueryTextChange(queryText);
-    setShowAiAssistant(false);
   };
 
   // track values change and refresh interpolated query
@@ -240,15 +232,6 @@ export function QueryEditor(props: Props) {
                     {labels.showInterpolatedQuery.label}
                   </Button>
                 )}
-                {props.datasource.aiAssistantConfig && (
-                  <Button
-                    variant={"secondary"}
-                    icon="ai"
-                    onClick={() => setShowAiAssistant(!showAiAssistant)}
-                  >
-                    {labels.showAiAssistant.label}
-                  </Button>
-                )}
                 <div style={{ marginLeft: "auto", order: 2, display: "table" }}>
                   <ToolbarButton
                     style={{ display: "table-cell" }}
@@ -277,19 +260,6 @@ export function QueryEditor(props: Props) {
         dirty={dirty}
         showErrors={SHOW_INTERPOLATED_QUERY_ERRORS}
       />
-      {props.datasource.aiAssistantConfig && (
-        <AssistantConversationProvider
-          config={props.datasource.aiAssistantConfig}
-        >
-          {showAiAssistant && (
-            <AssistantPanel
-              query={props.query.rawSql ?? ""}
-              onClose={() => setShowAiAssistant(false)}
-              onApplyQuery={onApplyQuery}
-            />
-          )}
-        </AssistantConversationProvider>
-      )}
     </div>
   );
 }

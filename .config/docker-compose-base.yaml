@@ -7,8 +7,8 @@ services:
       context: .
       args:
         grafana_image: ${GRAFANA_IMAGE:-grafana-enterprise}
-        #grafana_version: ${GRAFANA_VERSION:-12.0.2}
-        grafana_version: ${GRAFANA_VERSION:-11.5.4}
+        grafana_version: ${GRAFANA_VERSION:-12.0.2}
+        #grafana_version: ${GRAFANA_VERSION:-11.5.4}
         #grafana_version: ${GRAFANA_VERSION:-10.4.16}
         development: ${DEVELOPMENT:-false}
         anonymous_auth_enabled: ${ANONYMOUS_AUTH_ENABLED:-true}

@@ -6,14 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"math"
-	"net/url"
 	"reflect"
 	"slices"
 	"strconv"
 	"strings"
-
-	"github.com/grafana/grafana-plugin-sdk-go/backend"
 )
 
 // QuerySettings validation errors
@@ -22,31 +20,27 @@ var (
 	ErrorMessageInvalidHost         = errors.New("Server address is missing")
 	ErrorMessageInvalidPort         = errors.New("Server port is missing")
 	ErrorMessageInvalidProtocol     = errors.New("Protocol should be either native or http")
-	ErrorMessageInvalidAiBaseURL    = errors.New("Invalid Hydrolix Assistant API base URL")
 	ErrorMessageInvalidQueryTimeout = errors.New("Invalid Query Timeout")
 	ErrorMessageInvalidDialTimeout  = errors.New("Invalid Connect Timeout")
 )
 
 // PluginSettings structure represent data source configuration options
 type PluginSettings struct {
-	Host                string         `json:"host"`
-	UserName            string         `json:"username"`
-	Port                uint16         `json:"port"`
-	Protocol            string         `json:"protocol"`
-	Password            string         `json:"-"`
-	Token               string         `json:"-"`
-	CredentialsType     string         `json:"credentialsType"`
-	Secure              bool           `json:"secure"`
-	Path                string         `json:"path,omitempty"`
-	SkipTlsVerify       bool           `json:"skipTlsVerify,omitempty"`
-	DialTimeout         string         `json:"dialTimeout,omitempty"`
-	QueryTimeout        string         `json:"queryTimeout,omitempty"`
-	DefaultDatabase     string         `json:"defaultDatabase,omitempty"`
-	AiEnabled           bool           `json:"aiEnabled,omitempty"`
-	AiBaseUrl           *url.URL       `json:"aiBaseUrl,omitempty"`
-	UseDefaultAiBaseUrl bool           `json:"useDefaultAiBaseUrl,omitempty"`
-	QuerySettings       []QuerySetting `json:"querySettings,omitempty"`
-	Other               map[string]any `json:"-"`
+	Host            string         `json:"host"`
+	UserName        string         `json:"username"`
+	Port            uint16         `json:"port"`
+	Protocol        string         `json:"protocol"`
+	Password        string         `json:"-"`
+	Token           string         `json:"-"`
+	CredentialsType string         `json:"credentialsType"`
+	Secure          bool           `json:"secure"`
+	Path            string         `json:"path,omitempty"`
+	SkipTlsVerify   bool           `json:"skipTlsVerify,omitempty"`
+	DialTimeout     string         `json:"dialTimeout,omitempty"`
+	QueryTimeout    string         `json:"queryTimeout,omitempty"`
+	DefaultDatabase string         `json:"defaultDatabase,omitempty"`
+	QuerySettings   []QuerySetting `json:"querySettings,omitempty"`
+	Other           map[string]any `json:"-"`
 }
 
 type QuerySetting struct {
@@ -86,10 +80,6 @@ func (settings *PluginSettings) IsValid() error {
 	//if settings.Password == "" {
 	//	return backend.DownstreamError(ErrorMessageInvalidPassword)
 	//}
-
-	if settings.AiEnabled && settings.AiBaseUrl == nil {
-		return backend.DownstreamError(ErrorMessageInvalidAiBaseURL)
-	}
 	if !slices.Contains([]string{"http", "native"}, settings.Protocol) {
 		return backend.DownstreamError(ErrorMessageInvalidProtocol)
 	}
@@ -176,22 +166,6 @@ func NewPluginSettings(_ context.Context, source backend.DataSourceInstanceSetti
 			return settings, err
 		}
 		settings.SkipTlsVerify = skipTlsVerify
-	}
-	if jsonData["aiEnabled"] != nil {
-		settings.AiEnabled = jsonData["aiEnabled"].(bool)
-	}
-
-	if raw, ok := jsonData["aiBaseUrl"].(string); ok {
-		raw = strings.TrimSpace(raw)
-		if raw == "" {
-			settings.AiBaseUrl = nil
-		} else {
-			aiBaseUrl, err := url.ParseRequestURI(raw)
-			if err != nil {
-				return settings, err
-			}
-			settings.AiBaseUrl = aiBaseUrl
-		}
 	}
 
 	if jsonData["querySettings"] != nil {

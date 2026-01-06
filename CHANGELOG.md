@@ -1,6 +1,18 @@
 # Changelog
 ## 0.8.0
 
+- **Feature**: Remove Query Assistant from Grafana plugin (GRAP-135)
+- **Feature**: Support regex patterns for ad hoc filtering (GRAP-77)
+- **Feature**: AST Parser should handle || and '' (GRAP-84)
+- **Feature**: Add optional parameter for adHocFilter macro to define CTE (GRAP-87)
+- **Feature**: Support ad-hoc filtering for subquery variables by escaping macro in Grafana plugin (GRAP-131)
+- **Fix**: Error Beautifier doesn't transform error when connection type is native (GRAP-123)
+- **Fix**: src/components/ConfigEditor.tsx mutates React props (GRAP-129)
+- **Fix**: Trim adHocFilterTableName varible value (GRAP-127)
+- **Fix**: Authorization header is missing for HTTP connections when secure=false in data source configuration (GRAP-126)
+
+## 0.8.0
+
 - **Feature**: Grafana Query Assistant v1 (GRAP-88)
 
 ## 0.7.0

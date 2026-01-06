@@ -17,6 +17,7 @@ import (
 const (
 	SyntheticNull  = "__null__"
 	SyntheticEmpty = "__empty__"
+	RegexPrefix    = "regex:"
 )
 
 type MacroFunc func(*HDXQuery, []string, parser.Pos, *MetaDataProvider, context.Context) (string, error)
@@ -182,24 +183,35 @@ func IntervalSeconds(query *HDXQuery, _ []string, _ parser.Pos, _ *MetaDataProvi
 }
 
 // AdHocFilterMacro implements the $__adHocFilter() macro
-func AdHocFilterMacro(query *HDXQuery, _ []string, pos parser.Pos, mdProvider *MetaDataProvider, _ context.Context) (string, error) {
+func AdHocFilterMacro(query *HDXQuery, params []string, pos parser.Pos, mdProvider *MetaDataProvider, _ context.Context) (string, error) {
 	if query.Filters == nil || len(query.Filters) == 0 {
 		return "1=1", nil
 	}
-	expr, err := parser.NewParser(query.RawSQL).ParseStmts()
-	if err != nil {
-		return "", err
+	if len(params) > 1 {
+		return "", backend.DownstreamError(fmt.Errorf("%w: expected 0 or 1 argument, received %d", sqlutil.ErrorBadArgumentCount, len(params)))
 	}
 
-	macroCTEs, err := GetMacroCTEs(expr)
-	if err != nil {
-		return "", err
-	}
 	var cte = ""
-	for _, macroCTE := range macroCTEs {
-		if macroCTE.MacroPos == pos {
-			cte = macroCTE.CTE
-			break
+	if len(params) == 1 {
+		cte = params[0]
+	}
+
+	if cte == "" {
+		expr, err := parser.NewParser(query.RawSQL).ParseStmts()
+		if err != nil {
+			return "", err
+		}
+
+		macroCTEs, err := GetMacroCTEs(expr)
+		if err != nil {
+			return "", err
+		}
+
+		for _, macroCTE := range macroCTEs {
+			if macroCTE.MacroPos == pos {
+				cte = macroCTE.CTE
+				break
+			}
 		}
 	}
 	if cte == "" {
@@ -285,11 +297,31 @@ func buildFilterCondition(filter AdHocFilter, isString bool) (string, error) {
 		}
 
 	} else if operator == "=~" {
-		return fmt.Sprintf("toString(%s) LIKE $$%s$$", key, escapeWildcard(value)), nil
+		regex, isRegex := getRegexValue(value)
+		if isRegex {
+			return fmt.Sprintf("match(toString(%s), '%s')", key, regex), nil
+		} else {
+			return fmt.Sprintf("toString(%s) LIKE $$%s$$", key, escapeWildcard(value)), nil
+		}
 	} else if operator == "!~" {
-		return fmt.Sprintf("toString(%s) NOT LIKE $$%s$$", key, escapeWildcard(value)), nil
+		regex, isRegex := getRegexValue(value)
+		if isRegex {
+			return fmt.Sprintf("not match(toString(%s), '%s')", key, regex), nil
+		} else {
+			return fmt.Sprintf("toString(%s) NOT LIKE $$%s$$", key, escapeWildcard(value)), nil
+		}
 	} else {
 		return fmt.Sprintf("%s %s $$%s$$", key, operator, value), nil
+	}
+}
+
+func getRegexValue(value string) (string, bool) {
+
+	isRegex := strings.HasPrefix(value, RegexPrefix)
+	if isRegex {
+		return value[len(RegexPrefix):], true
+	} else {
+		return "", false
 	}
 }
 
