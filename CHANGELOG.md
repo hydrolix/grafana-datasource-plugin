@@ -1,5 +1,5 @@
 # Changelog
-## 0.8.0
+## 0.9.0
 
 - **Feature**: Remove Query Assistant from Grafana plugin (GRAP-135)
 - **Feature**: Support regex patterns for ad hoc filtering (GRAP-77)
