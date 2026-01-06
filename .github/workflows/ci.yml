@@ -79,3 +79,5 @@ jobs:
     if: github.event_name == 'pull_request' && github.base_ref == 'main'
     with:
       version: ${{ needs.package.outputs.version }}
+    permissions:
+      contents: write
