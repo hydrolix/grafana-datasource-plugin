@@ -16,11 +16,7 @@ func NewDatasource(ctx context.Context, settings backend.DataSourceInstanceSetti
 	ds := &datasource.HydrolixDatasource{
 		Connector: conn,
 	}
-	routes, err := api.Routes(ds, ctx, settings)
-	ds.RegisterRoutes(routes)
-	if err != nil {
-		return nil, err
-	}
+	ds.RegisterRoutes(api.Routes(ds))
 	newDatasource, err := ds.NewDatasource(ctx, settings)
 	return newDatasource, err
 }
