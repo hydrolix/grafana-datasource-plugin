@@ -10,9 +10,9 @@ import { v4 } from "uuid";
 import {
   ColumnDefinition,
   SchemaDefinition,
+  TableDefinition,
   TableIdentifier,
 } from "@grafana/plugin-ui";
-import { TableDefinition } from "@grafana/plugin-ui/dist/src/components/SQLEditor/types";
 import { DataSource } from "../datasource";
 import { AdHocFilterKeys } from "../types";
 import {
