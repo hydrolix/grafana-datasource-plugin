@@ -1,13 +1,12 @@
 import {
   LanguageDefinition,
+  SQLMonarchLanguage,
   StatementPlacementProvider,
   SuggestionKindProvider,
   TableIdentifier,
 } from "@grafana/plugin-ui";
 import { MACROS } from "./macros";
 import { Monaco } from "@grafana/ui";
-import { SQLMonarchLanguage } from "@grafana/plugin-ui/dist/src/components/SQLEditor/standardSql/types";
-import { SQLCompletionItemProvider } from "@grafana/plugin-ui/dist/src/components/SQLEditor/types";
 import { format } from "sql-formatter";
 import { OPERATORS } from "./operators";
 import { FUNCTIONS } from "./functions";
@@ -44,7 +43,7 @@ export const languageDefinition: (
         customStatementPlacement,
         supportedMacros: () => MACROS,
         supportedOperators: () => OPERATORS,
-      } as SQLCompletionItemProvider;
+      };
       updateOptions(m);
       setKeywords(m, language);
       applyHotKey(m, props);
@@ -53,7 +52,7 @@ export const languageDefinition: (
       return completionProvider;
     },
     formatter: formatQuery,
-  };
+  } as LanguageDefinition;
 };
 
 export const formatQuery = (s: string) => {

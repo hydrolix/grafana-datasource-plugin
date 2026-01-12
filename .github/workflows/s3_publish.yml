@@ -1,0 +1,30 @@
+name: S3 Publish
+
+on:
+  workflow_call:
+    secrets:
+      aws_access_key_id:
+        description: "Specifies the AWS access key used as part of the credentials to authenticate the user"
+        required: true
+      aws_secret_access_key:
+        description: "Specifies the AWS secret key used as part of the credentials to authenticate the user"
+        required: true
+
+jobs:
+  publish-aws:
+    name: Publish to AWS S3
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: plugin-package
+
+      - name: Publish to S3
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.aws_access_key_id }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.aws_secret_access_key }}
+        run: ./.github/scripts/publish-aws.sh

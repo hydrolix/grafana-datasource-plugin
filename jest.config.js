@@ -2,6 +2,11 @@
 // generally used by snapshots, but can affect specific tests
 process.env.TZ = "UTC";
 
+const {
+  grafanaESModules,
+  nodeModulesToTransform,
+} = require("./.config/jest/utils");
+
 module.exports = {
   // Jest configuration provided by Grafana scaffolding
   ...require("./.config/jest.config"),
@@ -17,4 +22,17 @@ module.exports = {
     "<rootDir>/src/**/*.{spec,test,jest}.{js,jsx,ts,tsx}",
   ],
   coverageReporters: ["html", "text", "text-summary", "cobertura"],
+  // Transform ESM packages that are now used by @grafana packages
+  transformIgnorePatterns: [
+    nodeModulesToTransform([
+      ...grafanaESModules,
+      "marked",
+      "react-calendar",
+      "react-date-picker",
+      "get-user-locale",
+      "memoize",
+      "mimic-function",
+      "@wojtekmaj",
+    ]),
+  ],
 };

@@ -1,0 +1,58 @@
+name: Test Backend
+
+on:
+  workflow_call:
+    inputs:
+      go_version:
+        description: "Go version to use"
+        required: true
+        type: string
+
+jobs:
+  test-backend:
+    name: Test Backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install test tools
+        run: |
+          go install gotest.tools/gotestsum@latest
+          go install github.com/boumenot/gocover-cobertura@latest
+
+      - name: Set version
+        run: ./.github/scripts/set-version.sh
+
+      - name: Run tests
+        run: |
+          gotestsum --junitfile junit_report.xml --format testname -- \
+            -race -coverprofile=coverage.txt -covermode atomic \
+            $(go list ./... | grep -v /testhelpers)
+
+      - name: Generate coverage report
+        run: |
+          gocover-cobertura < coverage.txt > cobertura-coverage.xml
+          go tool cover -func coverage.txt
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-test-reports
+          path: |
+            junit_report.xml
+            coverage.txt
+            cobertura-coverage.xml
+          retention-days: 7
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238
+        with:
+          file: cobertura-coverage.xml
+          flags: backend

@@ -33,7 +33,11 @@ export default {
         secure: {
           testId: "data-testid hdx_secureConnection",
           label: "Secure Connection",
-          description: "Toggle on if the connection is secure",
+          description:
+            "Toggle on if the connection is secure. Toggling it off sends all data, including credentials, in plain text. Only do so if absolutely necessary for testing",
+          alertTitle: "Insecure Connection",
+          alertMessage:
+            "Warning: Your data, including credentials, will be transmitted in plain text and can be intercepted.",
         },
         path: {
           testId: "data-testid hdx_requestPath",
@@ -115,17 +119,6 @@ export default {
           testId: "data-testid hdx_additionalSection",
           label: "Additional Settings",
           description: "",
-        },
-        aiEnabled: {
-          testId: "data-testid hdx_aiEnabled",
-          label: "Enable Assistant",
-          description: "Toggle on to enable Assistant",
-        },
-        aiBaseUrl: {
-          testId: "data-testid hdx_aiEnabled",
-          label: "Assistant API base URL",
-          description:
-            "Base URL for Assistant API",
         },
         useDefaultAiBaseUrl: {
           testId: "data-testid hdx_useDefaultPortAiBaseUrl",
