@@ -1,8 +1,6 @@
 module github.com/hydrolix/plugin
 
-go 1.24.1
-
-toolchain go1.24.4
+go 1.24.11
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.33.1
