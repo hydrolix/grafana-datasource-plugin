@@ -697,6 +697,7 @@ export function ConfigEditor(props: Props) {
                   <Stack direction={"row"}>
                     {settingInput(s.setting, s.value)}
                     <Button
+                      aria-label={""}
                       style={{ marginTop: "4.5px" }}
                       variant="destructive"
                       icon="times"

@@ -2,10 +2,10 @@ import { setupDataSourceMock } from "../__mocks__/datasource";
 import { languageDefinition } from "./languageDefinition";
 import { Props } from "../components/QueryEditor";
 import { Monaco } from "@grafana/ui";
-import { SQLMonarchLanguage } from "@grafana/plugin-ui/dist/src/components/SQLEditor/standardSql/types";
 import { FUNCTIONS } from "./functions";
 import { MACROS } from "./macros";
 import { OPERATORS } from "./operators";
+import { SQLMonarchLanguage } from "@grafana/plugin-ui";
 
 describe("language definition", () => {
   const { datasource } = setupDataSourceMock({});
