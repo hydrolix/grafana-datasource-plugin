@@ -250,6 +250,79 @@ describe("HdxDataSource", () => {
         { text: "__null__", value: "__null__" },
       ]);
     });
+
+    it("should use arrayJoin for array type columns", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve([
+          { text: "key1", value: "key1", type: "Array(String)" },
+          { text: "key2", value: "key2", type: "String" },
+        ] as AdHocFilterKeys[])
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["tag1", "tag2", "tag3"] }],
+            }),
+          ],
+        })
+      );
+      let values = await datasource.getTagValues({ key: "key1", filters: [] });
+
+      expect(values).toEqual([
+        { text: "tag1", value: "tag1" },
+        { text: "tag2", value: "tag2" },
+        { text: "tag3", value: "tag3" },
+      ]);
+    });
+
+    it("should not use arrayJoin for non-array type columns", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve([
+          { text: "key1", value: "key1", type: "String" },
+          { text: "key2", value: "key2", type: "Nullable(String)" },
+        ] as AdHocFilterKeys[])
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["value1", "value2"] }],
+            }),
+          ],
+        })
+      );
+      let values = await datasource.getTagValues({ key: "key1", filters: [] });
+
+      expect(values).toEqual([
+        { text: "value1", value: "value1" },
+        { text: "value2", value: "value2" },
+      ]);
+    });
+
+    it("should handle Array(Nullable(String)) type", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve([
+          { text: "tags", value: "tags", type: "Array(Nullable(String))" },
+        ] as AdHocFilterKeys[])
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["prod", "staging", "dev"] }],
+            }),
+          ],
+        })
+      );
+      let values = await datasource.getTagValues({ key: "tags", filters: [] });
+
+      expect(values).toEqual([
+        { text: "prod", value: "prod" },
+        { text: "staging", value: "staging" },
+        { text: "dev", value: "dev" },
+      ]);
+    });
   });
 
   it("should process error", async () => {

@@ -304,14 +304,22 @@ export class DataSource extends DataSourceWithBackend<
       return [];
     }
 
-    let keys = await this.metadataProvider
-      .tableKeys(table)
-      .then((keys) => keys.map((k) => k.value));
-    if (!keys.includes(options.key)) {
+    const keys = await this.metadataProvider.tableKeys(table);
+
+    const keyNames = keys.map((k) => k.value);
+    if (!keyNames.includes(options.key)) {
       logWarning(
         `ad hoc filter key ${options.key} is not available for table ${table}`
       );
       return [];
+    }
+    const type = keys.find((k) => k.value === options.key)?.type;
+    console.log("type", type);
+    let column: string;
+    if (type?.includes("Array")) {
+      column = `arrayJoin(${options.key})`;
+    } else {
+      column = options.key;
     }
 
     let timeFilter = await this.metadataProvider.primaryKey(
@@ -321,7 +329,7 @@ export class DataSource extends DataSourceWithBackend<
     let sql;
     if (table && timeFilter) {
       sql = getColumnValuesStatement(
-        options.key,
+        column,
         table,
         timeFilter,
         this.getAdHocFilterValueCondition()

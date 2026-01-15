@@ -4,6 +4,7 @@ import { getKeyMap, getMetadataProvider } from "./metadataProvider";
 import { setupDataSourceMock } from "../__mocks__/datasource";
 import { adHocTableVariable } from "../__mocks__/variable";
 import { DESCRIBE1, DESCRIBE2 } from "../__mocks__/tableDescribes";
+import { ARRAY_TYPES, SUPPORTED_TYPES, NULLABLE_TYPES } from "../constants";
 
 const FUNCTIONS = ["widthBucket", "tupleConcat"];
 const SCHEMAS = ["schema1", "schema2"];
@@ -12,14 +13,41 @@ const COLUMNS = ["column1", "column2"];
 const PK = "timefilter";
 const KEY_RESPONSE = {
   fields: [
-    { values: ["column1", "column2", "column3", "column4", "column5"] },
+    { values: ["column1", "column2", "column3", "column4", "column5", "column6"] },
     {
-      values: ["String", "Nullable(String)", "Array<String>", "String"],
+      values: ["String", "Nullable(String)", "Array(String)", "String", "String", "Array(Nullable(String))"],
     },
-    { values: ["", "", "", "ALIAS", "ALIAS"] },
-    { values: ["", "", "", "`column`", "`column1`"] },
+    { values: ["", "", "", "ALIAS", "ALIAS", ""] },
+    { values: ["", "", "", "`column`", "`column1`", ""] },
   ],
 };
+
+describe("ARRAY_TYPES constant", () => {
+  test("should include arrays of supported types", () => {
+    expect(ARRAY_TYPES).toContain("Array(String)");
+    expect(ARRAY_TYPES).toContain("Array(UInt8)");
+    expect(ARRAY_TYPES).toContain("Array(UInt16)");
+    expect(ARRAY_TYPES).toContain("Array(UInt32)");
+    expect(ARRAY_TYPES).toContain("Array(UInt64)");
+    expect(ARRAY_TYPES).toContain("Array(Int8)");
+    expect(ARRAY_TYPES).toContain("Array(Int16)");
+    expect(ARRAY_TYPES).toContain("Array(Int32)");
+    expect(ARRAY_TYPES).toContain("Array(Int64)");
+    expect(ARRAY_TYPES).toContain("Array(Float32)");
+    expect(ARRAY_TYPES).toContain("Array(Float64)");
+  });
+
+  test("should include arrays of nullable types", () => {
+    expect(ARRAY_TYPES).toContain("Array(Nullable(String))");
+    expect(ARRAY_TYPES).toContain("Array(Nullable(UInt32))");
+    expect(ARRAY_TYPES).toContain("Array(Nullable(Int64))");
+  });
+
+  test("should have correct length", () => {
+    const expectedLength = SUPPORTED_TYPES.length + NULLABLE_TYPES.length;
+    expect(ARRAY_TYPES.length).toBe(expectedLength);
+  });
+});
 
 describe("MetadataProvider", () => {
   const { datasource, queryMock } = setupDataSourceMock({
@@ -148,7 +176,9 @@ describe("MetadataProvider", () => {
     expect(actual.map((n) => n)).toEqual([
       { text: "column1", type: "String", value: "column1" },
       { text: "column2", type: "Nullable(String)", value: "column2" },
+      { text: "column3", type: "Array(String)", value: "column3" },
       { text: "column5", type: "String", value: "column5" },
+      { text: "column6", type: "Array(Nullable(String))", value: "column6" },
     ]);
   });
 
@@ -274,6 +304,58 @@ describe("getKeyMap", () => {
           text: "sampled_request_path",
           type: "Nullable(String)",
           value: "sampled_request_path",
+        },
+      ],
+    },
+    {
+      name: "array types are included",
+      describe: [
+        { name: "tags", type: "Array(String)", default_type: "", default_expression: "" },
+        { name: "categories", type: "Array(Nullable(String))", default_type: "", default_expression: "" },
+        { name: "status", type: "String", default_type: "", default_expression: "" },
+        { name: "func(column)", type: "String", default_type: "", default_expression: "" },
+      ],
+      keys: [
+        {
+          text: "tags",
+          type: "Array(String)",
+          value: "tags",
+        },
+        {
+          text: "categories",
+          type: "Array(Nullable(String))",
+          value: "categories",
+        },
+        {
+          text: "status",
+          type: "String",
+          value: "status",
+        },
+      ],
+    },
+    {
+      name: "complex array types",
+      describe: [
+        { name: "ids", type: "Array(UInt32)", default_type: "", default_expression: "" },
+        { name: "scores", type: "Array(Float64)", default_type: "", default_expression: "" },
+        { name: "nested", type: "Array(Array(String))", default_type: "", default_expression: "" },
+        { name: "simple", type: "UInt64", default_type: "", default_expression: "" },
+      ],
+      keys: [
+        {
+          text: "ids",
+          type: "Array(UInt32)",
+          value: "ids",
+        },
+        {
+          text: "scores",
+          type: "Array(Float64)",
+          value: "scores",
+        },
+        {
+          text: "simple",
+          type: "UInt64",
+          value: "simple",
         },
       ],
     },
