@@ -43,6 +43,9 @@ export const SUPPORTED_TYPES = [
 ];
 
 export const NULLABLE_TYPES = SUPPORTED_TYPES.map((t) => `Nullable(${t})`);
+export const ARRAY_TYPES = [...SUPPORTED_TYPES, ...NULLABLE_TYPES].map(
+  (t) => `Array(${t})`
+);
 
 export const VARIABLE_REGEX = /(?<=\$\{)\w+(?=})|(?<=\$)\w+/;
 

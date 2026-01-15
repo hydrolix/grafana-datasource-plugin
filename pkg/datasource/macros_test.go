@@ -391,8 +391,8 @@ func TestAdHocFilterMacro(t *testing.T) {
 		},
 		{
 			input:   "select * from foo where $__adHocFilter()",
-			output:  "select * from foo where column IS NULL",
-			filters: []AdHocFilter{{Key: "column", Operator: "=", Value: "null"}},
+			output:  "select * from foo where column2 IS NULL",
+			filters: []AdHocFilter{{Key: "column2", Operator: "=", Value: "null"}},
 			name:    "null value filter",
 		},
 		{
@@ -455,13 +455,47 @@ func TestAdHocFilterMacro(t *testing.T) {
 			filters: []AdHocFilter{{Key: "column", Operator: "=|", Values: []string{"", "b"}}},
 			name:    "multi-value IN with empty string",
 		},
+		{
+			input:   "select * from foo where $__adHocFilter()",
+			output:  "select * from foo where has(arrayColumn, $$value$$)",
+			filters: []AdHocFilter{{Key: "arrayColumn", Operator: "=", Value: "value"}},
+			name:    "array column with equals",
+		},
+		{
+			input:   "select * from foo where $__adHocFilter()",
+			output:  "select * from foo where not has(arrayColumn, $$test$$)",
+			filters: []AdHocFilter{{Key: "arrayColumn", Operator: "!=", Value: "test"}},
+			name:    "array column with not equals",
+		},
+		{
+			input:   "select * from foo where $__adHocFilter()",
+			output:  "select * from foo where (has(arrayColumn, $$a$$) OR has(arrayColumn, $$b$$) OR has(arrayColumn, $$c$$))",
+			filters: []AdHocFilter{{Key: "arrayColumn", Operator: "=|", Values: []string{"a", "b", "c"}}},
+			name:    "array column with multi-value IN",
+		},
+		{
+			input:   "select * from foo where $__adHocFilter()",
+			output:  "select * from foo where (not has(arrayColumn, $$x$$) OR not has(arrayColumn, $$y$$))",
+			filters: []AdHocFilter{{Key: "arrayColumn", Operator: "!=|", Values: []string{"x", "y"}}},
+			name:    "array column with multi-value NOT IN",
+		},
+		{
+			input:  "select * from foo where $__adHocFilter()",
+			output: "select * from foo where column = $$test$$ AND has(arrayColumn, $$prod$$)",
+			filters: []AdHocFilter{
+				{Key: "column", Operator: "=", Value: "test"},
+				{Key: "arrayColumn", Operator: "=", Value: "prod"},
+			},
+			name: "mixed string and array columns",
+		},
 	}
 	for i, tc := range tests {
 		db, mock, _ := sqlmock.New()
 
 		rows := sqlmock.NewRows([]string{"name", "type"}).
 			AddRow("column", "Nullable(String)").
-			AddRow("column2", "UInt64")
+			AddRow("column2", "UInt64").
+			AddRow("arrayColumn", "Array(String)")
 		mock.ExpectQuery(fmt.Sprintf(AD_HOC_KEY_QUERY, "foo")).
 			WillReturnRows(rows)
 		interpolator := NewInterpolator(&HydrolixDatasource{
@@ -488,122 +522,249 @@ func TestBuildFilterCondition(t *testing.T) {
 	tests := []struct {
 		name     string
 		filter   AdHocFilter
+		keyType  string
 		expected string
 		wantErr  bool
 	}{
 		{
 			name:     "equals operator",
 			filter:   AdHocFilter{Key: "column", Operator: "=", Value: "value"},
+			keyType:  "String",
 			expected: "column = $$value$$",
 		},
 		{
 			name:     "equals with empty string",
 			filter:   AdHocFilter{Key: "column", Operator: "=", Value: ""},
+			keyType:  "String",
 			expected: "(column = '' OR column = '__empty__')",
 		},
 		{
 			name:     "equals with null string",
 			filter:   AdHocFilter{Key: "column", Operator: "=", Value: "null"},
+			keyType:  "String",
 			expected: "column IS NULL OR column = __null__",
 		},
 		{
 			name:     "not equals operator",
 			filter:   AdHocFilter{Key: "column", Operator: "!=", Value: "value"},
+			keyType:  "String",
 			expected: "column != $$value$$",
 		},
 		{
 			name:     "not equals with empty string",
 			filter:   AdHocFilter{Key: "column", Operator: "!=", Value: ""},
+			keyType:  "String",
 			expected: "(column != '' AND column != '__empty__')",
 		},
 		{
 			name:     "not equals with null",
 			filter:   AdHocFilter{Key: "column", Operator: "!=", Value: "null"},
+			keyType:  "String",
 			expected: "column IS NOT NULL OR column != __null__",
 		},
 		{
 			name:     "regex match",
 			filter:   AdHocFilter{Key: "column", Operator: "=~", Value: "pattern"},
+			keyType:  "String",
 			expected: "toString(column) LIKE $$pattern$$",
 		},
 		{
 			name:     "regex match with wildcards",
 			filter:   AdHocFilter{Key: "column", Operator: "=~", Value: "*test*"},
+			keyType:  "String",
 			expected: "toString(column) LIKE $$%test%$$",
 		},
 		{
 			name:     "regex not match",
 			filter:   AdHocFilter{Key: "column", Operator: "!~", Value: "pattern"},
+			keyType:  "String",
 			expected: "toString(column) NOT LIKE $$pattern$$",
 		},
 		{
 			name:     "multi-value IN",
 			filter:   AdHocFilter{Key: "column", Operator: "=|", Values: []string{"a", "b", "c"}},
+			keyType:  "String",
 			expected: "column IN ($$a$$, $$b$$, $$c$$)",
 		},
 		{
 			name:     "multi-value IN with null",
 			filter:   AdHocFilter{Key: "column", Operator: "=|", Values: []string{"a", "null", "c"}},
+			keyType:  "String",
 			expected: "column IS NULL OR column IN ($$a$$, $$c$$)",
 		},
 		{
 			name:     "multi-value IN with empty",
 			filter:   AdHocFilter{Key: "column", Operator: "=|", Values: []string{"a", "", "c"}},
+			keyType:  "String",
 			expected: "column IN ($$a$$, $$$$, $$c$$)",
 		},
 		{
 			name:     "multi-value NOT IN",
 			filter:   AdHocFilter{Key: "column", Operator: "!=|", Values: []string{"a", "b", "c"}},
+			keyType:  "String",
 			expected: "column NOT IN ($$a$$, $$b$$, $$c$$)",
 		},
 		{
 			name:     "multi-value NOT IN with null",
 			filter:   AdHocFilter{Key: "column", Operator: "!=|", Values: []string{"a", "null", "c"}},
+			keyType:  "String",
 			expected: "column IS NOT NULL AND column NOT IN ($$a$$, $$c$$)",
 		},
 		{
 			name:     "single quote escaping",
 			filter:   AdHocFilter{Key: "column", Operator: "=", Value: "val'ue"},
+			keyType:  "String",
 			expected: "column = $$val'ue$$",
 		},
 		{
 			name:     "less than operator",
 			filter:   AdHocFilter{Key: "column", Operator: "<", Value: "100"},
+			keyType:  "UInt32",
 			expected: "column < $$100$$",
 		},
 		{
 			name:     "greater than operator",
 			filter:   AdHocFilter{Key: "column", Operator: ">", Value: "50"},
+			keyType:  "UInt32",
 			expected: "column > $$50$$",
 		},
 		{
 			name:     "multi-value IN empty values",
 			filter:   AdHocFilter{Key: "column", Operator: "=|", Values: []string{}},
+			keyType:  "String",
 			expected: "",
 		},
 		{
 			name:     "multi-value NOT IN empty values",
 			filter:   AdHocFilter{Key: "column", Operator: "!=|", Values: []string{}},
+			keyType:  "String",
 			expected: "",
 		},
 		{
 			name:     "multi-value IN only null",
 			filter:   AdHocFilter{Key: "column", Operator: "=|", Values: []string{"null"}},
+			keyType:  "String",
 			expected: "column IS NULL",
 		},
 		{
 			name:     "multi-value NOT IN only null",
 			filter:   AdHocFilter{Key: "column", Operator: "!=|", Values: []string{"null"}},
+			keyType:  "String",
 			expected: "column IS NOT NULL",
+		},
+		{
+			name:     "array type with has operator",
+			filter:   AdHocFilter{Key: "column", Operator: "=", Value: "value"},
+			keyType:  "Array(String)",
+			expected: "has(column, $$value$$)",
+		},
+		{
+			name:     "array type with not has operator",
+			filter:   AdHocFilter{Key: "column", Operator: "!=", Value: "value"},
+			keyType:  "Array(String)",
+			expected: "not has(column, $$value$$)",
+		},
+		{
+			name:     "array type with multi-value IN",
+			filter:   AdHocFilter{Key: "column", Operator: "=|", Values: []string{"a", "b", "c"}},
+			keyType:  "Array(String)",
+			expected: "(has(column, $$a$$) OR has(column, $$b$$) OR has(column, $$c$$))",
+		},
+		{
+			name:     "array type with multi-value NOT IN",
+			filter:   AdHocFilter{Key: "column", Operator: "!=|", Values: []string{"a", "b", "c"}},
+			keyType:  "Array(String)",
+			expected: "(not has(column, $$a$$) OR not has(column, $$b$$) OR not has(column, $$c$$))",
+		},
+		{
+			name:     "nullable array type",
+			filter:   AdHocFilter{Key: "column", Operator: "=", Value: "value"},
+			keyType:  "Array(Nullable(String))",
+			expected: "has(column, $$value$$)",
+		},
+		{
+			name:    "array type with unsupported operator",
+			filter:  AdHocFilter{Key: "column", Operator: "=~", Value: "pattern"},
+			keyType: "Array(String)",
+			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := buildFilterCondition(tt.filter, true)
+			result, err := buildFilterCondition(tt.filter, tt.keyType)
 
 			if tt.wantErr {
 				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestBuildArrayCondition(t *testing.T) {
+	tests := []struct {
+		name     string
+		filter   AdHocFilter
+		expected string
+		wantErr  bool
+	}{
+		{
+			name:     "array equals operator",
+			filter:   AdHocFilter{Key: "tags", Operator: "=", Value: "production"},
+			expected: "has(tags, $$production$$)",
+		},
+		{
+			name:     "array not equals operator",
+			filter:   AdHocFilter{Key: "tags", Operator: "!=", Value: "test"},
+			expected: "not has(tags, $$test$$)",
+		},
+		{
+			name:     "array multi-value IN",
+			filter:   AdHocFilter{Key: "tags", Operator: "=|", Values: []string{"prod", "staging", "dev"}},
+			expected: "(has(tags, $$prod$$) OR has(tags, $$staging$$) OR has(tags, $$dev$$))",
+		},
+		{
+			name:     "array multi-value NOT IN",
+			filter:   AdHocFilter{Key: "tags", Operator: "!=|", Values: []string{"prod", "staging"}},
+			expected: "(not has(tags, $$prod$$) OR not has(tags, $$staging$$))",
+		},
+		{
+			name:     "array with single value in multi-value IN",
+			filter:   AdHocFilter{Key: "tags", Operator: "=|", Values: []string{"production"}},
+			expected: "(has(tags, $$production$$))",
+		},
+		{
+			name:    "array with less than operator (unsupported)",
+			filter:  AdHocFilter{Key: "tags", Operator: "<", Value: "100"},
+			wantErr: true,
+		},
+		{
+			name:    "array with greater than operator (unsupported)",
+			filter:  AdHocFilter{Key: "tags", Operator: ">", Value: "50"},
+			wantErr: true,
+		},
+		{
+			name:    "array with regex operator (unsupported)",
+			filter:  AdHocFilter{Key: "tags", Operator: "=~", Value: "pattern"},
+			wantErr: true,
+		},
+		{
+			name:    "array with regex not match operator (unsupported)",
+			filter:  AdHocFilter{Key: "tags", Operator: "!~", Value: "pattern"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := buildArrayCondition(tt.filter)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "unsupported")
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expected, result)

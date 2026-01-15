@@ -227,7 +227,7 @@ func AdHocFilterMacro(query *HDXQuery, params []string, pos parser.Pos, mdProvid
 	for _, filter := range query.Filters {
 		if slices.Contains(keyNames, filter.Key) {
 			keyType := keys[filter.Key]
-			condition, err := buildFilterCondition(filter, strings.Contains(keyType, "string"))
+			condition, err := buildFilterCondition(filter, keyType)
 			if err != nil {
 				return "", fmt.Errorf("error building filter condition for key '%s': %w", filter.Key, err)
 			}
@@ -244,8 +244,39 @@ func AdHocFilterMacro(query *HDXQuery, params []string, pos parser.Pos, mdProvid
 	return strings.Join(conditions, " AND "), nil
 }
 
+func buildArrayCondition(filter AdHocFilter) (string, error) {
+	key := filter.Key
+	value := filter.Value
+	operator := filter.Operator
+	if operator == "=|" {
+		var buffer []string
+		for _, v := range filter.Values {
+			buffer = append(buffer, fmt.Sprintf("has(%s, $$%s$$)", key, v))
+		}
+		return fmt.Sprintf("(%s)", strings.Join(buffer, " OR ")), nil
+	} else if operator == "!=|" {
+		var buffer []string
+		for _, v := range filter.Values {
+			buffer = append(buffer, fmt.Sprintf("not has(%s, $$%s$$)", key, v))
+		}
+		return fmt.Sprintf("(%s)", strings.Join(buffer, " OR ")), nil
+	} else if operator == "!=" {
+		return fmt.Sprintf("not has(%s, $$%s$$)", key, value), nil
+	} else if operator == "=" {
+		return fmt.Sprintf("has(%s, $$%s$$)", key, value), nil
+
+	} else {
+		return "", fmt.Errorf("operator %s unsupported for Array value", operator)
+	}
+}
+
 // buildFilterCondition creates a SQL condition from an ad-hoc filter
-func buildFilterCondition(filter AdHocFilter, isString bool) (string, error) {
+func buildFilterCondition(filter AdHocFilter, keyType string) (string, error) {
+	isString := strings.Contains(strings.ToLower(keyType), "string")
+	isArray := strings.Contains(strings.ToLower(keyType), "array")
+	if isArray {
+		return buildArrayCondition(filter)
+	}
 	key := filter.Key
 	value := filter.Value
 	operator := filter.Operator
