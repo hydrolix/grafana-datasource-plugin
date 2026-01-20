@@ -13,9 +13,25 @@ const COLUMNS = ["column1", "column2"];
 const PK = "timefilter";
 const KEY_RESPONSE = {
   fields: [
-    { values: ["column1", "column2", "column3", "column4", "column5", "column6"] },
     {
-      values: ["String", "Nullable(String)", "Array(String)", "String", "String", "Array(Nullable(String))"],
+      values: [
+        "column1",
+        "column2",
+        "column3",
+        "column4",
+        "column5",
+        "column6",
+      ],
+    },
+    {
+      values: [
+        "String",
+        "Nullable(String)",
+        "Array(String)",
+        "String",
+        "String",
+        "Array(Nullable(String))",
+      ],
     },
     { values: ["", "", "", "ALIAS", "ALIAS", ""] },
     { values: ["", "", "", "`column`", "`column1`", ""] },
@@ -310,10 +326,30 @@ describe("getKeyMap", () => {
     {
       name: "array types are included",
       describe: [
-        { name: "tags", type: "Array(String)", default_type: "", default_expression: "" },
-        { name: "categories", type: "Array(Nullable(String))", default_type: "", default_expression: "" },
-        { name: "status", type: "String", default_type: "", default_expression: "" },
-        { name: "func(column)", type: "String", default_type: "", default_expression: "" },
+        {
+          name: "tags",
+          type: "Array(String)",
+          default_type: "",
+          default_expression: "",
+        },
+        {
+          name: "categories",
+          type: "Array(Nullable(String))",
+          default_type: "",
+          default_expression: "",
+        },
+        {
+          name: "status",
+          type: "String",
+          default_type: "",
+          default_expression: "",
+        },
+        {
+          name: "func(column)",
+          type: "String",
+          default_type: "",
+          default_expression: "",
+        },
       ],
       keys: [
         {
@@ -336,10 +372,30 @@ describe("getKeyMap", () => {
     {
       name: "complex array types",
       describe: [
-        { name: "ids", type: "Array(UInt32)", default_type: "", default_expression: "" },
-        { name: "scores", type: "Array(Float64)", default_type: "", default_expression: "" },
-        { name: "nested", type: "Array(Array(String))", default_type: "", default_expression: "" },
-        { name: "simple", type: "UInt64", default_type: "", default_expression: "" },
+        {
+          name: "ids",
+          type: "Array(UInt32)",
+          default_type: "",
+          default_expression: "",
+        },
+        {
+          name: "scores",
+          type: "Array(Float64)",
+          default_type: "",
+          default_expression: "",
+        },
+        {
+          name: "nested",
+          type: "Array(Array(String))",
+          default_type: "",
+          default_expression: "",
+        },
+        {
+          name: "simple",
+          type: "UInt64",
+          default_type: "",
+          default_expression: "",
+        },
       ],
       keys: [
         {
@@ -356,6 +412,108 @@ describe("getKeyMap", () => {
           text: "simple",
           type: "UInt64",
           value: "simple",
+        },
+      ],
+    },
+    {
+      name: "map types are included",
+      describe: [
+        {
+          name: "labels",
+          type: "Map(String, String)",
+          default_type: "",
+          default_expression: "",
+        },
+        {
+          name: "metadata",
+          type: "Map(String, Nullable(String))",
+          default_type: "",
+          default_expression: "",
+        },
+        {
+          name: "counts",
+          type: "Map(String, UInt32)",
+          default_type: "",
+          default_expression: "",
+        },
+        {
+          name: "status",
+          type: "String",
+          default_type: "",
+          default_expression: "",
+        },
+      ],
+      keys: [
+        {
+          text: "labels",
+          type: "Map(String, String)",
+          value: "labels",
+        },
+        {
+          text: "metadata",
+          type: "Map(String, Nullable(String))",
+          value: "metadata",
+        },
+        {
+          text: "counts",
+          type: "Map(String, UInt32)",
+          value: "counts",
+        },
+        {
+          text: "status",
+          type: "String",
+          value: "status",
+        },
+      ],
+    },
+    {
+      name: "mixed array and map types",
+      describe: [
+        {
+          name: "tags",
+          type: "Array(String)",
+          default_type: "",
+          default_expression: "",
+        },
+        {
+          name: "labels",
+          type: "Map(String, String)",
+          default_type: "",
+          default_expression: "",
+        },
+        {
+          name: "name",
+          type: "String",
+          default_type: "",
+          default_expression: "",
+        },
+        {
+          name: "scores",
+          type: "Array(Float64)",
+          default_type: "",
+          default_expression: "",
+        },
+      ],
+      keys: [
+        {
+          text: "tags",
+          type: "Array(String)",
+          value: "tags",
+        },
+        {
+          text: "labels",
+          type: "Map(String, String)",
+          value: "labels",
+        },
+        {
+          text: "name",
+          type: "String",
+          value: "name",
+        },
+        {
+          text: "scores",
+          type: "Array(Float64)",
+          value: "scores",
         },
       ],
     },

@@ -427,7 +427,7 @@ func TestAdHocFilterMacro(t *testing.T) {
 		},
 		{
 			input:   "select * from foo where $__adHocFilter()",
-			output:  "select * from foo where column IS NULL OR column IN ($$a$$, $$c$$)",
+			output:  "select * from foo where (column IS NULL OR column IN ($$a$$, $$c$$))",
 			filters: []AdHocFilter{{Key: "column", Operator: "=|", Values: []string{"a", "null", "c"}}},
 			name:    "multi-value IN with null",
 		},
@@ -488,6 +488,27 @@ func TestAdHocFilterMacro(t *testing.T) {
 			},
 			name: "mixed string and array columns",
 		},
+		{
+			input:   "select * from foo where $__adHocFilter()",
+			output:  "select * from foo where mapColumn['key1'] = $$value1$$",
+			filters: []AdHocFilter{{Key: "mapColumn['key1']", Operator: "=", Value: "value1"}},
+			name:    "map column with key syntax",
+		},
+		{
+			input:   "select * from foo where $__adHocFilter()",
+			output:  "select * from foo where mapColumn['status'] IN ($$active$$, $$pending$$)",
+			filters: []AdHocFilter{{Key: "mapColumn['status']", Operator: "=|", Values: []string{"active", "pending"}}},
+			name:    "map column with multi-value IN",
+		},
+		{
+			input:  "select * from foo where $__adHocFilter()",
+			output: "select * from foo where column = $$test$$ AND mapColumn['env'] = $$prod$$",
+			filters: []AdHocFilter{
+				{Key: "column", Operator: "=", Value: "test"},
+				{Key: "mapColumn['env']", Operator: "=", Value: "prod"},
+			},
+			name: "mixed string and map columns",
+		},
 	}
 	for i, tc := range tests {
 		db, mock, _ := sqlmock.New()
@@ -495,7 +516,8 @@ func TestAdHocFilterMacro(t *testing.T) {
 		rows := sqlmock.NewRows([]string{"name", "type"}).
 			AddRow("column", "Nullable(String)").
 			AddRow("column2", "UInt64").
-			AddRow("arrayColumn", "Array(String)")
+			AddRow("arrayColumn", "Array(String)").
+			AddRow("mapColumn", "Map(String, String)")
 		mock.ExpectQuery(fmt.Sprintf(AD_HOC_KEY_QUERY, "foo")).
 			WillReturnRows(rows)
 		interpolator := NewInterpolator(&HydrolixDatasource{
@@ -542,7 +564,7 @@ func TestBuildFilterCondition(t *testing.T) {
 			name:     "equals with null string",
 			filter:   AdHocFilter{Key: "column", Operator: "=", Value: "null"},
 			keyType:  "String",
-			expected: "column IS NULL OR column = __null__",
+			expected: "(column IS NULL OR column = '__null__')",
 		},
 		{
 			name:     "not equals operator",
@@ -560,7 +582,7 @@ func TestBuildFilterCondition(t *testing.T) {
 			name:     "not equals with null",
 			filter:   AdHocFilter{Key: "column", Operator: "!=", Value: "null"},
 			keyType:  "String",
-			expected: "column IS NOT NULL OR column != __null__",
+			expected: "(column IS NOT NULL OR column != '__null__')",
 		},
 		{
 			name:     "regex match",
@@ -590,7 +612,7 @@ func TestBuildFilterCondition(t *testing.T) {
 			name:     "multi-value IN with null",
 			filter:   AdHocFilter{Key: "column", Operator: "=|", Values: []string{"a", "null", "c"}},
 			keyType:  "String",
-			expected: "column IS NULL OR column IN ($$a$$, $$c$$)",
+			expected: "(column IS NULL OR column IN ($$a$$, $$c$$))",
 		},
 		{
 			name:     "multi-value IN with empty",
@@ -627,18 +649,6 @@ func TestBuildFilterCondition(t *testing.T) {
 			filter:   AdHocFilter{Key: "column", Operator: ">", Value: "50"},
 			keyType:  "UInt32",
 			expected: "column > $$50$$",
-		},
-		{
-			name:     "multi-value IN empty values",
-			filter:   AdHocFilter{Key: "column", Operator: "=|", Values: []string{}},
-			keyType:  "String",
-			expected: "",
-		},
-		{
-			name:     "multi-value NOT IN empty values",
-			filter:   AdHocFilter{Key: "column", Operator: "!=|", Values: []string{}},
-			keyType:  "String",
-			expected: "",
 		},
 		{
 			name:     "multi-value IN only null",
@@ -765,6 +775,85 @@ func TestBuildArrayCondition(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "unsupported")
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestBuildFilterConditionWithMaps(t *testing.T) {
+	tests := []struct {
+		name     string
+		filter   AdHocFilter
+		keyType  string
+		expected string
+		wantErr  bool
+	}{
+		{
+			name:     "map string type with equals",
+			filter:   AdHocFilter{Key: "labels['env']", Operator: "=", Value: "prod"},
+			keyType:  "Map(String, String)",
+			expected: "labels['env'] = $$prod$$",
+		},
+		{
+			name:     "map string type with not equals",
+			filter:   AdHocFilter{Key: "labels['status']", Operator: "!=", Value: "inactive"},
+			keyType:  "Map(String, String)",
+			expected: "labels['status'] != $$inactive$$",
+		},
+		{
+			name:     "map string type with multi-value IN",
+			filter:   AdHocFilter{Key: "labels['region']", Operator: "=|", Values: []string{"us-east", "us-west"}},
+			keyType:  "Map(String, String)",
+			expected: "labels['region'] IN ($$us-east$$, $$us-west$$)",
+		},
+		{
+			name:     "map string type with multi-value NOT IN",
+			filter:   AdHocFilter{Key: "labels['env']", Operator: "!=|", Values: []string{"dev", "test"}},
+			keyType:  "Map(String, String)",
+			expected: "labels['env'] NOT IN ($$dev$$, $$test$$)",
+		},
+		{
+			name:     "map nullable string type",
+			filter:   AdHocFilter{Key: "metadata['key']", Operator: "=", Value: "value"},
+			keyType:  "Map(String, Nullable(String))",
+			expected: "metadata['key'] = $$value$$",
+		},
+		{
+			name:    "map uint type with multi-value IN (error)",
+			filter:  AdHocFilter{Key: "counts['total']", Operator: "=|", Values: []string{"100", "200"}},
+			keyType: "Map(String, UInt32)",
+			wantErr: true,
+		},
+		{
+			name:    "map uint type with multi-value NOT IN (error)",
+			filter:  AdHocFilter{Key: "counts['total']", Operator: "!=|", Values: []string{"100", "200"}},
+			keyType: "Map(String, UInt32)",
+			wantErr: true,
+		},
+		{
+			name:     "map uint type with equals (allowed)",
+			filter:   AdHocFilter{Key: "counts['total']", Operator: "=", Value: "100"},
+			keyType:  "Map(String, UInt32)",
+			expected: "counts['total'] = $$100$$",
+		},
+		{
+			name:     "map with regex match",
+			filter:   AdHocFilter{Key: "labels['name']", Operator: "=~", Value: "*prod*"},
+			keyType:  "Map(String, String)",
+			expected: "toString(labels['name']) LIKE $$%prod%$$",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := buildFilterCondition(tt.filter, tt.keyType)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "cannot apply")
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expected, result)

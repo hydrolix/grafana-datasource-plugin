@@ -15,6 +15,8 @@ export const PK_SQL =
 export const FUNCTIONS_SQL = "SELECT name FROM  system.functions";
 
 export const AD_HOC_KEY_QUERY = "DESCRIBE ${table}";
+export const AD_HOC_MAP_KEY_QUERY =
+  "SELECT distinct(arrayJoin(mapKeys(${column}))) FROM ${table} WHERE $__timeFilter() AND $__adHocFilter()";
 export const AD_HOC_VALUE_QUERY =
   "SELECT ${column}, COUNT(${column}) as count  FROM ${table} WHERE $__timeFilter(${timeColumn}) AND $__adHocFilter() ${condition} GROUP BY ${column} ORDER BY count DESC LIMIT 100";
 
@@ -46,7 +48,12 @@ export const NULLABLE_TYPES = SUPPORTED_TYPES.map((t) => `Nullable(${t})`);
 export const ARRAY_TYPES = [...SUPPORTED_TYPES, ...NULLABLE_TYPES].map(
   (t) => `Array(${t})`
 );
+export const MAP_TYPES = [...SUPPORTED_TYPES, ...NULLABLE_TYPES].map(
+  (t) => `Map(String, ${t})`
+);
 
 export const VARIABLE_REGEX = /(?<=\$\{)\w+(?=})|(?<=\$)\w+/;
+
+export const MAP_KEY_REGEX = /^.*\['.*']$/;
 
 export const DATE_FORMAT = "YYYY-MM-DD";

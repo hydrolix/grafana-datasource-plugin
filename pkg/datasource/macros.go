@@ -6,6 +6,7 @@ import (
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
 	"maps"
 	"math"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -224,9 +225,20 @@ func AdHocFilterMacro(query *HDXQuery, params []string, pos parser.Pos, mdProvid
 	}
 	var conditions []string
 	keyNames := slices.Collect(maps.Keys(keys))
+
+	rgx, err := regexp.Compile("^(.*)\\['.*']$")
+
+	if err != nil {
+		return "", err
+	}
+
 	for _, filter := range query.Filters {
-		if slices.Contains(keyNames, filter.Key) {
-			keyType := keys[filter.Key]
+		column := filter.Key
+		if rgx.MatchString(filter.Key) {
+			column = rgx.FindStringSubmatch(filter.Key)[1]
+		}
+		if slices.Contains(keyNames, column) {
+			keyType := keys[column]
 			condition, err := buildFilterCondition(filter, keyType)
 			if err != nil {
 				return "", fmt.Errorf("error building filter condition for key '%s': %w", filter.Key, err)
@@ -272,15 +284,20 @@ func buildArrayCondition(filter AdHocFilter) (string, error) {
 
 // buildFilterCondition creates a SQL condition from an ad-hoc filter
 func buildFilterCondition(filter AdHocFilter, keyType string) (string, error) {
-	isString := strings.Contains(strings.ToLower(keyType), "string")
+	isString := strings.Contains(strings.ToLower(keyType), "string)") || strings.ToLower(keyType) == "string"
 	isArray := strings.Contains(strings.ToLower(keyType), "array")
+	isMap := strings.Contains(strings.ToLower(keyType), "map")
 	if isArray {
 		return buildArrayCondition(filter)
 	}
+
 	key := filter.Key
 	value := filter.Value
 	operator := filter.Operator
 	if operator == "=|" {
+		if isMap && !isString {
+			return "", fmt.Errorf("cannot apply =| operator over  non string map values")
+		}
 		values, hasNull := getJoinedValues(filter.Values)
 
 		var parts []string
@@ -291,9 +308,16 @@ func buildFilterCondition(filter AdHocFilter, keyType string) (string, error) {
 		if values != "" {
 			parts = append(parts, fmt.Sprintf("%s IN (%s)", key, values))
 		}
+		if len(parts) == 1 {
+			return parts[0], nil
+		} else {
+			return fmt.Sprintf("(%s)", strings.Join(parts, " OR ")), nil
+		}
 
-		return strings.Join(parts, " OR "), nil
 	} else if operator == "!=|" {
+		if isMap && !isString {
+			return "", fmt.Errorf("cannot apply !=| operator over  non string map values")
+		}
 		values, hasNull := getJoinedValues(filter.Values)
 
 		var parts []string
@@ -308,9 +332,9 @@ func buildFilterCondition(filter AdHocFilter, keyType string) (string, error) {
 		return strings.Join(parts, " AND "), nil
 	} else if strings.ToUpper(value) == "NULL" || value == SyntheticNull {
 		if operator == "=" && isString {
-			return fmt.Sprintf("%s IS NULL OR %s = %s", key, key, SyntheticNull), nil
+			return fmt.Sprintf("(%s IS NULL OR %s = '%s')", key, key, SyntheticNull), nil
 		} else if operator == "!=" && isString {
-			return fmt.Sprintf("%s IS NOT NULL OR %s != %s", key, key, SyntheticNull), nil
+			return fmt.Sprintf("(%s IS NOT NULL OR %s != '%s')", key, key, SyntheticNull), nil
 		} else if operator == "=" {
 			return fmt.Sprintf("%s IS NULL", key), nil
 		} else if operator == "!=" {
