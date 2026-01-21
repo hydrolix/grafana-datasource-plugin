@@ -25,6 +25,7 @@ import {
   TABLES_SQL,
   PK_SQL,
   ARRAY_TYPES,
+  MAP_TYPES,
 } from "../constants";
 
 export const ZERO_TIME_RANGE = {
@@ -241,7 +242,8 @@ export const getKeyMap = (r: DataQueryResponse): AdHocFilterKeys[] => {
           !c.includes("(") &&
           (SUPPORTED_TYPES.includes(type) ||
             NULLABLE_TYPES.includes(type) ||
-            ARRAY_TYPES.includes(type))
+            ARRAY_TYPES.includes(type) ||
+            MAP_TYPES.includes(type))
         );
       })
       .map((k) => ({ text: k, value: k, type: getType(definitionByKey, k) }));

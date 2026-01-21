@@ -39,8 +39,8 @@ import {
   getMetadataProvider,
   ZERO_TIME_RANGE,
 } from "./editor/metadataProvider";
-import { getColumnValuesStatement } from "./ast";
-import { SYNTHETIC_EMPTY, SYNTHETIC_NULL } from "./constants";
+import { getColumnKeysForMapStatement, getColumnValuesStatement } from "./ast";
+import { MAP_KEY_REGEX, SYNTHETIC_EMPTY, SYNTHETIC_NULL } from "./constants";
 import { replace } from "./syntheticVariables";
 import { applyConditionalAll } from "./macros/macrosApplier";
 
@@ -254,10 +254,47 @@ export class DataSource extends DataSourceWithBackend<
     let table = this.adHocFilterTableName();
 
     if (table) {
-      return await this.metadataProvider.tableKeys(table);
+      const keys = await this.metadataProvider.tableKeys(table);
+      const maps = await Promise.all(
+        keys
+          .filter((key) => key.type.includes("Map"))
+          .map((key) => key.value?.toString())
+          .filter((key) => !!key)
+          .map((column) => this.getTagKeysForMap(column!, table))
+      ).then((response: Array<{ key: string; val: string[] }>) =>
+        response.reduce((map, obj) => {
+          map[obj.key] = obj.val;
+          return map;
+        }, {} as { [key: string]: string[] })
+      );
+
+      return keys
+        .map((key) => {
+          return (key.value || "") in maps
+            ? maps[key.value!].map((r: string) => ({
+                ...key,
+                value: r,
+                text: r,
+              }))
+            : key;
+        })
+        .flat();
     } else {
       return [];
     }
+  }
+
+  async getTagKeysForMap(
+    column: string,
+    table: string
+  ): Promise<{ key: string; val: string[] }> {
+    const response = await this.metadataProvider.executeQuery(
+      getColumnKeysForMapStatement(column, table),
+      this.options?.range,
+      this.filters
+    );
+    let values: string[] = this.getValuesFromResponse(response);
+    return { key: column, val: values.map((v) => `${column}['${v}']`) };
   }
 
   async getInterpolatedQuery(query: HdxQuery): Promise<InterpolationResponse> {
@@ -305,16 +342,24 @@ export class DataSource extends DataSourceWithBackend<
     }
 
     const keys = await this.metadataProvider.tableKeys(table);
+    const isMapKey = MAP_KEY_REGEX.test(options.key);
 
     const keyNames = keys.map((k) => k.value);
-    if (!keyNames.includes(options.key)) {
+
+    if (
+      (!isMapKey && !keyNames.includes(options.key)) ||
+      (isMapKey &&
+        !keyNames
+          .filter((name) => !!name)
+          .map((name) => name!.toString())
+          .some((name) => options.key.startsWith(name)))
+    ) {
       logWarning(
         `ad hoc filter key ${options.key} is not available for table ${table}`
       );
       return [];
     }
     const type = keys.find((k) => k.value === options.key)?.type;
-    console.log("type", type);
     let column: string;
     if (type?.includes("Array")) {
       column = `arrayJoin(${options.key})`;
@@ -343,14 +388,7 @@ export class DataSource extends DataSourceWithBackend<
       options.timeRange,
       options.filters
     );
-    let fields: Field[] = response.data[0]?.fields?.length
-      ? response.data[0].fields
-      : [];
-    let values: string[] = fields[0]?.values;
-    if (!values) {
-      return [];
-    }
-
+    let values: string[] = this.getValuesFromResponse(response);
     return [
       ...values
         .filter((v) => v)
@@ -366,6 +404,12 @@ export class DataSource extends DataSourceWithBackend<
         text: n,
         value: n,
       }));
+  }
+  private getValuesFromResponse(response: DataQueryResponse): string[] {
+    let fields: Field[] = response.data[0]?.fields?.length
+      ? response.data[0].fields
+      : [];
+    return fields[0]?.values || [];
   }
 
   private adHocFilterTableName() {

@@ -1,4 +1,4 @@
-import { AD_HOC_VALUE_QUERY } from "./constants";
+import { AD_HOC_MAP_KEY_QUERY, AD_HOC_VALUE_QUERY } from "./constants";
 
 export const traverseTree = (
   tree: any,
@@ -45,4 +45,13 @@ export function getColumnValuesStatement(
     .replaceAll("${table}", table)
     .replaceAll("${timeColumn}", timeColumn)
     .replaceAll("${condition}", condition ? `AND ${condition}` : "");
+}
+export function getColumnKeysForMapStatement(
+  column: string,
+  table: string
+): string {
+  return AD_HOC_MAP_KEY_QUERY.replaceAll("${column}", column).replaceAll(
+    "${table}",
+    table
+  );
 }

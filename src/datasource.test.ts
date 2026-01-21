@@ -101,17 +101,18 @@ describe("HdxDataSource", () => {
 
     it("should return keys", async () => {
       let response = ["key1", "key2", "key3"].map(
-        (k) => ({ text: k, value: k } as AdHocFilterKeys)
+        (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
       );
       getKeysMock.mockReturnValue(Promise.resolve(response));
+      queryMock.mockReturnValue(of({ data: [] }));
       let keys = await datasource.getTagKeys();
 
-      expect(keys).toBe(response);
+      expect(keys).toEqual(response);
     });
 
     it("should not return values", async () => {
       let response = ["key1", "key2", "key3"].map(
-        (k) => ({ text: k, value: k } as AdHocFilterKeys)
+        (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
       );
       getKeysMock.mockReturnValue(Promise.resolve(response));
       let values = await datasource.getTagValues({ key: "key", filters: [] });
@@ -123,7 +124,7 @@ describe("HdxDataSource", () => {
       getKeysMock.mockReturnValue(
         Promise.resolve(
           ["key1", "key2", "key3"].map(
-            (k) => ({ text: k, value: k } as AdHocFilterKeys)
+            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
           )
         )
       );
@@ -145,7 +146,7 @@ describe("HdxDataSource", () => {
       getKeysMock.mockReturnValue(
         Promise.resolve(
           ["key1", "key2", "key3"].map(
-            (k) => ({ text: k, value: k } as AdHocFilterKeys)
+            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
           )
         )
       );
@@ -166,7 +167,7 @@ describe("HdxDataSource", () => {
       getKeysMock.mockReturnValue(
         Promise.resolve(
           ["key1", "key2", "key3"].map(
-            (k) => ({ text: k, value: k } as AdHocFilterKeys)
+            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
           )
         )
       );
@@ -188,7 +189,7 @@ describe("HdxDataSource", () => {
       getKeysMock.mockReturnValue(
         Promise.resolve(
           ["key1", "key2", "key3"].map(
-            (k) => ({ text: k, value: k } as AdHocFilterKeys)
+            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
           )
         )
       );
@@ -209,7 +210,7 @@ describe("HdxDataSource", () => {
       getKeysMock.mockReturnValue(
         Promise.resolve(
           ["key1", "key2", "key3"].map(
-            (k) => ({ text: k, value: k } as AdHocFilterKeys)
+            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
           )
         )
       );
@@ -230,7 +231,7 @@ describe("HdxDataSource", () => {
       getKeysMock.mockReturnValue(
         Promise.resolve(
           ["key1", "key2", "key3"].map(
-            (k) => ({ text: k, value: k } as AdHocFilterKeys)
+            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
           )
         )
       );
@@ -322,6 +323,109 @@ describe("HdxDataSource", () => {
         { text: "staging", value: "staging" },
         { text: "dev", value: "dev" },
       ]);
+    });
+
+    it("should expand map type columns into individual keys", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve([
+          { text: "column1", value: "column1", type: "String" },
+          { text: "labels", value: "labels", type: "Map(String, String)" },
+        ] as AdHocFilterKeys[])
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["env", "region", "team"] }],
+            }),
+          ],
+        })
+      );
+
+      let keys = await datasource.getTagKeys();
+
+      expect(keys).toContainEqual({
+        text: "column1",
+        value: "column1",
+        type: "String",
+      });
+      expect(keys).toContainEqual({
+        text: "labels['env']",
+        value: "labels['env']",
+        type: "Map(String, String)",
+      });
+      expect(keys).toContainEqual({
+        text: "labels['region']",
+        value: "labels['region']",
+        type: "Map(String, String)",
+      });
+      expect(keys).toContainEqual({
+        text: "labels['team']",
+        value: "labels['team']",
+        type: "Map(String, String)",
+      });
+    });
+
+    it("should handle map key syntax in getTagValues", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve([
+          { text: "labels", value: "labels", type: "Map(String, String)" },
+        ] as AdHocFilterKeys[])
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["prod", "dev", "staging"] }],
+            }),
+          ],
+        })
+      );
+
+      let values = await datasource.getTagValues({
+        key: "labels['env']",
+        filters: [],
+      });
+
+      expect(values).toEqual([
+        { text: "prod", value: "prod" },
+        { text: "dev", value: "dev" },
+        { text: "staging", value: "staging" },
+      ]);
+    });
+
+    it("should handle nullable map type", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve([
+          {
+            text: "metadata",
+            value: "metadata",
+            type: "Map(String, Nullable(String))",
+          },
+        ] as AdHocFilterKeys[])
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["key1", "key2"] }],
+            }),
+          ],
+        })
+      );
+
+      let keys = await datasource.getTagKeys();
+
+      expect(keys).toContainEqual({
+        text: "metadata['key1']",
+        value: "metadata['key1']",
+        type: "Map(String, Nullable(String))",
+      });
+      expect(keys).toContainEqual({
+        text: "metadata['key2']",
+        value: "metadata['key2']",
+        type: "Map(String, Nullable(String))",
+      });
     });
   });
 
