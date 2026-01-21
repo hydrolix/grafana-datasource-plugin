@@ -21,6 +21,8 @@ const (
 	RegexPrefix    = "regex:"
 )
 
+var mapTypeFilterKye = regexp.MustCompile("^(.*)\\['.*']$")
+
 type MacroFunc func(*HDXQuery, []string, parser.Pos, *MetaDataProvider, context.Context) (string, error)
 
 // Converts a time.Time to a Date
@@ -226,16 +228,10 @@ func AdHocFilterMacro(query *HDXQuery, params []string, pos parser.Pos, mdProvid
 	var conditions []string
 	keyNames := slices.Collect(maps.Keys(keys))
 
-	rgx, err := regexp.Compile("^(.*)\\['.*']$")
-
-	if err != nil {
-		return "", err
-	}
-
 	for _, filter := range query.Filters {
 		column := filter.Key
-		if rgx.MatchString(filter.Key) {
-			column = rgx.FindStringSubmatch(filter.Key)[1]
+		if mapTypeFilterKye.MatchString(filter.Key) {
+			column = mapTypeFilterKye.FindStringSubmatch(filter.Key)[1]
 		}
 		if slices.Contains(keyNames, column) {
 			keyType := keys[column]
@@ -308,7 +304,9 @@ func buildFilterCondition(filter AdHocFilter, keyType string) (string, error) {
 		if values != "" {
 			parts = append(parts, fmt.Sprintf("%s IN (%s)", key, values))
 		}
-		if len(parts) == 1 {
+		if len(parts) == 0 {
+			return "", nil
+		} else if len(parts) == 1 {
 			return parts[0], nil
 		} else {
 			return fmt.Sprintf("(%s)", strings.Join(parts, " OR ")), nil
