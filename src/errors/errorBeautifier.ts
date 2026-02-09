@@ -28,6 +28,8 @@ export class ErrorMessageBeautifier {
     /DB::Exception:\s+(?<message>.*?)(?:\.(?=\s+\(\w+\)$))?\s+\(\w+\)/m;
   private static readonly CH_MESSAGE_NATIVE_REGEX =
     /code:\s(?<code>\d+),\smessage:(?<message>.+)$/;
+  private static readonly CH_DATABASE_ERROR_REGEX =
+    /<(?:ChTurbineDatabaseError|DatabaseError) (?<message>.+)>/;
   private static readonly HYDROLIX_MESSAGE_REGEX =
     /^<\w+\s+(?<message>.+)\s+\(Hydrolix.+\)>$/m;
 
@@ -67,6 +69,11 @@ export class ErrorMessageBeautifier {
         ErrorMessageBeautifier.CH_MESSAGE_NATIVE_REGEX
       )?.groups?.message;
     }
+    if (!message) {
+      message = error.message.match(
+        ErrorMessageBeautifier.CH_DATABASE_ERROR_REGEX
+      )?.groups?.message;
+    }
     if (!error.code) {
       message =
         error.message.match(ErrorMessageBeautifier.HYDROLIX_MESSAGE_REGEX)
@@ -104,7 +111,7 @@ export class ErrorMessageBeautifier {
     return new HdxDBError(code, error, parsed?.query);
   }
 
-  private parseJson(s: string): any {
+  public parseJson(s: string): any {
     const start = s.indexOf("{");
     const end = s.lastIndexOf("}");
     if (start < 0 || end < 0) {
