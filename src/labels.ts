@@ -120,6 +120,35 @@ export default {
           label: "Additional Settings",
           description: "",
         },
+        exposeErrors: {
+          testId: "data-testid hdx_exposeErrors",
+          label: "Expose Errors",
+          description: "Enable error exposure to dashboard variables",
+        },
+        exposeErrorsEnabled: {
+          testId: "data-testid hdx_exposeErrorsEnabled",
+          label: "Enable Error Exposure",
+          description: "Enable exposing query errors to dashboard variables",
+        },
+        exposeErrorsVariableName: {
+          testId: "data-testid hdx_exposeErrorsVariableName",
+          label: "Variable Name",
+          description:
+            "Name of the dashboard variable to store error information",
+          placeholder: "hdx_query_errors",
+        },
+        exposeErrorsMaxCount: {
+          testId: "data-testid hdx_exposeErrorsMaxCount",
+          label: "Max Error Count",
+          description: "Maximum number of errors to store",
+          placeholder: "5",
+        },
+        exposeErrorsTtl: {
+          testId: "data-testid hdx_exposeErrorsTtl",
+          label: "Error TTL (seconds)",
+          description: "Time to live for stored errors in seconds",
+          placeholder: "300",
+        },
         useDefaultAiBaseUrl: {
           testId: "data-testid hdx_useDefaultPortAiBaseUrl",
           label: "Use default",

@@ -58,6 +58,14 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   dialTimeout?: string;
   queryTimeout?: string;
   querySettings?: QuerySetting[];
+  exposeErrors?: ExposeErrorsOptions;
+}
+
+export interface ExposeErrorsOptions {
+  enables?: boolean;
+  variableName?: string;
+  maxCount?: number;
+  ttl?: number;
 }
 
 export interface QuerySetting {
@@ -183,4 +191,18 @@ export interface MacroCTE {
   macro: string;
   macroPos: number;
   cte: string;
+}
+
+export interface ErrorFixSuggestion {
+  time: string;
+  message: string;
+  template?: string;
+  groups?: { [name: string]: string };
+}
+
+export interface ErrorTemplate {
+  code: number;
+  name: string;
+  regexp: string;
+  template: string;
 }

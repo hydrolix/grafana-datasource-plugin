@@ -151,6 +151,20 @@ describe("ErrorMessageBeautifier", () => {
     );
   });
 
+  test("should extract ChTurbineDatabaseError", () => {
+    const input =
+      "std::exception. Code: 1001, type: h::db::ChTurbineDatabaseError, e.what() = <ChTurbineDatabaseError table unknown not found> (version 24.8.6.1)";
+    const result = beautifier.beautify(input);
+    expect(result).toEqual("table unknown not found");
+  });
+
+  test("should extract DatabaseError", () => {
+    const input =
+      "std::exception. Code: 1001, type: h::db::DatabaseError, e.what() = <DatabaseError namespace='unknown' does not exist in db='akamai'> (version 24.8.6.1)";
+    const result = beautifier.beautify(input);
+    expect(result).toEqual("namespace='unknown' does not exist in db='akamai'");
+  });
+
   test("should extract native protocol error format", () => {
     const input =
       "code: 62, message: Syntax error: failed at position 10 (line 1, col 10): SELECT * FORM table";
