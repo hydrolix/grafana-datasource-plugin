@@ -155,12 +155,12 @@ func (ds *HydrolixDatasource) handleQuery(ctx context.Context, req backend.DataQ
 	}
 
 	// Convert the backend.DataQuery into a Query object
-	q, err := sqlds.GetQuery(req, headers, ds.DriverSettings().ForwardHeaders)
+	q, err := GetQuery(req, headers, ds.DriverSettings().ForwardHeaders)
 	if err != nil {
 		return nil, err
 	}
 
-	hdxQuery, err := GetQuery(req, nil, nil)
+	hdxQuery, err := GetHdxQuery(req, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +200,7 @@ func (ds *HydrolixDatasource) handleQuery(ctx context.Context, req backend.DataQ
 	//  * Some datasources (snowflake) expire connections or have an authentication token that expires if not used in 1 or 4 hours.
 	//    Because the datasource Driver does not include an option for permanent connections, we retry the connection
 	//    if the query fails. NOTE: this does not include some errors like "ErrNoRows"
-	dbQuery := sqlds.NewQuery(dbConn.db, dbConn.settings, ds.driver().Converters(), fillMode, ds.rowLimit)
+	dbQuery := NewQuery(dbConn.db, dbConn.settings, ds.driver().Converters(), fillMode, ds.rowLimit)
 	res, err := dbQuery.Run(ctx, q, args...)
 	if err == nil {
 		return res, nil

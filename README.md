@@ -79,6 +79,23 @@ The plugin also supports several synthetic variables specific to query settings:
 - `${__hydrolix.query_source}` - Represents the query source, derived from the `DataQueryRequest.app` field. This is
   useful to distinguish whether a query originated from Explore or elsewhere.
 
+**Error Exposure subsection:**
+
+The Error Exposure feature allows you to expose query errors to Grafana dashboard variables, enabling error tracking,
+monitoring, and custom error handling within your dashboards.
+
+- **Enable Error Exposure** - Toggle to enable exposing query errors to dashboard variables.
+- **Variable Name** - Name of the dashboard variable where error information will be stored (default: `hdx_query_errors`).
+- **Max Error Count** - Maximum number of errors to store in the variable (default: `5`).
+- **Error TTL (seconds)** - Time to live for stored errors in seconds. Errors older than this value will be automatically
+  removed (default: `300`).
+- **Solution Templates** - Download the error solution templates in JSON format
+
+
+When enabled, query errors are automatically captured and stored in the specified dashboard variable, allowing you to 
+display error messages in error panel. [How to configure error panel](./docs/error-panel.md)
+
+
 ### Provision the data source
 
 To provision the Hydrolix data source using Grafana’s provisioning system, define it in a YAML configuration file.
@@ -141,8 +158,31 @@ datasources:
       password: password
 ```
 
+#### Using HTTPS protocol with error exposure enabled
+
+```yaml
+apiVersion: 1
+datasources:
+  - name: "Hydrolix"
+    type: "hydrolix-hydrolix-datasource"
+    jsonData:
+      host: localhost
+      port: 443
+      protocol: http
+      secure: true
+      username: username
+      path: /query
+      exposeErrors:
+        enables: true
+        variableName: hdx_query_errors
+        maxCount: 5
+        ttl: 300
+    secureJsonData:
+      password: password
+```
+
 > For more details about provisioning, see
-> Grafana’s [Provisioning documentation](https://grafana.com/docs/grafana/latest/administration/provisioning/#data-sources).
+> Grafana's [Provisioning documentation](https://grafana.com/docs/grafana/latest/administration/provisioning/#data-sources).
 
 ## Querying the data source
 

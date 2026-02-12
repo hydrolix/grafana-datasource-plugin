@@ -34,7 +34,7 @@ import {
 } from "./types";
 import { from, Observable, switchMap } from "rxjs";
 import { map } from "rxjs/operators";
-import { ErrorMessageBeautifier } from "./errorBeautifier";
+import { ErrorMessageBeautifier } from "./errors/errorBeautifier";
 import {
   getMetadataProvider,
   ZERO_TIME_RANGE,
@@ -43,6 +43,7 @@ import { getColumnKeysForMapStatement, getColumnValuesStatement } from "./ast";
 import { MAP_KEY_REGEX, SYNTHETIC_EMPTY, SYNTHETIC_NULL } from "./constants";
 import { replace } from "./syntheticVariables";
 import { applyConditionalAll } from "./macros/macrosApplier";
+import { ErrorExposer } from "./errors/errorExposer";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -52,12 +53,18 @@ export class DataSource extends DataSourceWithBackend<
   private readonly beautifier = new ErrorMessageBeautifier();
   public options: DataQueryRequest<HdxQuery> | undefined;
   public filters: AdHocVariableFilter[] | undefined;
+  private errorExposer!: ErrorExposer;
 
   constructor(
     public instanceSettings: DataSourceInstanceSettings<HdxDataSourceOptions>,
     readonly templateSrv: TemplateSrv = getTemplateSrv()
   ) {
     super(instanceSettings);
+    this.errorExposer = new ErrorExposer(
+      this.beautifier,
+      this.templateSrv,
+      this.instanceSettings.jsonData.exposeErrors!
+    );
   }
 
   async metricFindQuery(query: Partial<HdxQuery> | string, options?: any) {
@@ -119,13 +126,17 @@ export class DataSource extends DataSourceWithBackend<
                     type: "" + error.type,
                   }
                 );
-
+                console.log(error);
+                console.log("replace hdx_query_errors");
                 if (error.message) {
-                  const message = this.beautifier.beautify(error.message);
+                  this.errorExposer.addErrorToVariable(error.message);
+
+                  let message = this.beautifier.beautify(error.message);
                   if (message) {
                     return { ...error, message: message };
                   }
                 }
+
                 return error;
               });
 
