@@ -16,7 +16,7 @@ export default {
   path: "/query",
   settings: {},
   exposeErrors: {
-    enables: true,
+    enabled: true,
     variableName: "hdx_query_errors",
     maxCount: 5,
     ttl: 300,

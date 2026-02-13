@@ -62,7 +62,7 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
 }
 
 export interface ExposeErrorsOptions {
-  enables?: boolean;
+  enabled?: boolean;
   variableName?: string;
   maxCount?: number;
   ttl?: number;

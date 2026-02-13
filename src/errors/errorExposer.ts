@@ -14,7 +14,7 @@ export class ErrorExposer {
   public async addErrorToVariable(message: string) {
     if (
       !this.settings ||
-      !this.settings.enables ||
+      !this.settings.enabled ||
       !this.settings.variableName ||
       !this.settings.maxCount ||
       !this.settings.ttl
