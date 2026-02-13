@@ -4,11 +4,12 @@ setup(
     name='grafana-error-panel-cli',
     version='1.0.0',
     description='CLI tool to configure Grafana error panels via API',
-    author='Your Name',
+    author='vkohut',
     py_modules=['grafana_error_panel_cli'],
     install_requires=[
         'click>=8.1.0',
         'requests>=2.31.0',
+        'inquirer>=3.1.0',
     ],
     entry_points={
         'console_scripts': [

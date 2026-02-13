@@ -113,11 +113,6 @@ class GrafanaClient:
         response = self._request('GET', 'org')
         return response.json()
 
-    def get_current_user(self) -> Dict[str, Any]:
-        """Get current organization"""
-        response = self._request('GET', 'user')
-        return response.json()
-
     def switch_org(self, org_id: int) -> bool:
         """Switch to a different organization"""
         response = self._request('POST', f'user/using/{org_id}')
@@ -175,18 +170,8 @@ class GrafanaClient:
         click.echo(f"✓ Dashboard saved: {result.get('url', '')}")
         return result
 
-    def get_datasource_by_name(self, name: str) -> Optional[Dict[str, Any]]:
-        """Get datasource by name"""
-        try:
-            response = self._request('GET', f'datasources/name/{name}')
-            return response.json()
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
-                return None
-            raise
 
-
-def create_error_panel_template(dashboard_var_name, datasource_uid) -> Dict[str, Any]:
+def create_error_panel_template(dashboard_var_name, datasource_uid, message_length, error_ttl) -> Dict[str, Any]:
     """Create the Business Text panel configuration for error display"""
 
     # Get the directory where this script is located
@@ -199,10 +184,10 @@ def create_error_panel_template(dashboard_var_name, datasource_uid) -> Dict[str,
             html_content = f.read()
 
         with open(templates_dir / 'before_render.js', 'r') as f:
-            before_render_js = f.read()
+            before_render_js = f.read().replace("{{dashboard_var_name}}", dashboard_var_name).replace("{{message_length}}", str(message_length)).replace("{{error_ttl}}", str(error_ttl))
 
         with open(templates_dir / 'after_render.js', 'r') as f:
-            after_render_js = f.read()
+            after_render_js = f.read().replace("{{dashboard_var_name}}", dashboard_var_name)
         with open(templates_dir / 'solution_templates.json', 'r') as f:
             solution_templates = f.read()
     except FileNotFoundError as e:
@@ -211,7 +196,7 @@ def create_error_panel_template(dashboard_var_name, datasource_uid) -> Dict[str,
 
     panel = {
         "type": "marcusolsson-dynamictext-panel",
-        "title": "Query Errors",
+        "title": "HDX Datasource Query Errors",
         "gridPos": {"h": 7, "w": 24, "x": 0, "y": 1},
         "options": {
             "afterRender": after_render_js,
@@ -279,60 +264,16 @@ def create_dashboard_variables(dashboard_var_name) -> list:
     ]
 
 
-def create_error_panel_row(dashboard_var_name, datasource_uid) -> Dict[str, Any]:
+def create_error_panel_row(dashboard_var_name, datasource_uid, message_length, error_ttl) -> Dict[str, Any]:
     """Create a row that repeats for hdx_query_errors"""
     return {
         "type": "row",
-        "title": "Error Panel Row",
+        "title": "HDX Datasource Error Panel Row",
         "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
         "repeat": dashboard_var_name,
         "collapsed": True,
-        "panels": [create_error_panel_template(dashboard_var_name, datasource_uid)]
+        "panels": [create_error_panel_template(dashboard_var_name, datasource_uid, message_length, error_ttl)]
     }
-
-
-def get_credentials(url: Optional[str], username: Optional[str], password: Optional[str]) -> tuple[str, str, str]:
-    """Get credentials from CLI args or stored config, with interactive prompts"""
-    cred_manager = CredentialManager()
-
-    # If credentials provided via CLI, use them
-    if url and username and password:
-        return url, username, password
-
-    # Try to load stored credentials
-    stored_creds = cred_manager.load_credentials()
-
-    # If no URL provided, try stored or prompt
-    if not url:
-        if stored_creds and stored_creds.get('url'):
-            url = stored_creds['url']
-            click.echo(f"Using stored Grafana URL: {url}")
-        else:
-            url = click.prompt('Grafana URL (e.g., http://localhost:3000)', type=str)
-
-    # If no username provided, try stored or prompt
-    if not username:
-        if stored_creds and stored_creds.get('username'):
-            username = stored_creds['username']
-            click.echo(f"Using stored username: {username}")
-        else:
-            username = click.prompt('Grafana Username', type=str)
-
-    # If no password provided, try stored or prompt
-    if not password:
-        if stored_creds and stored_creds.get('password'):
-            password = stored_creds['password']
-            click.echo("Using stored password")
-        else:
-            password = click.prompt('Grafana Password', type=str, hide_input=True)
-
-
-    # Ask if user wants to save credentials
-    if not stored_creds or (url != stored_creds.get('url') or username != stored_creds.get('username') or password != stored_creds.get('password')):
-        if click.confirm('Save these credentials for future use?', default=True):
-            cred_manager.save_credentials(url, username, password)
-
-    return url, username, password
 
 
 @click.group(invoke_without_command=True)
@@ -384,146 +325,6 @@ def logout():
     """Clear stored Grafana credentials"""
     cred_manager = CredentialManager()
     cred_manager.clear_credentials()
-
-
-@cli.command()
-def status():
-    """Show current credential status"""
-    cred_manager = CredentialManager()
-
-    if cred_manager.has_credentials():
-        creds = cred_manager.load_credentials()
-        if creds:
-            click.echo("✓ Credentials are configured")
-            click.echo(f"  URL: {creds.get('url')}")
-            click.echo(f"  Config file: {cred_manager.config_file}")
-        else:
-            click.echo("⚠️  Credentials file exists but could not be read")
-    else:
-        click.echo("ℹ No credentials configured")
-        click.echo("Run 'login' command to set up credentials")
-
-
-@cli.command()
-@click.option('--url', help='Grafana URL (e.g., http://localhost:3000)')
-@click.option('--username', help='Grafana username')
-@click.option('--password', help='Grafana password')
-@click.option('--datasource-name', default='static', help='Name for the Infinity datasource')
-def setup_datasource(url: Optional[str], username: Optional[str], password: Optional[str],
-                     datasource_name: str):
-    """Create the Infinity datasource required for error panels"""
-    try:
-        url, username, password = get_credentials(url, username, password)
-        client = GrafanaClient(url, username, password)
-        datasource = client.create_infinity_datasource(datasource_name)
-        click.echo(f"\nDatasource UID: {datasource.get('uid')}")
-        click.echo("Use this UID when configuring dashboards")
-    except Exception as e:
-        click.echo(f"✗ Error: {e}", err=True)
-        sys.exit(1)
-
-
-@cli.command()
-@click.option('--url', help='Grafana URL')
-@click.option('--username', help='Grafana username')
-@click.option('--password', help='Grafana password')
-@click.option('--dashboard-uid', help='UID of existing dashboard to update')
-@click.option('--dashboard-title', default='Error Panel Dashboard', help='Title for new dashboard')
-@click.option('--datasource-name', default='static', help='Name of the Infinity datasource')
-def configure_dashboard(url: Optional[str], username: Optional[str], password: Optional[str],
-                       dashboard_uid: Optional[str], dashboard_title: str, datasource_name: str):
-    """Configure a dashboard with error panel setup"""
-    try:
-        url, username, password = get_credentials(url, username, password)
-        client = GrafanaClient(url, username, password)
-
-        # Get datasource UID
-        datasource = client.get_datasource_by_name(datasource_name)
-        if not datasource:
-            click.echo(f"✗ Datasource '{datasource_name}' not found. Run 'setup-datasource' first.", err=True)
-            sys.exit(1)
-
-        ds_uid = datasource['uid']
-        click.echo(f"✓ Found datasource '{datasource_name}' (UID: {ds_uid})")
-
-        # Get existing dashboard or create new one
-        if dashboard_uid:
-            dashboard_data = client.get_dashboard(dashboard_uid)
-            dashboard = dashboard_data['dashboard']
-            click.echo(f"✓ Loaded existing dashboard '{dashboard['title']}'")
-        else:
-            dashboard = {
-                "title": dashboard_title,
-                "tags": ["error-monitoring"],
-                "timezone": "browser",
-                "schemaVersion": 38,
-                "version": 0,
-                "refresh": "30s"
-            }
-            click.echo(f"✓ Creating new dashboard '{dashboard_title}'")
-
-        # Add/update variables
-        dashboard['templating'] = {'list': create_dashboard_variables()}
-        click.echo("✓ Added dashboard variables")
-
-        # Create error panel
-        error_panel = create_error_panel_template()
-
-        # Update datasource UID in panel
-        if error_panel['targets']:
-            error_panel['targets'][0]['datasource']['uid'] = ds_uid
-
-        # Create row and add panel
-        row = create_error_panel_row()
-
-        # Initialize panels list if not exists
-        if 'panels' not in dashboard:
-            dashboard['panels'] = []
-
-        # Add row and panel
-        dashboard['panels'].extend([row, error_panel])
-        click.echo("✓ Added error panel and row configuration")
-
-        # Save dashboard
-        result = client.create_or_update_dashboard(dashboard, "Configured error panel via CLI")
-        click.echo(f"\n✓ Dashboard configured successfully!")
-        click.echo(f"  UID: {result.get('uid')}")
-        click.echo(f"  URL: {url}{result.get('url')}")
-
-    except Exception as e:
-        click.echo(f"✗ Error: {e}", err=True)
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
-
-
-@cli.command()
-@click.option('--url', help='Grafana URL')
-@click.option('--username', help='Grafana username')
-@click.option('--password', help='Grafana password')
-@click.option('--dashboard-uid', required=True, help='Dashboard UID')
-def show_dashboard(url: Optional[str], username: Optional[str], password: Optional[str],
-                   dashboard_uid: str):
-    """Show dashboard configuration as JSON"""
-    try:
-        url, username, password = get_credentials(url, username, password)
-        client = GrafanaClient(url, username, password)
-        dashboard_data = client.get_dashboard(dashboard_uid)
-        click.echo(json.dumps(dashboard_data, indent=2))
-    except Exception as e:
-        click.echo(f"✗ Error: {e}", err=True)
-        sys.exit(1)
-
-
-@cli.command()
-def example_config():
-    """Show example configuration for error panel"""
-    config = {
-        "panel": create_error_panel_template(),
-        "variables": create_dashboard_variables(),
-        "row": create_error_panel_row()
-    }
-    click.echo(json.dumps(config, indent=2))
 
 
 @cli.command()
@@ -722,6 +523,8 @@ def wizard():
     ]
     answers = inquirer.prompt(questions)
     dashboard_var_name = 'hdx_query_errors'
+    message_length = 220
+    error_ttl = 300
     if not answers or not answers['default_conf']:
         dashboard_var_name = click.prompt(
             'Dashboard variable name',
@@ -734,10 +537,10 @@ def wizard():
             type=int,
             default=300
         )
-        max_error_count = click.prompt(
-            'Max error count',
+        message_length = click.prompt(
+            'Message length (before clicking "show more")',
             type=int,
-            default=5
+            default=220
         )
 
     # Datasource
@@ -858,7 +661,7 @@ def wizard():
         click.echo("✓ Added dashboard variables")
 
         # Create row
-        row = create_error_panel_row(dashboard_var_name, datasource_uid)
+        row = create_error_panel_row(dashboard_var_name, datasource_uid, message_length, error_ttl)
 
         # Add panels
         if 'panels' not in dashboard:

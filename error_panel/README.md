@@ -16,6 +16,7 @@ CLI reads templates -> builds panel config -> pushes to Grafana API -> panel ren
 - A running Grafana instance with API access
 - The [Infinity datasource plugin](https://grafana.com/grafana/plugins/yesoreyeram-infinity-datasource/) installed in Grafana
 - The [Business Text panel plugin](https://grafana.com/grafana/plugins/marcusolsson-dynamictext-panel/) installed in Grafana
+- `solution_templates.json` downloaded from the datasource plugin configuration page and placed in the `templates/` directory
 
 ## Installation
 
@@ -55,36 +56,18 @@ The wizard walks you through:
 | `wizard` | Interactive wizard (runs by default) |
 | `login` | Save Grafana credentials for reuse |
 | `logout` | Clear stored credentials |
-| `status` | Show current credential status |
-| `setup-datasource` | Create the Infinity datasource |
-| `configure-dashboard` | Configure a dashboard with error panels (non-interactive) |
-| `show-dashboard` | Dump a dashboard's JSON configuration |
-| `example-config` | Print the generated panel/variable/row JSON |
 
 ### Examples
 
 ```bash
-# Interactive wizard
+# Interactive wizard (default)
 python grafana_error_panel_cli.py
 
 # Save credentials
 python grafana_error_panel_cli.py login
 
-# Non-interactive: create datasource then configure dashboard
-python grafana_error_panel_cli.py setup-datasource \
-  --url http://localhost:3000 \
-  --username admin \
-  --password admin
-
-python grafana_error_panel_cli.py configure-dashboard \
-  --dashboard-uid abc123 \
-  --datasource-name static
-
-# Inspect a dashboard
-python grafana_error_panel_cli.py show-dashboard --dashboard-uid abc123
-
-# View generated panel config
-python grafana_error_panel_cli.py example-config
+# Clear stored credentials
+python grafana_error_panel_cli.py logout
 ```
 
 ## Credential Storage
@@ -95,7 +78,7 @@ Credentials are saved to `~/.grafana_error_panel/config.json` with `0600` permis
 
 The tool adds three things to the target dashboard:
 
-1. **Two hidden template variables** (`hdx_query_errors` and `hdx_query_errors_selected`) that hold error state
+1. **Two hidden template variables** (configurable, defaults to `hdx_query_errors` and `hdx_query_errors_selected`) that hold error state
 2. **A collapsed row** that repeats based on the error variable
 3. **A Business Text panel** inside the row that renders errors using Handlebars templates with JavaScript pre/post-render hooks
 
@@ -118,6 +101,8 @@ The tool ships with built-in solution templates for common error types:
 
 Templates use placeholder substitution (e.g. `{table_name}`, `{username}`) to produce context-specific guidance. They are defined in `templates/solution_templates.json`.
 
+**Note:** The `solution_templates.json` file is not included in this repository. It must be downloaded from the configuration page of the datasource plugin and placed in the `templates/` directory before running the tool.
+
 ## Configuration
 
 The default configuration can be customized during the wizard when you decline the default settings:
@@ -126,7 +111,9 @@ The default configuration can be customized during the wizard when you decline t
 |---|---|---|
 | Dashboard variable name | `hdx_query_errors` | Variable name used for error storage |
 | Error TTL | `300` (5 min) | How long errors remain visible (seconds) |
-| Max error count | `5` | Maximum number of errors displayed |
+| Message length | `220` | Maximum characters shown before "show more" is displayed |
+
+These values are injected into the JavaScript templates at configuration time via placeholder substitution.
 
 ## Project Structure
 
