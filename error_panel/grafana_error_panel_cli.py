@@ -94,14 +94,10 @@ class GrafanaClient:
         response.raise_for_status()
         return response
 
-    def test_connection(self) -> bool:
+    def test_connection(self):
         """Test connection to Grafana API"""
-        try:
-            response = self._request('GET', 'org')
-            response.raise_for_status()
-            return True
-        except Exception:
-            return False
+        response = self._request('GET', 'org')
+        response.raise_for_status()
 
     def list_orgs(self) -> list:
         """List all organizations the user has access to"""
@@ -462,7 +458,7 @@ def wizard():
                 # Only one org, use it
                 org = orgs[0]
                 click.echo(f"Using organization: {org.get('name')} (ID: {org.get('id')})")
-                current_org_id = org.get('orgId')
+                current_org_id = org.get('id')
 
         except Exception as e:
 
