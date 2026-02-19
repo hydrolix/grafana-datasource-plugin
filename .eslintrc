@@ -1,5 +1,6 @@
 {
   "extends": "./.config/.eslintrc",
+  "ignorePatterns": ["error_panel/**"],
   "rules": {
     "eol-last": "off",
     "no-var": "warn"

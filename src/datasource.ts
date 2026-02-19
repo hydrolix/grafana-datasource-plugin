@@ -44,6 +44,7 @@ import { MAP_KEY_REGEX, SYNTHETIC_EMPTY, SYNTHETIC_NULL } from "./constants";
 import { replace } from "./syntheticVariables";
 import { applyConditionalAll } from "./macros/macrosApplier";
 import { ErrorExposer } from "./errors/errorExposer";
+import defaultConfigs from "./defaultConfigs";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -63,7 +64,8 @@ export class DataSource extends DataSourceWithBackend<
     this.errorExposer = new ErrorExposer(
       this.beautifier,
       this.templateSrv,
-      this.instanceSettings.jsonData.exposeErrors!
+      this.instanceSettings.jsonData?.exposeErrors ||
+        defaultConfigs.exposeErrors
     );
   }
 
@@ -126,8 +128,6 @@ export class DataSource extends DataSourceWithBackend<
                     type: "" + error.type,
                   }
                 );
-                console.log(error);
-                console.log("replace hdx_query_errors");
                 if (error.message) {
                   this.errorExposer.addErrorToVariable(error.message);
 

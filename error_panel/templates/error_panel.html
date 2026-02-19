@@ -1,0 +1,44 @@
+{{#if (errors)}}
+<div>
+  <table style="width:100%; border-collapse:collapse;">
+    <thead>
+    <tr style="text-align:left; border-bottom:1px solid rgba(255,255,255,.15);">
+      <th style="padding:6px 4px;">Time</th>
+      <th style="padding:6px 4px;">Message</th>
+    </tr>
+    </thead>
+    <tbody>
+    {{#each (errors)}}
+    <tr style="border-bottom:1px solid rgba(255,255,255,.08);">
+      <td style="padding:6px 4px; white-space:nowrap; opacity:.75;">{{time}}</td>
+      <td style="padding:6px 4px;">
+        {{#if (isShort message solution)}}
+        {{message}}
+        {{else}}
+        {{#if (isSelected time)}}
+        {{message}}
+        {{#if solution}}
+        <br/><br/>
+        <h5>How to fix</h5>
+        {{#each solution}}
+        {{{this}}}<br/>
+        {{/each}}
+        {{/if}}
+        <br>
+        <a id="hdx-unselect-error-{{id}}" href="#" style="color: #797676;">show less</a>
+        {{else}}
+        {{short message}}
+        <a id="hdx-select-error-{{id}}" href="#" style="color: #797676;">show more</a>
+        {{/if}}
+        {{/if}}
+      </td>
+    </tr>
+    {{/each}}
+    </tbody>
+  </table>
+</div>
+{{else}}
+<div style="font-size: clamp(14px, 6vw, 72px); font-weight: 600; text-align: center; height: 150px;">
+  <span style="color: green;">No errors</span>
+</div>
+{{/if}}

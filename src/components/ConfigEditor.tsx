@@ -702,7 +702,7 @@ export function ConfigEditor(props: Props) {
               <Switch
                 id="exposeErrorsEnabled"
                 className="gf-form"
-                value={jsonData.exposeErrors?.enables ?? false}
+                value={jsonData.exposeErrors?.enabled ?? false}
                 onChange={(e) => {
                   onOptionsChange({
                     ...options,
@@ -710,14 +710,14 @@ export function ConfigEditor(props: Props) {
                       ...jsonData,
                       exposeErrors: {
                         ...jsonData.exposeErrors,
-                        enables: e.currentTarget.checked,
+                        enabled: e.currentTarget.checked,
                       },
                     },
                   });
                 }}
               />
             </Field>
-            {jsonData.exposeErrors?.enables && (
+            {jsonData.exposeErrors?.enabled && (
               <>
                 <Field
                   data-testid={labels.exposeErrorsVariableName.testId}
