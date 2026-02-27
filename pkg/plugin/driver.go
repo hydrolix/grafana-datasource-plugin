@@ -221,11 +221,13 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 		}
 
 		mergedSettingsArray := make([]models.QuerySetting, len(mergedSettings))
+		n := 0
 		for k, v := range mergedSettings {
-			mergedSettingsArray = append(mergedSettingsArray, models.QuerySetting{
+			mergedSettingsArray[n] = models.QuerySetting{
 				Setting: k,
 				Value:   v,
-			})
+			}
+			n++
 		}
 
 		if jmsg, err := jsonSet(q.JSON, map[string]any{"querySettings": mergedSettingsArray}); err == nil {

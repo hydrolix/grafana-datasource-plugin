@@ -145,7 +145,6 @@ export function QuerySettings({ settings, onSettingsChange }: Props) {
           name={setting.setting}
           width={40}
           value={setting.value ?? ""}
-          //type={querySettingDefinitions[key].type}
           onChange={(e) =>
             onValueUpdate(setting.setting, e.currentTarget.value)
           }
@@ -193,7 +192,7 @@ export function QuerySettings({ settings, onSettingsChange }: Props) {
                   <Input disabled={true} value={"="} width={3}></Input>
                   {settingInput(setting)}
                   <AccessoryButton
-                    aria-label={""}
+                    aria-label={"delete setting"}
                     icon="times"
                     variant="secondary"
                     onClick={() => onDeleteSetting(setting.setting)}
@@ -201,7 +200,7 @@ export function QuerySettings({ settings, onSettingsChange }: Props) {
                 </InputGroup>
               ))}
               <AccessoryButton
-                aria-label={""}
+                aria-label={"new setting"}
                 icon="plus"
                 variant="secondary"
                 onClick={newSetting}
