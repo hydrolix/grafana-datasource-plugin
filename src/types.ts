@@ -13,7 +13,7 @@ export interface HdxQuery extends DataQuery {
   filters?: AdHocVariableFilter[];
   format?: number;
   skipNextRun?: () => boolean;
-  querySettings: { [setting: string]: string };
+  querySettings: QuerySetting[];
 }
 
 /**

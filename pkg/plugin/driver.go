@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"strconv"
 	"time"
 
@@ -206,28 +205,34 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 
 	for i, q := range req.Queries {
 		var dataQuery struct {
-			RawSql        string         `json:"rawSql"`
-			QuerySettings map[string]any `json:"querySettings,omitempty"`
+			RawSql        string                `json:"rawSql"`
+			QuerySettings []models.QuerySetting `json:"querySettings,omitempty"`
 		}
 		_ = json.Unmarshal(q.JSON, &dataQuery)
-		globalPluginSettings := make(map[string]any)
+		mergedSettings := make(map[string]string)
 		for _, setting := range pluginSettings.QuerySettings {
-			globalPluginSettings[setting.Setting] = setting.Value
+			mergedSettings[setting.Setting] = setting.Value
 		}
-		mergedSettings := maps.Clone(globalPluginSettings)
 		if dataQuery.QuerySettings != nil {
 
-			// add or overwrite with query settings
-			maps.Copy(mergedSettings, dataQuery.QuerySettings)
+			for _, setting := range dataQuery.QuerySettings {
+				mergedSettings[setting.Setting] = setting.Value
+			}
 		}
 
-		if jmsg, err := jsonSet(q.JSON, map[string]any{"querySettings": mergedSettings}); err == nil {
+		mergedSettingsArray := make([]models.QuerySetting, len(mergedSettings))
+		for k, v := range mergedSettings {
+			mergedSettingsArray = append(mergedSettingsArray, models.QuerySetting{
+				Setting: k,
+				Value:   v,
+			})
+		}
+
+		if jmsg, err := jsonSet(q.JSON, map[string]any{"querySettings": mergedSettingsArray}); err == nil {
 			req.Queries[i].JSON = jmsg
 		} else {
 			panic(err)
 		}
-		return h.querySettingsContextHandler(ctx, globalPluginSettings), req
-
 	}
 
 	return ctx, req
@@ -240,9 +245,9 @@ func (h *Hydrolix) MutateQuery(ctx context.Context, req backend.DataQuery) (cont
 		Meta struct {
 			TimeZone string `json:"timezone"`
 		} `json:"meta"`
-		Format        int            `json:"format"`
-		Round         string         `json:"round"`
-		QuerySettings map[string]any `json:"querySettings"`
+		Format        int                   `json:"format"`
+		Round         string                `json:"round"`
+		QuerySettings []models.QuerySetting `json:"querySettings"`
 	}
 
 	if err := json.Unmarshal(req.JSON, &dataQuery); err != nil {
@@ -258,8 +263,8 @@ func (h *Hydrolix) MutateQuery(ctx context.Context, req backend.DataQuery) (cont
 	if dataQuery.QuerySettings != nil {
 		log.DefaultLogger.Info("Update query context with settings info", "settings", dataQuery.QuerySettings)
 		customSettings := make(map[string]any, len(dataQuery.QuerySettings))
-		for k, v := range dataQuery.QuerySettings {
-			customSettings[k] = clickhouse.CustomSetting{Value: fmt.Sprintf("%v", v)}
+		for _, v := range dataQuery.QuerySettings {
+			customSettings[v.Setting] = clickhouse.CustomSetting{Value: fmt.Sprintf("%v", v.Value)}
 		}
 		ctx = h.querySettingsContextHandler(ctx, customSettings)
 	}

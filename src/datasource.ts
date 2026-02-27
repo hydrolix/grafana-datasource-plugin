@@ -31,6 +31,7 @@ import {
   InterpolationResult,
   TableIdentifier,
   InterpolationResponse,
+  QuerySetting,
 } from "./types";
 import { from, Observable, switchMap } from "rxjs";
 import { map } from "rxjs/operators";
@@ -155,22 +156,38 @@ export class DataSource extends DataSourceWithBackend<
     t: HdxQuery,
     request: DataQueryRequest<HdxQuery>
   ) {
-    const querySettings = (
-      this.instanceSettings.jsonData.querySettings ?? []
-    ).reduce((acc: { [key: string]: any }, s) => {
-      acc[s.setting] = replace(this.templateSrv.replace(`${s.value}`), {
-        raw_query: () => t.rawSql,
-        query_source: () => request.app,
-      });
-      return acc;
-    }, {});
+    const builder = this.querySettingsBuilder({
+      raw_query: () => t.rawSql,
+      query_source: () => request.app,
+    });
+    builder.addSettings(this.instanceSettings.jsonData.querySettings ?? []);
+    builder.addSettings(t.querySettings ?? []);
 
     return {
       ...t,
-      querySettings,
+      querySettings: builder.build(),
       meta: {
         timezone: this.resolveTimezone(request),
       },
+    };
+  }
+
+  private querySettingsBuilder(vars: { [v: string]: () => string }) {
+    const accumulator: { [v: string]: string } = {};
+    return {
+      addSettings: (querySettings: QuerySetting[]) =>
+        querySettings.reduce((acc: { [key: string]: any }, s) => {
+          acc[s.setting] = replace(
+            this.templateSrv.replace(`${s.value}`),
+            vars
+          );
+          return acc;
+        }, accumulator),
+      build: (): QuerySetting[] =>
+        Object.keys(accumulator).map((s) => ({
+          setting: s,
+          value: accumulator[s],
+        })),
     };
   }
 

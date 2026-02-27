@@ -62,6 +62,7 @@ export function ConfigEditor(props: Props) {
   }
 
   const labels = allLabels.components.config.editor;
+  const querySettings = allLabels.components.querySettings;
   const secureJsonData = (options.secureJsonData || {}) as HdxSecureJsonData;
   const protocolOptions = [
     { label: "Native", value: Protocol.Native },
@@ -72,16 +73,16 @@ export function ConfigEditor(props: Props) {
     { label: "Service Account", value: CredentialsType.ServiceAccount },
   ];
   let querySettingDefinitions = useMemo(() => {
-    return labels.querySettings.values.reduce((acc, cur) => {
+    return querySettings.values.reduce((acc, cur) => {
       acc[cur.setting] = cur;
       return acc;
     }, {} as { [setting: string]: any });
-  }, [labels]);
+  }, [querySettings]);
 
   const existingSettings = (jsonData?.querySettings ?? []).map(
     (v) => v.setting
   );
-  let queryOptions = labels.querySettings.values
+  let queryOptions = querySettings.values
     .filter((v) => !existingSettings.includes(v.setting))
     .map((v) => ({
       label: v.setting,

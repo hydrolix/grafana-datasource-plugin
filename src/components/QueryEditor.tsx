@@ -11,6 +11,7 @@ import {
   HdxDataSourceOptions,
   HdxQuery,
   InterpolationResult,
+  QuerySetting,
   QueryType,
 } from "../types";
 import { SQLEditor } from "@grafana/plugin-ui";
@@ -36,6 +37,7 @@ import {
 
 import { css } from "@emotion/css";
 import allLabels from "../labels";
+import { QuerySettings } from "./QuerySettings";
 
 export type Props = QueryEditorProps<
   DataSource,
@@ -116,6 +118,9 @@ export function QueryEditor(props: Props) {
 
   const onQueryTextChange = (queryText: string) => {
     props.onChange({ ...props.query, rawSql: queryText });
+  };
+  const onSettingsChange = (settings: QuerySetting[]) => {
+    props.onChange({ ...props.query, querySettings: settings });
   };
   let invalidDuration = useRef(false);
   const onRoundChange = (e: FormEvent<HTMLInputElement>) => {
@@ -249,10 +254,15 @@ export function QueryEditor(props: Props) {
                   </ToolbarButton>
                 </div>
               </div>
+              <QuerySettings
+                onSettingsChange={onSettingsChange}
+                settings={props.query.querySettings || []}
+              ></QuerySettings>
             </div>
           );
         }}
       </SQLEditor>
+
       <InterpolatedQuery
         sql={interpolationResult.interpolatedSql ?? ""}
         error={interpolationResult.error ?? ""}
