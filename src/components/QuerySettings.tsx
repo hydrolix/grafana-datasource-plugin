@@ -169,7 +169,9 @@ export function QuerySettings({ settings, onSettingsChange }: Props) {
             onToggle={toggleOpen}
             label={
               <Stack gap={0}>
-                <h6 className={styles.title}>{"Settings"}</h6>
+                <h6 className={styles.title}>
+                  {labels.components.querySettings.label}
+                </h6>
                 {!isOpen && (
                   <div className={styles.description}>
                     {settings.map((x, i) => (
@@ -234,11 +236,9 @@ const getStyles = (theme: GrafanaTheme2) => {
       alignItems: "baseline",
     }),
     title: css({
-      flexGrow: 1,
-      overflow: "hidden",
+      flexShrink: 0,
       fontSize: theme.typography.bodySmall.fontSize,
       fontWeight: theme.typography.fontWeightMedium,
-
       margin: 0,
     }),
     description: css({
