@@ -14,6 +14,15 @@ import (
 	"time"
 )
 
+func findSettingValue(settings []models.QuerySetting, name string) string {
+	for _, s := range settings {
+		if s.Setting == name {
+			return s.Value
+		}
+	}
+	return ""
+}
+
 // testValueCtx mock for context
 type testValueCtx struct {
 	context.Context
@@ -96,10 +105,10 @@ func TestQueryCustomSettingsPropagation(t *testing.T) {
 					"rawSql": "SELECT version()",
 					"refId":  "0.538154071285475",
 					"meta":   {"timezone": "Asia/Singapore"},
-					"querySettings": {
-						"hdx_query_timerange_required": "0",
-						"hdx_query_max_result_rows":    "20"
-					},
+					"querySettings": [
+						{"setting": "hdx_query_timerange_required", "value": "0"},
+						{"setting": "hdx_query_max_result_rows", "value": "20"}
+					],
 					"datasource":   {"type": "test-datasource", "uid": "a6835544-2bfe-4f3a-98da-524301ae2280"},
 					"datasourceId": 1
 				}`),
@@ -108,8 +117,8 @@ func TestQueryCustomSettingsPropagation(t *testing.T) {
 		}
 
 		var dataQuery struct {
-			RawSql        string         `json:"rawSql,omitempty"`
-			QuerySettings map[string]any `json:"querySettings,omitempty"`
+			RawSql        string                `json:"rawSql,omitempty"`
+			QuerySettings []models.QuerySetting `json:"querySettings,omitempty"`
 		}
 
 		ctx, req := plugin.MutateQueryData(context.Background(), req)
@@ -124,22 +133,18 @@ func TestQueryCustomSettingsPropagation(t *testing.T) {
 			actualSettings := dataQuery.QuerySettings
 			assert.Len(t, actualSettings, len(dsQuerySettings))
 
-			// custom settings set on query level
-			assert.Equal(t, "0", actualSettings["hdx_query_timerange_required"])
-			assert.Equal(t, "20", actualSettings["hdx_query_max_result_rows"])
+			// custom settings set on query level override datasource-level
+			assert.Equal(t, "0", findSettingValue(actualSettings, "hdx_query_timerange_required"))
+			assert.Equal(t, "20", findSettingValue(actualSettings, "hdx_query_max_result_rows"))
 
+			// datasource-level settings that were not overridden keep original values
 			for _, v := range dsQuerySettings {
 				if !slices.Contains([]string{"hdx_query_timerange_required", "hdx_query_max_result_rows"}, v.Setting) {
-					assert.EqualValues(t, v.Value, actualSettings[v.Setting])
+					assert.EqualValues(t, v.Value, findSettingValue(actualSettings, v.Setting))
 				}
 			}
-			actualSettings = ctx.Value("querySettings").(map[string]any)
-			assert.Len(t, actualSettings, len(dsQuerySettings))
-			for _, v := range dsQuerySettings {
-				assert.EqualValues(t, v.Value, actualSettings[v.Setting])
-			}
 
-			assert.NotContains(t, strings.ToLower(dataQuery.RawSql), " querySettings ")
+			assert.NotContains(t, strings.ToLower(dataQuery.RawSql), " querysettings ")
 
 		})
 
@@ -153,23 +158,23 @@ func TestQueryCustomSettingsPropagation(t *testing.T) {
 			assert.Len(t, actualSettings, len(dsQuerySettings))
 
 			// custom settings set on query level
-			assert.Equal(t, "0", actualSettings["hdx_query_timerange_required"])
-			assert.Equal(t, "20", actualSettings["hdx_query_max_result_rows"])
+			assert.Equal(t, "0", findSettingValue(actualSettings, "hdx_query_timerange_required"))
+			assert.Equal(t, "20", findSettingValue(actualSettings, "hdx_query_max_result_rows"))
 
 			for _, v := range dsQuerySettings {
 				if !slices.Contains([]string{"hdx_query_timerange_required", "hdx_query_max_result_rows"}, v.Setting) {
-					assert.EqualValues(t, v.Value, actualSettings[v.Setting])
+					assert.EqualValues(t, v.Value, findSettingValue(actualSettings, v.Setting))
 				}
 			}
 
-			actualSettings = ctx0.Value("querySettings").(map[string]any)
-			assert.Len(t, actualSettings, len(dataQuery.QuerySettings))
+			ctxSettings := ctx0.Value("querySettings").(map[string]any)
+			assert.Len(t, ctxSettings, len(dataQuery.QuerySettings))
 
-			for k, v := range dataQuery.QuerySettings {
-				assert.EqualValues(t, clickhouse.CustomSetting{Value: fmt.Sprintf("%v", v)}, actualSettings[k])
+			for _, qs := range dataQuery.QuerySettings {
+				assert.EqualValues(t, clickhouse.CustomSetting{Value: fmt.Sprintf("%v", qs.Value)}, ctxSettings[qs.Setting])
 			}
 
-			assert.NotContains(t, strings.ToLower(dataQuery.RawSql), " querySettings ")
+			assert.NotContains(t, strings.ToLower(dataQuery.RawSql), " querysettings ")
 
 		})
 	}

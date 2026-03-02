@@ -7,6 +7,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
+	"github.com/hydrolix/plugin/pkg/models"
 	"regexp"
 	"sort"
 	"strings"
@@ -275,11 +276,11 @@ func (q *HDXQuery) WithSQL(rawSql string) *HDXQuery {
 }
 
 type HDXQuery struct {
-	RawSQL        string         `json:"rawSql"`
-	Format        int            `json:"format"`
-	Round         string         `json:"round,omitempty"`
-	QuerySettings map[string]any `json:"querySettings,omitempty"`
-	Filters       []AdHocFilter  `json:"filters,omitempty"`
+	RawSQL        string                `json:"rawSql"`
+	Format        int                   `json:"format"`
+	Round         string                `json:"round,omitempty"`
+	QuerySettings []models.QuerySetting `json:"querySettings,omitempty"`
+	Filters       []AdHocFilter         `json:"filters,omitempty"`
 	Meta          struct {
 		TimeZone string `json:"timezone"`
 	} `json:"meta"`

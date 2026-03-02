@@ -1,6 +1,9 @@
 import { firstValueFrom, of } from "rxjs";
 import { DataQueryRequest, toDataFrame } from "@grafana/data";
-import { setupDataSourceMock } from "__mocks__/datasource";
+import {
+  MockDataSourceInstanceSettings,
+  setupDataSourceMock,
+} from "__mocks__/datasource";
 import { adHocTableVariable, fooVariable } from "./__mocks__/variable";
 import { AdHocFilterKeys, HdxQuery } from "./types";
 
@@ -68,7 +71,7 @@ describe("HdxDataSource", () => {
         refId: "",
         rawSql: query,
         round: "",
-        querySettings: {},
+        querySettings: [],
       });
       expect(actual).toEqual(valid);
     }
@@ -83,7 +86,7 @@ describe("HdxDataSource", () => {
         refId: "",
         rawSql: "foo $foo",
         round: "",
-        querySettings: {},
+        querySettings: [],
       },
       {}
     );
@@ -439,5 +442,156 @@ describe("HdxDataSource", () => {
     } as DataQueryRequest<HdxQuery>;
     let a = await firstValueFrom(datasource.query(req));
     expect(a.errors![0].message).toBe("error message");
+  });
+
+  describe("query settings", () => {
+    it("should merge datasource-level and query-level settings", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({
+        customInstanceSettings: {
+          ...MockDataSourceInstanceSettings,
+          jsonData: {
+            ...MockDataSourceInstanceSettings.jsonData,
+            querySettings: [{ setting: "hdx_query_max_rows", value: "1000" }],
+          },
+        },
+      });
+      queryMock.mockReturnValue(of({ data: [] }));
+      const req = {
+        targets: [
+          {
+            rawSql: "select 1",
+            refId: "A",
+            querySettings: [{ setting: "hdx_query_max_attempts", value: "5" }],
+          },
+        ],
+      } as DataQueryRequest<HdxQuery>;
+      await firstValueFrom(datasource.query(req));
+      const sentTarget = queryMock.mock.calls[0][0].targets[0];
+      expect(sentTarget.querySettings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            setting: "hdx_query_max_rows",
+            value: "1000",
+          }),
+          expect.objectContaining({
+            setting: "hdx_query_max_attempts",
+            value: "5",
+          }),
+        ])
+      );
+    });
+
+    it("should allow query-level settings to override datasource-level", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({
+        customInstanceSettings: {
+          ...MockDataSourceInstanceSettings,
+          jsonData: {
+            ...MockDataSourceInstanceSettings.jsonData,
+            querySettings: [{ setting: "hdx_query_max_rows", value: "1000" }],
+          },
+        },
+      });
+      queryMock.mockReturnValue(of({ data: [] }));
+      const req = {
+        targets: [
+          {
+            rawSql: "select 1",
+            refId: "A",
+            querySettings: [{ setting: "hdx_query_max_rows", value: "500" }],
+          },
+        ],
+      } as DataQueryRequest<HdxQuery>;
+      await firstValueFrom(datasource.query(req));
+      const sentTarget = queryMock.mock.calls[0][0].targets[0];
+      const maxRows = sentTarget.querySettings.find(
+        (s: any) => s.setting === "hdx_query_max_rows"
+      );
+      expect(maxRows.value).toBe("500");
+    });
+
+    it("should filter out settings with empty setting name", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+      const req = {
+        targets: [
+          {
+            rawSql: "select 1",
+            refId: "A",
+            querySettings: [
+              { setting: "", value: "ignored" },
+              { setting: "hdx_query_max_rows", value: "100" },
+            ],
+          },
+        ],
+      } as DataQueryRequest<HdxQuery>;
+      await firstValueFrom(datasource.query(req));
+      const sentTarget = queryMock.mock.calls[0][0].targets[0];
+      expect(sentTarget.querySettings).toEqual([
+        expect.objectContaining({
+          setting: "hdx_query_max_rows",
+          value: "100",
+        }),
+      ]);
+      expect(
+        sentTarget.querySettings.find((s: any) => s.setting === "")
+      ).toBeUndefined();
+    });
+
+    it("should handle empty querySettings arrays", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+      const req = {
+        targets: [
+          {
+            rawSql: "select 1",
+            refId: "A",
+            querySettings: [],
+          },
+        ],
+      } as unknown as DataQueryRequest<HdxQuery>;
+      await firstValueFrom(datasource.query(req));
+      const sentTarget = queryMock.mock.calls[0][0].targets[0];
+      expect(sentTarget.querySettings).toEqual([]);
+    });
+
+    it("should handle undefined querySettings on target", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+      const req = {
+        targets: [
+          {
+            rawSql: "select 1",
+            refId: "A",
+          },
+        ],
+      } as DataQueryRequest<HdxQuery>;
+      await firstValueFrom(datasource.query(req));
+      const sentTarget = queryMock.mock.calls[0][0].targets[0];
+      expect(sentTarget.querySettings).toEqual([]);
+    });
+
+    it("should replace template variables in setting values", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({
+        variables: [fooVariable],
+      });
+      queryMock.mockReturnValue(of({ data: [] }));
+      const req = {
+        targets: [
+          {
+            rawSql: "select 1",
+            refId: "A",
+            querySettings: [
+              { setting: "hdx_query_admin_comment", value: "$foo" },
+            ],
+          },
+        ],
+      } as DataQueryRequest<HdxQuery>;
+      await firstValueFrom(datasource.query(req));
+      const sentTarget = queryMock.mock.calls[0][0].targets[0];
+      const comment = sentTarget.querySettings.find(
+        (s: any) => s.setting === "hdx_query_admin_comment"
+      );
+      expect(comment.value).toBe("templatedFoo");
+    });
   });
 });
