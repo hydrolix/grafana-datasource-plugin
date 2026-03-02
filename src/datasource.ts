@@ -176,13 +176,16 @@ export class DataSource extends DataSourceWithBackend<
     const accumulator: { [v: string]: string } = {};
     return {
       addSettings: (querySettings: QuerySetting[]) =>
-        querySettings.reduce((acc: { [key: string]: any }, s) => {
-          acc[s.setting] = replace(
-            this.templateSrv.replace(`${s.value}`),
-            vars
-          );
-          return acc;
-        }, accumulator),
+        querySettings &&
+        querySettings
+          .filter((s) => s.setting)
+          .reduce((acc: { [key: string]: any }, s) => {
+            acc[s.setting] = replace(
+              this.templateSrv.replace(`${s.value}`),
+              vars
+            );
+            return acc;
+          }, accumulator),
       build: (): QuerySetting[] =>
         Object.keys(accumulator).map((s) => ({
           setting: s,

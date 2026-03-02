@@ -38,13 +38,19 @@ export function QuerySettings({ settings, onSettingsChange }: Props) {
     }))
   );
   const options = useMemo(() => {
-    return labels.components.querySettings.values.map((v) => ({
-      label: v.setting,
-      value: v.setting,
-      description: v.description,
-      type: v.type,
-    }));
-  }, []);
+    return labels.components.querySettings.values
+      .map((v) => ({
+        label: v.setting,
+        value: v.setting,
+        description: v.description,
+        type: v.type,
+      }))
+      .filter((v) => !settingsArray.some((s) => s.setting === v.label));
+  }, [settingsArray]);
+
+  const showAdd = useMemo(() => {
+    return !settingsArray.some((s) => !s.setting);
+  }, [settingsArray]);
 
   const updateSettings = useCallback(
     (settings: Array<{ setting: string; value: string; type: string }>) => {
@@ -132,7 +138,6 @@ export function QuerySettings({ settings, onSettingsChange }: Props) {
           name={setting.setting}
           width={20}
           value={setting.value ?? ""}
-          //type={querySettingDefinitions[key].type}
           onChange={(e) =>
             onValueUpdate(setting.setting, e.currentTarget.value)
           }
@@ -199,12 +204,14 @@ export function QuerySettings({ settings, onSettingsChange }: Props) {
                   />
                 </InputGroup>
               ))}
-              <AccessoryButton
-                aria-label={"new setting"}
-                icon="plus"
-                variant="secondary"
-                onClick={newSetting}
-              />
+              {showAdd && (
+                <AccessoryButton
+                  aria-label={"new setting"}
+                  icon="plus"
+                  variant="secondary"
+                  onClick={newSetting}
+                />
+              )}
             </div>
           </Collapse>
         </div>
@@ -241,14 +248,12 @@ const getStyles = (theme: GrafanaTheme2) => {
       paddingLeft: theme.spacing(2),
       gap: theme.spacing(2),
       display: "flex",
+      flexWrap: "wrap",
     }),
     body: css({
       display: "flex",
       gap: theme.spacing(2),
       flexWrap: "wrap",
-    }),
-    tooltip: css({
-      marginRight: theme.spacing(0.25),
     }),
   };
 };
