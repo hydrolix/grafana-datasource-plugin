@@ -9,6 +9,7 @@ import (
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
 	"github.com/hydrolix/plugin/pkg/models"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -33,7 +34,7 @@ func NewInterpolator(ds *HydrolixDatasource) Interpolator {
 
 // getMacroMatches extracts macro strings with their respective arguments from the sql input given
 // It manually parses the string to find the closing parenthesis of the macro (because regex has no memory)
-func getMacroMatches(input string, name string) ([]macroMatch, error) {
+func getMacroMatches(input string, name string, positions []parser.Pos) ([]macroMatch, error) {
 	rgx, err := regexp.Compile(fmt.Sprintf(`\$+__%s\b`, name))
 
 	if err != nil {
@@ -47,9 +48,32 @@ func getMacroMatches(input string, name string) ([]macroMatch, error) {
 		if length < 0 {
 			return nil, fmt.Errorf("failed to parse macro arguments (missing close bracket?)")
 		}
-		matches = append(matches, macroMatch{full: input[start : end+length], args: args, escaped: input[start+1] == '$', pos: parser.Pos(start), name: name})
+		if positions == nil || slices.Contains(positions, parser.Pos(start)) {
+			matches = append(matches, macroMatch{full: input[start : end+length], args: args, escaped: input[start+1] == '$', pos: parser.Pos(start), name: name})
+		}
 	}
 	return matches, nil
+}
+
+func getMacroPositions(input string) ([]parser.Pos, error) {
+	exps, err := parser.NewParser(input).ParseStmts()
+	if err != nil {
+		return nil, err
+	}
+	positions := make([]parser.Pos, 0)
+	mVisitor := macroVisitor{macros: make([]MacroId, 0)}
+
+	for _, expr := range exps {
+		err = expr.Accept(&mVisitor)
+		if err != nil {
+			return nil, err
+		}
+	}
+	for _, m := range mVisitor.macros {
+		positions = append(positions, m.Index)
+	}
+
+	return positions, nil
 }
 
 // parseArgs looks for a bracketed argument list at the beginning of argString.
@@ -111,8 +135,12 @@ func (i Interpolator) Interpolate(query *HDXQuery, ctx context.Context) (string,
 	})
 	rawSQL := query.RawSQL
 	macroMatches := make([]macroMatch, 0)
+	positions, err := getMacroPositions(rawSQL)
+	if err != nil {
+		positions = nil
+	}
 	for _, key := range sortedMacroKeys {
-		matches, err := getMacroMatches(rawSQL, key)
+		matches, err := getMacroMatches(rawSQL, key, positions)
 		if err != nil {
 			return rawSQL, err
 		}
@@ -171,9 +199,9 @@ type macroVisitor struct {
 	macros []MacroId
 }
 
-func (v *macroVisitor) VisitFunctionExpr(expr *parser.FunctionExpr) error {
-	if strings.HasPrefix(expr.Name.Name, "$__") {
-		v.macros = append(v.macros, MacroId{Name: expr.Name.Name, Index: expr.Name.NamePos})
+func (v *macroVisitor) VisitIdent(expr *parser.Ident) error {
+	if strings.HasPrefix(expr.Name, "$__") {
+		v.macros = append(v.macros, MacroId{Name: expr.Name, Index: expr.NamePos})
 	}
 	return nil
 }

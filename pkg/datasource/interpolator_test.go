@@ -181,7 +181,7 @@ func TestGetMacroMatches(t *testing.T) {
 
 	for i, tc := range tests {
 		t.Run(fmt.Sprintf("[%d/%d] %s", i+1, len(tests), tc.name), func(t *testing.T) {
-			matches, err := getMacroMatches(tc.input, tc.macro)
+			matches, err := getMacroMatches(tc.input, tc.macro, nil)
 			require.NoError(t, err)
 			assert.Equal(t, len(tc.expected), len(matches))
 			for j, expected := range tc.expected {
@@ -220,7 +220,7 @@ func TestGetMacroMatches_ErrorCases(t *testing.T) {
 
 	for i, tc := range tests {
 		t.Run(fmt.Sprintf("[%d/%d] %s", i+1, len(tests), tc.name), func(t *testing.T) {
-			_, err := getMacroMatches(tc.input, tc.macro)
+			_, err := getMacroMatches(tc.input, tc.macro, nil)
 			if tc.expectErr {
 				assert.Error(t, err)
 			} else {
@@ -297,6 +297,86 @@ func TestInterpolateMacroEscaping(t *testing.T) {
 			name:   "should handle macros escaped multiple times",
 			input:  "SELECT * FROM table WHERE $$$__timeFilter(timestamp)",
 			output: "SELECT * FROM table WHERE $$__timeFilter(timestamp)",
+		},
+	}
+
+	from, _ := time.Parse("2006-01-02T15:04:05.000Z", "2014-11-12T11:45:26.123Z")
+	to, _ := time.Parse("2006-01-02T15:04:05.000Z", "2015-11-12T11:45:26.456Z")
+
+	for i, tc := range tests {
+		interpolator := NewInterpolator(&HydrolixDatasource{
+			Connector: &MockConnector{
+				uid: "uid-123",
+			},
+		})
+		t.Run(fmt.Sprintf("[%d/%d] %s", i+1, len(tests), tc.name), func(t *testing.T) {
+			query := &HDXQuery{
+				RawSQL: tc.input,
+				TimeRange: backend.TimeRange{
+					From: from,
+					To:   to,
+				},
+				Interval: time.Duration(1000000000),
+			}
+			interpolatedQuery, err := interpolator.Interpolate(query, context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, tc.output, interpolatedQuery)
+		})
+	}
+}
+
+func TestInterpolateMacroInStringLiteral(t *testing.T) {
+	type test struct {
+		name   string
+		input  string
+		output string
+	}
+
+	tests := []test{
+		{
+			name:   "should not interpolate macro inside string literal",
+			input:  "SELECT '$__fromTime' FROM table",
+			output: "SELECT '$__fromTime' FROM table",
+		},
+		{
+			name:   "should not interpolate macro with brackets inside string literal",
+			input:  "SELECT '$__timeFilter(timestamp)' FROM table",
+			output: "SELECT '$__timeFilter(timestamp)' FROM table",
+		},
+		{
+			name:   "should interpolate real macro but not one inside string literal",
+			input:  "SELECT '$__fromTime' FROM table WHERE $__fromTime",
+			output: "SELECT '$__fromTime' FROM table WHERE toDateTime(1415792726)",
+		},
+		{
+			name:   "should interpolate real macro but not one inside string literal with brackets",
+			input:  "SELECT '$__timeFilter(timestamp)' FROM table WHERE $__timeFilter(timestamp)",
+			output: "SELECT '$__timeFilter(timestamp)' FROM table WHERE timestamp >= toDateTime(1415792726) AND timestamp <= toDateTime(1447328726)",
+		},
+		{
+			name:   "should not interpolate macro inside line comment",
+			input:  "SELECT * FROM table -- $__fromTime",
+			output: "SELECT * FROM table -- $__fromTime",
+		},
+		{
+			name:   "should not interpolate macro with brackets inside line comment",
+			input:  "SELECT * FROM table -- $__timeFilter(timestamp)",
+			output: "SELECT * FROM table -- $__timeFilter(timestamp)",
+		},
+		{
+			name:   "should not interpolate macro inside block comment",
+			input:  "SELECT * FROM table /* $__fromTime */",
+			output: "SELECT * FROM table /* $__fromTime */",
+		},
+		{
+			name:   "should interpolate real macro but not one inside line comment",
+			input:  "SELECT * FROM table WHERE $__fromTime -- $__fromTime",
+			output: "SELECT * FROM table WHERE toDateTime(1415792726) -- $__fromTime",
+		},
+		{
+			name:   "should interpolate real macro but not one inside block comment",
+			input:  "SELECT * FROM table WHERE $__fromTime /* $__fromTime */",
+			output: "SELECT * FROM table WHERE toDateTime(1415792726) /* $__fromTime */",
 		},
 	}
 
