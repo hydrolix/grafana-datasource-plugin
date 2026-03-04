@@ -3,6 +3,8 @@
   "ignorePatterns": ["error_panel/**"],
   "rules": {
     "eol-last": "off",
-    "no-var": "warn"
+    "no-var": "warn",
+    "react-hooks/refs": "warn",
+    "react-hooks/immutability": "warn"
   }
 }
