@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/hydrolix/plugin/pkg/models"
 	"github.com/jellydator/ttlcache/v3"
@@ -46,7 +47,7 @@ func (p *MetaDataProvider) GetPK(context context.Context, database string, table
 
 	entry := p.pkCache.Get(cacheKey)
 	if entry == nil {
-		fmt.Println("Cache miss for:", cacheKey)
+		log.DefaultLogger.Debug("Cache miss for:", cacheKey)
 		pk, err := p.QueryPK(database, table)
 		if err != nil {
 			return "", err
@@ -55,7 +56,7 @@ func (p *MetaDataProvider) GetPK(context context.Context, database string, table
 
 		return pk, nil
 	} else {
-		fmt.Println("Cache hit for:", cacheKey)
+		log.DefaultLogger.Debug("Cache hit for:", cacheKey)
 		return entry.Value(), nil
 	}
 
@@ -66,7 +67,7 @@ func (p *MetaDataProvider) GetKeys(cte string) (map[string]string, error) {
 
 	entry := p.keyCache.Get(cacheKey)
 	if entry == nil {
-		fmt.Println("Cache miss for:", cacheKey)
+		log.DefaultLogger.Debug("Cache miss for:", cacheKey)
 		keys, err := p.QueryKeys(cte)
 		if err != nil {
 			return nil, err
@@ -75,7 +76,7 @@ func (p *MetaDataProvider) GetKeys(cte string) (map[string]string, error) {
 
 		return keys, nil
 	} else {
-		fmt.Println("Cache hit for:", cacheKey)
+		log.DefaultLogger.Debug("Cache hit for:", cacheKey)
 		return entry.Value(), nil
 	}
 }

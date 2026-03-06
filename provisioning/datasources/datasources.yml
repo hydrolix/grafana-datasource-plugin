@@ -19,6 +19,11 @@ datasources:
       defaultDatabase: akamai
       defaultRound: 1m
       adHocTableVariable: table
+      exposeErrors:
+        enabled: true
+        variableName: "hdx_query_errors"
+        maxCount: 5
+        ttl: 300
     secureJsonData:
       password: "${HYDROLIX_PASSWORD}"
   - name: "ClickHouse"

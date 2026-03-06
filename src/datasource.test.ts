@@ -1,6 +1,9 @@
 import { firstValueFrom, of } from "rxjs";
 import { DataQueryRequest, toDataFrame } from "@grafana/data";
-import { setupDataSourceMock } from "__mocks__/datasource";
+import {
+  MockDataSourceInstanceSettings,
+  setupDataSourceMock,
+} from "__mocks__/datasource";
 import { adHocTableVariable, fooVariable } from "./__mocks__/variable";
 import { AdHocFilterKeys, HdxQuery } from "./types";
 
@@ -68,7 +71,7 @@ describe("HdxDataSource", () => {
         refId: "",
         rawSql: query,
         round: "",
-        querySettings: {},
+        querySettings: [],
       });
       expect(actual).toEqual(valid);
     }
@@ -83,7 +86,7 @@ describe("HdxDataSource", () => {
         refId: "",
         rawSql: "foo $foo",
         round: "",
-        querySettings: {},
+        querySettings: [],
       },
       {}
     );
@@ -101,17 +104,18 @@ describe("HdxDataSource", () => {
 
     it("should return keys", async () => {
       let response = ["key1", "key2", "key3"].map(
-        (k) => ({ text: k, value: k } as AdHocFilterKeys)
+        (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
       );
       getKeysMock.mockReturnValue(Promise.resolve(response));
+      queryMock.mockReturnValue(of({ data: [] }));
       let keys = await datasource.getTagKeys();
 
-      expect(keys).toBe(response);
+      expect(keys).toEqual(response);
     });
 
     it("should not return values", async () => {
       let response = ["key1", "key2", "key3"].map(
-        (k) => ({ text: k, value: k } as AdHocFilterKeys)
+        (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
       );
       getKeysMock.mockReturnValue(Promise.resolve(response));
       let values = await datasource.getTagValues({ key: "key", filters: [] });
@@ -123,7 +127,7 @@ describe("HdxDataSource", () => {
       getKeysMock.mockReturnValue(
         Promise.resolve(
           ["key1", "key2", "key3"].map(
-            (k) => ({ text: k, value: k } as AdHocFilterKeys)
+            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
           )
         )
       );
@@ -145,7 +149,7 @@ describe("HdxDataSource", () => {
       getKeysMock.mockReturnValue(
         Promise.resolve(
           ["key1", "key2", "key3"].map(
-            (k) => ({ text: k, value: k } as AdHocFilterKeys)
+            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
           )
         )
       );
@@ -166,7 +170,7 @@ describe("HdxDataSource", () => {
       getKeysMock.mockReturnValue(
         Promise.resolve(
           ["key1", "key2", "key3"].map(
-            (k) => ({ text: k, value: k } as AdHocFilterKeys)
+            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
           )
         )
       );
@@ -188,7 +192,7 @@ describe("HdxDataSource", () => {
       getKeysMock.mockReturnValue(
         Promise.resolve(
           ["key1", "key2", "key3"].map(
-            (k) => ({ text: k, value: k } as AdHocFilterKeys)
+            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
           )
         )
       );
@@ -209,7 +213,7 @@ describe("HdxDataSource", () => {
       getKeysMock.mockReturnValue(
         Promise.resolve(
           ["key1", "key2", "key3"].map(
-            (k) => ({ text: k, value: k } as AdHocFilterKeys)
+            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
           )
         )
       );
@@ -230,7 +234,7 @@ describe("HdxDataSource", () => {
       getKeysMock.mockReturnValue(
         Promise.resolve(
           ["key1", "key2", "key3"].map(
-            (k) => ({ text: k, value: k } as AdHocFilterKeys)
+            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
           )
         )
       );
@@ -250,6 +254,182 @@ describe("HdxDataSource", () => {
         { text: "__null__", value: "__null__" },
       ]);
     });
+
+    it("should use arrayJoin for array type columns", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve([
+          { text: "key1", value: "key1", type: "Array(String)" },
+          { text: "key2", value: "key2", type: "String" },
+        ] as AdHocFilterKeys[])
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["tag1", "tag2", "tag3"] }],
+            }),
+          ],
+        })
+      );
+      let values = await datasource.getTagValues({ key: "key1", filters: [] });
+
+      expect(values).toEqual([
+        { text: "tag1", value: "tag1" },
+        { text: "tag2", value: "tag2" },
+        { text: "tag3", value: "tag3" },
+      ]);
+    });
+
+    it("should not use arrayJoin for non-array type columns", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve([
+          { text: "key1", value: "key1", type: "String" },
+          { text: "key2", value: "key2", type: "Nullable(String)" },
+        ] as AdHocFilterKeys[])
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["value1", "value2"] }],
+            }),
+          ],
+        })
+      );
+      let values = await datasource.getTagValues({ key: "key1", filters: [] });
+
+      expect(values).toEqual([
+        { text: "value1", value: "value1" },
+        { text: "value2", value: "value2" },
+      ]);
+    });
+
+    it("should handle Array(Nullable(String)) type", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve([
+          { text: "tags", value: "tags", type: "Array(Nullable(String))" },
+        ] as AdHocFilterKeys[])
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["prod", "staging", "dev"] }],
+            }),
+          ],
+        })
+      );
+      let values = await datasource.getTagValues({ key: "tags", filters: [] });
+
+      expect(values).toEqual([
+        { text: "prod", value: "prod" },
+        { text: "staging", value: "staging" },
+        { text: "dev", value: "dev" },
+      ]);
+    });
+
+    it("should expand map type columns into individual keys", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve([
+          { text: "column1", value: "column1", type: "String" },
+          { text: "labels", value: "labels", type: "Map(String, String)" },
+        ] as AdHocFilterKeys[])
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["env", "region", "team"] }],
+            }),
+          ],
+        })
+      );
+
+      let keys = await datasource.getTagKeys();
+
+      expect(keys).toContainEqual({
+        text: "column1",
+        value: "column1",
+        type: "String",
+      });
+      expect(keys).toContainEqual({
+        text: "labels['env']",
+        value: "labels['env']",
+        type: "Map(String, String)",
+      });
+      expect(keys).toContainEqual({
+        text: "labels['region']",
+        value: "labels['region']",
+        type: "Map(String, String)",
+      });
+      expect(keys).toContainEqual({
+        text: "labels['team']",
+        value: "labels['team']",
+        type: "Map(String, String)",
+      });
+    });
+
+    it("should handle map key syntax in getTagValues", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve([
+          { text: "labels", value: "labels", type: "Map(String, String)" },
+        ] as AdHocFilterKeys[])
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["prod", "dev", "staging"] }],
+            }),
+          ],
+        })
+      );
+
+      let values = await datasource.getTagValues({
+        key: "labels['env']",
+        filters: [],
+      });
+
+      expect(values).toEqual([
+        { text: "prod", value: "prod" },
+        { text: "dev", value: "dev" },
+        { text: "staging", value: "staging" },
+      ]);
+    });
+
+    it("should handle nullable map type", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve([
+          {
+            text: "metadata",
+            value: "metadata",
+            type: "Map(String, Nullable(String))",
+          },
+        ] as AdHocFilterKeys[])
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["key1", "key2"] }],
+            }),
+          ],
+        })
+      );
+
+      let keys = await datasource.getTagKeys();
+
+      expect(keys).toContainEqual({
+        text: "metadata['key1']",
+        value: "metadata['key1']",
+        type: "Map(String, Nullable(String))",
+      });
+      expect(keys).toContainEqual({
+        text: "metadata['key2']",
+        value: "metadata['key2']",
+        type: "Map(String, Nullable(String))",
+      });
+    });
   });
 
   it("should process error", async () => {
@@ -262,5 +442,156 @@ describe("HdxDataSource", () => {
     } as DataQueryRequest<HdxQuery>;
     let a = await firstValueFrom(datasource.query(req));
     expect(a.errors![0].message).toBe("error message");
+  });
+
+  describe("query settings", () => {
+    it("should merge datasource-level and query-level settings", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({
+        customInstanceSettings: {
+          ...MockDataSourceInstanceSettings,
+          jsonData: {
+            ...MockDataSourceInstanceSettings.jsonData,
+            querySettings: [{ setting: "hdx_query_max_rows", value: "1000" }],
+          },
+        },
+      });
+      queryMock.mockReturnValue(of({ data: [] }));
+      const req = {
+        targets: [
+          {
+            rawSql: "select 1",
+            refId: "A",
+            querySettings: [{ setting: "hdx_query_max_attempts", value: "5" }],
+          },
+        ],
+      } as DataQueryRequest<HdxQuery>;
+      await firstValueFrom(datasource.query(req));
+      const sentTarget = queryMock.mock.calls[0][0].targets[0];
+      expect(sentTarget.querySettings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            setting: "hdx_query_max_rows",
+            value: "1000",
+          }),
+          expect.objectContaining({
+            setting: "hdx_query_max_attempts",
+            value: "5",
+          }),
+        ])
+      );
+    });
+
+    it("should allow query-level settings to override datasource-level", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({
+        customInstanceSettings: {
+          ...MockDataSourceInstanceSettings,
+          jsonData: {
+            ...MockDataSourceInstanceSettings.jsonData,
+            querySettings: [{ setting: "hdx_query_max_rows", value: "1000" }],
+          },
+        },
+      });
+      queryMock.mockReturnValue(of({ data: [] }));
+      const req = {
+        targets: [
+          {
+            rawSql: "select 1",
+            refId: "A",
+            querySettings: [{ setting: "hdx_query_max_rows", value: "500" }],
+          },
+        ],
+      } as DataQueryRequest<HdxQuery>;
+      await firstValueFrom(datasource.query(req));
+      const sentTarget = queryMock.mock.calls[0][0].targets[0];
+      const maxRows = sentTarget.querySettings.find(
+        (s: any) => s.setting === "hdx_query_max_rows"
+      );
+      expect(maxRows.value).toBe("500");
+    });
+
+    it("should filter out settings with empty setting name", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+      const req = {
+        targets: [
+          {
+            rawSql: "select 1",
+            refId: "A",
+            querySettings: [
+              { setting: "", value: "ignored" },
+              { setting: "hdx_query_max_rows", value: "100" },
+            ],
+          },
+        ],
+      } as DataQueryRequest<HdxQuery>;
+      await firstValueFrom(datasource.query(req));
+      const sentTarget = queryMock.mock.calls[0][0].targets[0];
+      expect(sentTarget.querySettings).toEqual([
+        expect.objectContaining({
+          setting: "hdx_query_max_rows",
+          value: "100",
+        }),
+      ]);
+      expect(
+        sentTarget.querySettings.find((s: any) => s.setting === "")
+      ).toBeUndefined();
+    });
+
+    it("should handle empty querySettings arrays", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+      const req = {
+        targets: [
+          {
+            rawSql: "select 1",
+            refId: "A",
+            querySettings: [],
+          },
+        ],
+      } as unknown as DataQueryRequest<HdxQuery>;
+      await firstValueFrom(datasource.query(req));
+      const sentTarget = queryMock.mock.calls[0][0].targets[0];
+      expect(sentTarget.querySettings).toEqual([]);
+    });
+
+    it("should handle undefined querySettings on target", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+      const req = {
+        targets: [
+          {
+            rawSql: "select 1",
+            refId: "A",
+          },
+        ],
+      } as DataQueryRequest<HdxQuery>;
+      await firstValueFrom(datasource.query(req));
+      const sentTarget = queryMock.mock.calls[0][0].targets[0];
+      expect(sentTarget.querySettings).toEqual([]);
+    });
+
+    it("should replace template variables in setting values", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({
+        variables: [fooVariable],
+      });
+      queryMock.mockReturnValue(of({ data: [] }));
+      const req = {
+        targets: [
+          {
+            rawSql: "select 1",
+            refId: "A",
+            querySettings: [
+              { setting: "hdx_query_admin_comment", value: "$foo" },
+            ],
+          },
+        ],
+      } as DataQueryRequest<HdxQuery>;
+      await firstValueFrom(datasource.query(req));
+      const sentTarget = queryMock.mock.calls[0][0].targets[0];
+      const comment = sentTarget.querySettings.find(
+        (s: any) => s.setting === "hdx_query_admin_comment"
+      );
+      expect(comment.value).toBe("templatedFoo");
+    });
   });
 });

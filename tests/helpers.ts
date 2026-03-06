@@ -169,6 +169,33 @@ export const queryTextSet = async (
 };
 
 /**
+ * Expands the "Query options" collapsible section in the panel editor query tab.
+ * Uses semantic locators to work across Grafana versions.
+ */
+export const expandQueryOptions = async (
+  page: PanelEditPage
+): Promise<void> => {
+  const queryOptionsButton = page.ctx.page.getByText(/Query options/i);
+  await queryOptionsButton.click();
+};
+
+/**
+ * Sets the "Max data points" value in the panel editor.
+ * Expands the Query options section and fills the input.
+ */
+export const setMaxDataPoints = async (
+  page: PanelEditPage,
+  value: number
+): Promise<void> => {
+  await expandQueryOptions(page);
+  await page.ctx.page
+    .locator(
+      'xpath=//label[contains(text(), "Max data points")]/../div[1]//input'
+    )
+    .fill(value.toString());
+};
+
+/**
  * Locators Interface for Hydrolix Datasource Configuration Page
  */
 interface ConfigPageLocator {

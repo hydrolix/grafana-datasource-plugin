@@ -1,5 +1,12 @@
 # Changelog
-## 0.8.0
+## 0.10.0
+
+- **Feature**: Add support for setting Hydrolix query options per query through Grafana plugin UI (GRAP-59)
+- **Feature**: Expose datasource errors to grafana variables (GRAP-155)
+- **Fix**: Query interpolation fails when cte dependent plugin is commented (GRAP-152)
+- **Fix**: AST parser, support of REGEXP operator (GRAP-154)
+
+## 0.9.0
 
 - **Feature**: Remove Query Assistant from Grafana plugin (GRAP-135)
 - **Feature**: Support regex patterns for ad hoc filtering (GRAP-77)

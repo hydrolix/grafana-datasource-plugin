@@ -153,7 +153,7 @@ test("should provide editor hints", async ({
   await page.keyboard.press("Escape");
   await queryTextSet("A", "select * from ", panelEditPage);
   await page.keyboard.press("Control+Space");
-  wait(2000);
+  await wait(200);
 
   await expect(suggestionLocator).toBeVisible();
   suggestions = await suggestionLocator.locator("a").allTextContents();
@@ -163,7 +163,7 @@ test("should provide editor hints", async ({
   await page.keyboard.press("Escape");
   await queryTextSet("A", "select * from e2e.", panelEditPage);
   await page.keyboard.press("Control+Space");
-  wait(2000);
+  await wait(200);
 
   await expect(suggestionLocator).toBeVisible();
   suggestions = await suggestionLocator.locator("a").allTextContents();
@@ -176,7 +176,7 @@ test("should provide editor hints", async ({
     await page.keyboard.press("ArrowLeft");
   }
   await page.keyboard.press("Control+Space");
-  wait(2000);
+  await wait(200);
 
   await expect(suggestionLocator).toBeVisible();
   suggestions = await suggestionLocator.locator("a").allTextContents();

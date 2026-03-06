@@ -31,18 +31,21 @@ import {
   InterpolationResult,
   TableIdentifier,
   InterpolationResponse,
+  QuerySetting,
 } from "./types";
 import { from, Observable, switchMap } from "rxjs";
 import { map } from "rxjs/operators";
-import { ErrorMessageBeautifier } from "./errorBeautifier";
+import { ErrorMessageBeautifier } from "./errors/errorBeautifier";
 import {
   getMetadataProvider,
   ZERO_TIME_RANGE,
 } from "./editor/metadataProvider";
-import { getColumnValuesStatement } from "./ast";
-import { SYNTHETIC_EMPTY, SYNTHETIC_NULL } from "./constants";
+import { getColumnKeysForMapStatement, getColumnValuesStatement } from "./ast";
+import { MAP_KEY_REGEX, SYNTHETIC_EMPTY, SYNTHETIC_NULL } from "./constants";
 import { replace } from "./syntheticVariables";
 import { applyConditionalAll } from "./macros/macrosApplier";
+import { ErrorExposer } from "./errors/errorExposer";
+import defaultConfigs from "./defaultConfigs";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -52,12 +55,19 @@ export class DataSource extends DataSourceWithBackend<
   private readonly beautifier = new ErrorMessageBeautifier();
   public options: DataQueryRequest<HdxQuery> | undefined;
   public filters: AdHocVariableFilter[] | undefined;
+  private errorExposer!: ErrorExposer;
 
   constructor(
     public instanceSettings: DataSourceInstanceSettings<HdxDataSourceOptions>,
     readonly templateSrv: TemplateSrv = getTemplateSrv()
   ) {
     super(instanceSettings);
+    this.errorExposer = new ErrorExposer(
+      this.beautifier,
+      this.templateSrv,
+      this.instanceSettings.jsonData?.exposeErrors ||
+        defaultConfigs.exposeErrors
+    );
   }
 
   async metricFindQuery(query: Partial<HdxQuery> | string, options?: any) {
@@ -119,13 +129,15 @@ export class DataSource extends DataSourceWithBackend<
                     type: "" + error.type,
                   }
                 );
-
                 if (error.message) {
-                  const message = this.beautifier.beautify(error.message);
+                  this.errorExposer.addErrorToVariable(error.message);
+
+                  let message = this.beautifier.beautify(error.message);
                   if (message) {
                     return { ...error, message: message };
                   }
                 }
+
                 return error;
               });
 
@@ -144,22 +156,41 @@ export class DataSource extends DataSourceWithBackend<
     t: HdxQuery,
     request: DataQueryRequest<HdxQuery>
   ) {
-    const querySettings = (
-      this.instanceSettings.jsonData.querySettings ?? []
-    ).reduce((acc: { [key: string]: any }, s) => {
-      acc[s.setting] = replace(this.templateSrv.replace(`${s.value}`), {
-        raw_query: () => t.rawSql,
-        query_source: () => request.app,
-      });
-      return acc;
-    }, {});
+    const builder = this.querySettingsBuilder({
+      raw_query: () => t.rawSql,
+      query_source: () => request.app,
+    });
+    builder.addSettings(this.instanceSettings.jsonData.querySettings ?? []);
+    builder.addSettings(t.querySettings ?? []);
 
     return {
       ...t,
-      querySettings,
+      querySettings: builder.build(),
       meta: {
         timezone: this.resolveTimezone(request),
       },
+    };
+  }
+
+  private querySettingsBuilder(vars: { [v: string]: () => string }) {
+    const accumulator: { [v: string]: string } = {};
+    return {
+      addSettings: (querySettings: QuerySetting[]) =>
+        querySettings &&
+        querySettings
+          .filter((s) => s.setting)
+          .reduce((acc: { [key: string]: any }, s) => {
+            acc[s.setting] = replace(
+              this.templateSrv.replace(`${s.value}`),
+              vars
+            );
+            return acc;
+          }, accumulator),
+      build: (): QuerySetting[] =>
+        Object.keys(accumulator).map((s) => ({
+          setting: s,
+          value: accumulator[s],
+        })),
     };
   }
 
@@ -254,10 +285,47 @@ export class DataSource extends DataSourceWithBackend<
     let table = this.adHocFilterTableName();
 
     if (table) {
-      return await this.metadataProvider.tableKeys(table);
+      const keys = await this.metadataProvider.tableKeys(table);
+      const maps = await Promise.all(
+        keys
+          .filter((key) => key.type.includes("Map"))
+          .map((key) => key.value?.toString())
+          .filter((key) => !!key)
+          .map((column) => this.getTagKeysForMap(column!, table))
+      ).then((response: Array<{ key: string; val: string[] }>) =>
+        response.reduce((map, obj) => {
+          map[obj.key] = obj.val;
+          return map;
+        }, {} as { [key: string]: string[] })
+      );
+
+      return keys
+        .map((key) => {
+          return (key.value || "") in maps
+            ? maps[key.value!].map((r: string) => ({
+                ...key,
+                value: r,
+                text: r,
+              }))
+            : key;
+        })
+        .flat();
     } else {
       return [];
     }
+  }
+
+  async getTagKeysForMap(
+    column: string,
+    table: string
+  ): Promise<{ key: string; val: string[] }> {
+    const response = await this.metadataProvider.executeQuery(
+      getColumnKeysForMapStatement(column, table),
+      this.options?.range,
+      this.filters
+    );
+    let values: string[] = this.getValuesFromResponse(response);
+    return { key: column, val: values.map((v) => `${column}['${v}']`) };
   }
 
   async getInterpolatedQuery(query: HdxQuery): Promise<InterpolationResponse> {
@@ -304,14 +372,30 @@ export class DataSource extends DataSourceWithBackend<
       return [];
     }
 
-    let keys = await this.metadataProvider
-      .tableKeys(table)
-      .then((keys) => keys.map((k) => k.value));
-    if (!keys.includes(options.key)) {
+    const keys = await this.metadataProvider.tableKeys(table);
+    const isMapKey = MAP_KEY_REGEX.test(options.key);
+
+    const keyNames = keys.map((k) => k.value);
+
+    if (
+      (!isMapKey && !keyNames.includes(options.key)) ||
+      (isMapKey &&
+        !keyNames
+          .filter((name) => !!name)
+          .map((name) => name!.toString())
+          .some((name) => options.key.startsWith(name)))
+    ) {
       logWarning(
         `ad hoc filter key ${options.key} is not available for table ${table}`
       );
       return [];
+    }
+    const type = keys.find((k) => k.value === options.key)?.type;
+    let column: string;
+    if (type?.includes("Array")) {
+      column = `arrayJoin(${options.key})`;
+    } else {
+      column = options.key;
     }
 
     let timeFilter = await this.metadataProvider.primaryKey(
@@ -321,7 +405,7 @@ export class DataSource extends DataSourceWithBackend<
     let sql;
     if (table && timeFilter) {
       sql = getColumnValuesStatement(
-        options.key,
+        column,
         table,
         timeFilter,
         this.getAdHocFilterValueCondition()
@@ -335,14 +419,7 @@ export class DataSource extends DataSourceWithBackend<
       options.timeRange,
       options.filters
     );
-    let fields: Field[] = response.data[0]?.fields?.length
-      ? response.data[0].fields
-      : [];
-    let values: string[] = fields[0]?.values;
-    if (!values) {
-      return [];
-    }
-
+    let values: string[] = this.getValuesFromResponse(response);
     return [
       ...values
         .filter((v) => v)
@@ -358,6 +435,12 @@ export class DataSource extends DataSourceWithBackend<
         text: n,
         value: n,
       }));
+  }
+  private getValuesFromResponse(response: DataQueryResponse): string[] {
+    let fields: Field[] = response.data[0]?.fields?.length
+      ? response.data[0].fields
+      : [];
+    return fields[0]?.values || [];
   }
 
   private adHocFilterTableName() {

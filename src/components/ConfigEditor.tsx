@@ -10,6 +10,7 @@ import {
   Button,
   Divider,
   Field,
+  IconButton,
   InlineField,
   InlineSwitch,
   Input,
@@ -32,6 +33,7 @@ import allLabels from "labels";
 import defaultConfigs from "defaultConfigs";
 import { QUERY_DURATION_REGEX } from "../editor/timeRangeUtils";
 import { getDefaultValue } from "../editor/editorUtils";
+import { SOLUTION_TEMPLATES } from "../errors/solutionTemplates";
 
 export interface Props
   extends DataSourcePluginOptionsEditorProps<
@@ -60,6 +62,7 @@ export function ConfigEditor(props: Props) {
   }
 
   const labels = allLabels.components.config.editor;
+  const querySettings = allLabels.components.querySettings;
   const secureJsonData = (options.secureJsonData || {}) as HdxSecureJsonData;
   const protocolOptions = [
     { label: "Native", value: Protocol.Native },
@@ -70,16 +73,16 @@ export function ConfigEditor(props: Props) {
     { label: "Service Account", value: CredentialsType.ServiceAccount },
   ];
   let querySettingDefinitions = useMemo(() => {
-    return labels.querySettings.values.reduce((acc, cur) => {
+    return querySettings.values.reduce((acc, cur) => {
       acc[cur.setting] = cur;
       return acc;
     }, {} as { [setting: string]: any });
-  }, [labels]);
+  }, [querySettings]);
 
   const existingSettings = (jsonData?.querySettings ?? []).map(
     (v) => v.setting
   );
-  let queryOptions = labels.querySettings.values
+  let queryOptions = querySettings.values
     .filter((v) => !existingSettings.includes(v.setting))
     .map((v) => ({
       label: v.setting,
@@ -287,6 +290,21 @@ export function ConfigEditor(props: Props) {
         querySettings,
       },
     });
+  };
+
+  const downloadSolutionTemplates = () => {
+    const dataStr = JSON.stringify(
+      SOLUTION_TEMPLATES.map((t) => ({ name: t.name, template: t.template })),
+      null,
+      2
+    );
+    const dataBlob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "solution_templates.json";
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   let invalidDuration = useRef(false);
@@ -676,6 +694,130 @@ export function ConfigEditor(props: Props) {
             />
           </Field>
           <Divider />
+          <ConfigSection title="Error Exposure">
+            <Field
+              data-testid={labels.exposeErrorsEnabled.testId}
+              label={labels.exposeErrorsEnabled.label}
+              description={labels.exposeErrorsEnabled.description}
+            >
+              <Switch
+                id="exposeErrorsEnabled"
+                className="gf-form"
+                value={jsonData.exposeErrors?.enabled ?? false}
+                onChange={(e) => {
+                  onOptionsChange({
+                    ...options,
+                    jsonData: {
+                      ...jsonData,
+                      exposeErrors: {
+                        ...jsonData.exposeErrors,
+                        enabled: e.currentTarget.checked,
+                      },
+                    },
+                  });
+                }}
+              />
+            </Field>
+            {jsonData.exposeErrors?.enabled && (
+              <>
+                <Field
+                  data-testid={labels.exposeErrorsVariableName.testId}
+                  label={labels.exposeErrorsVariableName.label}
+                  description={labels.exposeErrorsVariableName.description}
+                >
+                  <Input
+                    name={"exposeErrorsVariableName"}
+                    width={40}
+                    value={jsonData.exposeErrors?.variableName || ""}
+                    onChange={(e) => {
+                      onOptionsChange({
+                        ...options,
+                        jsonData: {
+                          ...jsonData,
+                          exposeErrors: {
+                            ...jsonData.exposeErrors,
+                            variableName: e.currentTarget.value,
+                          },
+                        },
+                      });
+                    }}
+                    label={labels.exposeErrorsVariableName.label}
+                    aria-label={labels.exposeErrorsVariableName.label}
+                    placeholder={labels.exposeErrorsVariableName.placeholder}
+                  />
+                </Field>
+                <Field
+                  data-testid={labels.exposeErrorsMaxCount.testId}
+                  label={labels.exposeErrorsMaxCount.label}
+                  description={labels.exposeErrorsMaxCount.description}
+                >
+                  <Input
+                    name={"exposeErrorsMaxCount"}
+                    width={40}
+                    value={jsonData.exposeErrors?.maxCount || ""}
+                    onChange={(e) => {
+                      onOptionsChange({
+                        ...options,
+                        jsonData: {
+                          ...jsonData,
+                          exposeErrors: {
+                            ...jsonData.exposeErrors,
+                            maxCount: +e.currentTarget.value,
+                          },
+                        },
+                      });
+                    }}
+                    label={labels.exposeErrorsMaxCount.label}
+                    aria-label={labels.exposeErrorsMaxCount.label}
+                    placeholder={labels.exposeErrorsMaxCount.placeholder}
+                    type="number"
+                  />
+                </Field>
+                <Field
+                  data-testid={labels.exposeErrorsTtl.testId}
+                  label={labels.exposeErrorsTtl.label}
+                  description={labels.exposeErrorsTtl.description}
+                >
+                  <Input
+                    name={"exposeErrorsTtl"}
+                    width={40}
+                    value={jsonData.exposeErrors?.ttl || ""}
+                    onChange={(e) => {
+                      onOptionsChange({
+                        ...options,
+                        jsonData: {
+                          ...jsonData,
+                          exposeErrors: {
+                            ...jsonData.exposeErrors,
+                            ttl: +e.currentTarget.value,
+                          },
+                        },
+                      });
+                    }}
+                    label={labels.exposeErrorsTtl.label}
+                    aria-label={labels.exposeErrorsTtl.label}
+                    placeholder={labels.exposeErrorsTtl.placeholder}
+                    type="number"
+                  />
+                </Field>
+                <Field
+                  label="Solution Templates"
+                  description="Download the error solution templates in JSON format"
+                >
+                  <IconButton
+                    variant="secondary"
+                    name="download-alt"
+                    onClick={downloadSolutionTemplates}
+                    aria-labelledby=""
+                    size={"xl"}
+                  >
+                    Download Solution Templates
+                  </IconButton>
+                </Field>
+              </>
+            )}
+          </ConfigSection>
+          <Divider />
           <ConfigSection title="Query Settings">
             <div style={{ marginBottom: "20px" }}>
               <Select
@@ -697,6 +839,7 @@ export function ConfigEditor(props: Props) {
                   <Stack direction={"row"}>
                     {settingInput(s.setting, s.value)}
                     <Button
+                      aria-label={""}
                       style={{ marginTop: "4.5px" }}
                       variant="destructive"
                       icon="times"

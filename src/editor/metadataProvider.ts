@@ -10,9 +10,9 @@ import { v4 } from "uuid";
 import {
   ColumnDefinition,
   SchemaDefinition,
+  TableDefinition,
   TableIdentifier,
 } from "@grafana/plugin-ui";
-import { TableDefinition } from "@grafana/plugin-ui/dist/src/components/SQLEditor/types";
 import { DataSource } from "../datasource";
 import { AdHocFilterKeys } from "../types";
 import {
@@ -24,6 +24,8 @@ import {
   SUPPORTED_TYPES,
   TABLES_SQL,
   PK_SQL,
+  ARRAY_TYPES,
+  MAP_TYPES,
 } from "../constants";
 
 export const ZERO_TIME_RANGE = {
@@ -57,7 +59,7 @@ export const getQueryRunner = (
           rawSql: sql,
           refId: "MD",
           round: "",
-          querySettings: {},
+          querySettings: [],
           filters,
         },
       ],
@@ -238,7 +240,10 @@ export const getKeyMap = (r: DataQueryResponse): AdHocFilterKeys[] => {
         let type = getType(definitionByKey, c);
         return (
           !c.includes("(") &&
-          (SUPPORTED_TYPES.includes(type) || NULLABLE_TYPES.includes(type))
+          (SUPPORTED_TYPES.includes(type) ||
+            NULLABLE_TYPES.includes(type) ||
+            ARRAY_TYPES.includes(type) ||
+            MAP_TYPES.includes(type))
         );
       })
       .map((k) => ({ text: k, value: k, type: getType(definitionByKey, k) }));

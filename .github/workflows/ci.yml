@@ -12,23 +12,15 @@ on:
         type: boolean
 
 jobs:
-  prepare-frontend:
-    name: Prepare Frontend
-    uses: ./.github/workflows/prepare-frontend.yml
-    with:
-      node_version: '22'
-
   build-frontend:
     name: Build Frontend
     uses: ./.github/workflows/build-frontend.yml
-    needs: prepare-frontend
     with:
       node_version: '22'
 
   test-frontend:
     name: Test Frontend
     uses: ./.github/workflows/test-frontend.yml
-    needs: prepare-frontend
     with:
       node_version: '22'
 
@@ -50,7 +42,7 @@ jobs:
     name: Test Backend
     uses: ./.github/workflows/test-backend.yml
     with:
-      go_version: '1.24.4'
+      go_version: '1.25.7'
 
   package:
     name: Package Plugin
@@ -71,6 +63,9 @@ jobs:
     uses: ./.github/workflows/s3_publish.yml
     if: inputs.publish_to_aws
     needs: [package]
+    secrets:
+      aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
   create-github-release:
     name: Create GitHub Release
