@@ -42,7 +42,7 @@ jobs:
     name: Test Backend
     uses: ./.github/workflows/test-backend.yml
     with:
-      go_version: '1.24.4'
+      go_version: '1.25.7'
 
   package:
     name: Package Plugin

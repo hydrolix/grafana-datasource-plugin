@@ -1,6 +1,6 @@
 import { test, expect, PanelEditPage } from "@grafana/plugin-e2e";
 // @ts-ignore
-import { ConfigPageSteps, queryTextSet, timerangeSet } from "./helpers";
+import { ConfigPageSteps, queryTextSet, timerangeSet, setMaxDataPoints } from "./helpers";
 
 /**
  * Runs sequentially in order to avoid multiple datasource creation.
@@ -179,18 +179,7 @@ test.beforeEach(async ({ dashboardPage, createDataSourceConfigPage }) => {
     });
 
     if (maxDataPoints) {
-      // set interval to 30m for TimeInterval
-      await panelEditPage
-        .getByGrafanaSelector("Query operation row title")
-        .click();
-      await panelEditPage.ctx.page
-        .locator(
-          'xpath=//label[contains(text(), "Max data points")]/../div[1]//input'
-        )
-        .fill(maxDataPoints.toString());
-      await panelEditPage
-        .getByGrafanaSelector("Query operation row title")
-        .click();
+      await setMaxDataPoints(panelEditPage, maxDataPoints);
     }
     if (round) {
       const queryRow = panelEditPage.getQueryEditorRow("A");
