@@ -93,7 +93,7 @@ monitoring, and custom error handling within your dashboards.
 
 
 When enabled, query errors are automatically captured and stored in the specified dashboard variable, allowing you to 
-display error messages in error panel. [How to configure error panel](./docs/error-panel.md)
+display error messages in error panel.
 
 
 ### Provision the data source
