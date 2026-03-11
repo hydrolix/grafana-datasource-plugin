@@ -1,4 +1,8 @@
 # Changelog
+## 0.10.1
+
+- **Fix**: Address Grafana plugin review feedback
+
 ## 0.10.0
 
 - **Feature**: Add support for setting Hydrolix query options per query through Grafana plugin UI (GRAP-59)
