@@ -216,7 +216,7 @@ func (ds *HydrolixDatasource) handleQuery(ctx context.Context, req backend.DataQ
 		// only retry on messages that contain specific errors
 		if shouldRetry(ds.DriverSettings().RetryOn, err.Error()) {
 			for i := 0; i < ds.DriverSettings().Retries; i++ {
-				backend.Logger.Warn(fmt.Sprintf("query failed: %s. Retrying %d times", err.Error(), i))
+				backend.Logger.Warn("query failed", "error", err.Error(), "retry", i)
 				db, err := ds.Connector.Reconnect(ctx, dbConn, q, cacheKey)
 				if err != nil {
 					return nil, backend.DownstreamError(err)
@@ -234,7 +234,7 @@ func (ds *HydrolixDatasource) handleQuery(ctx context.Context, req backend.DataQ
 				if !shouldRetry(ds.DriverSettings().RetryOn, err.Error()) {
 					return res, err
 				}
-				backend.Logger.Warn(fmt.Sprintf("Retry failed: %s", err.Error()))
+				backend.Logger.Warn("Retry failed", "error", err.Error())
 			}
 		}
 	}
@@ -242,7 +242,7 @@ func (ds *HydrolixDatasource) handleQuery(ctx context.Context, req backend.DataQ
 	// allow retries on timeouts
 	if errors.Is(err, context.DeadlineExceeded) {
 		for i := 0; i < ds.DriverSettings().Retries; i++ {
-			backend.Logger.Warn(fmt.Sprintf("connection timed out. retrying %d times", i))
+			backend.Logger.Warn("connection timed out", "retry", i)
 			db, err := ds.Connector.Reconnect(ctx, dbConn, q, cacheKey)
 			if err != nil {
 				continue
@@ -330,7 +330,7 @@ func (ds *HydrolixDatasource) newRowLimit(ctx context.Context, _ Connector) int6
 		if err == nil && l >= 0 {
 			return l
 		}
-		log.DefaultLogger.Error(fmt.Sprintf("failed setting row limit from environment variable: %s", err))
+		log.DefaultLogger.Error("failed setting row limit from environment variable", "err", err)
 	}
 
 	// Handles row limit from sql config from grafana instance
@@ -338,7 +338,7 @@ func (ds *HydrolixDatasource) newRowLimit(ctx context.Context, _ Connector) int6
 	if ds.EnableRowLimit && config != nil {
 		sqlConfig, err := config.SQL()
 		if err != nil {
-			backend.Logger.Error(fmt.Sprintf("failed setting row limit from sql config: %s", err))
+			backend.Logger.Error("failed setting row limit from sql config", "error", err)
 		} else {
 			return sqlConfig.RowLimit
 		}
