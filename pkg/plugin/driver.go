@@ -149,18 +149,29 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 
 	select {
 	case <-ctx.Done():
-		return db, fmt.Errorf("connect to database was cancelled: %w", ctx.Err())
+		if db != nil {
+			_ = db.Close()
+		}
+		return nil, fmt.Errorf("connect to database was cancelled: %w", ctx.Err())
 	default:
 		err := db.PingContext(ctx)
 		if err != nil {
 			var ex *clickhouse.Exception
 			if errors.As(err, &ex) {
-				log.DefaultLogger.Error("[%d] %s \n%s\n", ex.Code, ex.Message, ex.StackTrace)
+				log.DefaultLogger.Error(
+					"clickhouse exception",
+					"code", ex.Code,
+					"message", ex.Message,
+					"stack", ex.StackTrace,
+				)
 			}
-			return db, err
+			if db != nil {
+				_ = db.Close()
+			}
+			return nil, err
 		}
 	}
-	log.DefaultLogger.Info("connect datasource", "name", config.Name)
+	log.DefaultLogger.Debug("connect datasource", "name", config.Name)
 	return db, nil
 }
 
@@ -197,7 +208,8 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 	pluginSettings, err := models.NewPluginSettings(ctx, *req.PluginContext.DataSourceInstanceSettings)
 
 	if err != nil {
-		panic(err)
+		log.DefaultLogger.Error("failed to parse plugin settings", "err", err)
+		return ctx, req
 	}
 	if pluginSettings.QuerySettings == nil {
 		pluginSettings.QuerySettings = []models.QuerySetting{}
@@ -233,7 +245,8 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 		if jmsg, err := jsonSet(q.JSON, map[string]any{"querySettings": mergedSettingsArray}); err == nil {
 			req.Queries[i].JSON = jmsg
 		} else {
-			panic(err)
+			log.DefaultLogger.Error("failed to serialize querySettings", "err", err)
+			return ctx, req
 		}
 	}
 
@@ -257,13 +270,17 @@ func (h *Hydrolix) MutateQuery(ctx context.Context, req backend.DataQuery) (cont
 	}
 
 	if dataQuery.Meta.TimeZone != "" {
-		loc, _ := time.LoadLocation(dataQuery.Meta.TimeZone)
-		log.DefaultLogger.Info("Update query context with location info", "location", loc.String())
-		ctx = clickhouse.Context(ctx, clickhouse.WithUserLocation(loc))
+		loc, err := time.LoadLocation(dataQuery.Meta.TimeZone)
+		if err != nil || loc == nil {
+			log.DefaultLogger.Warn("invalid timezone", "tz", dataQuery.Meta.TimeZone)
+		} else {
+			log.DefaultLogger.Debug("Update query context with location info", "location", loc.String())
+			ctx = clickhouse.Context(ctx, clickhouse.WithUserLocation(loc))
+		}
 	}
 
 	if dataQuery.QuerySettings != nil {
-		log.DefaultLogger.Info("Update query context with settings info", "settings", dataQuery.QuerySettings)
+		log.DefaultLogger.Debug("Update query context with settings info", "settings", dataQuery.QuerySettings)
 		customSettings := make(map[string]any, len(dataQuery.QuerySettings))
 		for _, v := range dataQuery.QuerySettings {
 			customSettings[v.Setting] = clickhouse.CustomSetting{Value: fmt.Sprintf("%v", v.Value)}

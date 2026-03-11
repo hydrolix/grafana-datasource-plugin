@@ -1,4 +1,4 @@
-import React, { FormEvent, useMemo, useRef, useState } from "react";
+import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   DataSourcePluginOptionsEditorProps,
   onUpdateDatasourceJsonDataOption,
@@ -94,7 +94,7 @@ export function ConfigEditor(props: Props) {
     [setting: string]: string;
   }>({});
 
-  useMemo(() => {
+  useEffect(() => {
     const errors: { [setting: string]: string } = {};
     for (const querySettings of jsonData?.querySettings ?? []) {
       const option = querySettingDefinitions[querySettings.setting];
@@ -248,10 +248,9 @@ export function ConfigEditor(props: Props) {
   };
   const onQuerySettingsChange = (key: string) => {
     return (value: string) => {
-      let querySettings = jsonData?.querySettings ?? [];
-      querySettings
-        .filter((s) => s.setting === key)
-        .forEach((s) => (s.value = value));
+      const querySettings = (jsonData?.querySettings ?? []).map((s) =>
+        s.setting === key ? { ...s, value } : s
+      );
       onOptionsChange({
         ...options,
         jsonData: {
@@ -263,13 +262,12 @@ export function ConfigEditor(props: Props) {
   };
 
   const addQuerySetting = (setting: string) => {
-    let querySettings = jsonData?.querySettings ?? [];
     let defaultValue = querySettingDefinitions[setting]?.default;
     let type: string = querySettingDefinitions[setting]?.type;
-    querySettings.push({
-      setting,
-      value: getDefaultValue(defaultValue, type),
-    });
+    let querySettings = [
+      ...(jsonData?.querySettings ?? []),
+      { setting, value: getDefaultValue(defaultValue, type) },
+    ];
     onOptionsChange({
       ...options,
       jsonData: {

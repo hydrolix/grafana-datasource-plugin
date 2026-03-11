@@ -47,8 +47,8 @@ func (p *MetaDataProvider) GetPK(context context.Context, database string, table
 
 	entry := p.pkCache.Get(cacheKey)
 	if entry == nil {
-		log.DefaultLogger.Debug("Cache miss for:", cacheKey)
-		pk, err := p.QueryPK(database, table)
+		log.DefaultLogger.Debug("Cache miss", "key", cacheKey)
+		pk, err := p.QueryPK(context, database, table)
 		if err != nil {
 			return "", err
 		}
@@ -56,19 +56,19 @@ func (p *MetaDataProvider) GetPK(context context.Context, database string, table
 
 		return pk, nil
 	} else {
-		log.DefaultLogger.Debug("Cache hit for:", cacheKey)
+		log.DefaultLogger.Debug("Cache hit", "key", cacheKey)
 		return entry.Value(), nil
 	}
 
 }
 
-func (p *MetaDataProvider) GetKeys(cte string) (map[string]string, error) {
+func (p *MetaDataProvider) GetKeys(context context.Context, cte string) (map[string]string, error) {
 	cacheKey := cte
 
 	entry := p.keyCache.Get(cacheKey)
 	if entry == nil {
-		log.DefaultLogger.Debug("Cache miss for:", cacheKey)
-		keys, err := p.QueryKeys(cte)
+		log.DefaultLogger.Debug("Cache miss", "key", cacheKey)
+		keys, err := p.QueryKeys(context, cte)
 		if err != nil {
 			return nil, err
 		}
@@ -76,7 +76,7 @@ func (p *MetaDataProvider) GetKeys(cte string) (map[string]string, error) {
 
 		return keys, nil
 	} else {
-		log.DefaultLogger.Debug("Cache hit for:", cacheKey)
+		log.DefaultLogger.Debug("Cache hit", "key", cacheKey)
 		return entry.Value(), nil
 	}
 }
@@ -90,7 +90,7 @@ func (p *MetaDataProvider) getDefaultDatabase(context context.Context) (string, 
 }
 
 // executeQuery executes a SQL query using the QueryData method and returns the resulting frame
-func (p *MetaDataProvider) executeQuery(sql string, queryID string) (*data.Frame, error) {
+func (p *MetaDataProvider) executeQuery(ctx context.Context, sql string, queryID string) (*data.Frame, error) {
 	// Create a query using QueryData method
 	queryJSON, err := json.Marshal(map[string]interface{}{
 		"rawSql": sql,
@@ -114,7 +114,7 @@ func (p *MetaDataProvider) executeQuery(sql string, queryID string) (*data.Frame
 	}
 
 	// Execute the query using QueryData
-	response, err := p.ds.QueryData(context.Background(), req)
+	response, err := p.ds.QueryData(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -136,11 +136,11 @@ func (p *MetaDataProvider) executeQuery(sql string, queryID string) (*data.Frame
 	return dataResponse.Frames[0], nil
 }
 
-func (p *MetaDataProvider) QueryPK(database string, table string) (string, error) {
+func (p *MetaDataProvider) QueryPK(ctx context.Context, database string, table string) (string, error) {
 	// Format the SQL query with actual parameter values
 	formattedSQL := fmt.Sprintf(PRIMARY_KEY_QUERY_STRING, database, table)
 
-	frame, err := p.executeQuery(formattedSQL, "pk_query")
+	frame, err := p.executeQuery(ctx, formattedSQL, "pk_query")
 	if err != nil {
 		return "", err
 	}
@@ -159,13 +159,13 @@ func (p *MetaDataProvider) QueryPK(database string, table string) (string, error
 	return v, err
 }
 
-func (p *MetaDataProvider) QueryKeys(cte string) (map[string]string, error) {
+func (p *MetaDataProvider) QueryKeys(ctx context.Context, cte string) (map[string]string, error) {
 	if strings.Contains(strings.ToUpper(cte), "SELECT") {
 		cte = fmt.Sprintf("(%s)", cte)
 	}
 	formattedSQL := fmt.Sprintf(AD_HOC_KEY_QUERY, cte)
 
-	frame, err := p.executeQuery(formattedSQL, "key_query")
+	frame, err := p.executeQuery(ctx, formattedSQL, "key_query")
 	if err != nil {
 		return nil, err
 	}

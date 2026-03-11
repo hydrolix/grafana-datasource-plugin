@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
 	"github.com/grafana/sqlds/v4"
 	"net/http"
@@ -112,7 +111,7 @@ func (c *HydrolixConnector) connectWithRetries(ctx context.Context, conn dbConne
 		if c.driverSettings.Pause > 0 {
 			time.Sleep(time.Duration(c.driverSettings.Pause * int(time.Second)))
 		}
-		backend.Logger.Warn(fmt.Sprintf("connect failed: %s. Retrying %d times", err.Error(), i+1))
+		backend.Logger.Warn("connect failed", "error", err.Error(), "retry", i+1)
 	}
 
 	return err
@@ -125,13 +124,13 @@ func applyHeaders(query *sqlutil.Query, headers http.Header) *sqlutil.Query {
 	}
 	err := json.Unmarshal(query.ConnectionArgs, &args)
 	if err != nil {
-		backend.Logger.Warn(fmt.Sprintf("Failed to apply headers: %s", err.Error()))
+		backend.Logger.Warn("Failed to apply headers", "error", err.Error())
 		return query
 	}
 	args[HeaderKey] = headers
 	raw, err := json.Marshal(args)
 	if err != nil {
-		backend.Logger.Warn(fmt.Sprintf("Failed to apply headers: %s", err.Error()))
+		backend.Logger.Warn("Failed to apply headers", "error", err.Error())
 		return query
 	}
 
@@ -149,23 +148,20 @@ func (c *HydrolixConnector) connect(conn dbConnection) error {
 }
 
 func (c *HydrolixConnector) ping(conn dbConnection) error {
-	if c.driverSettings.Timeout == 0 {
-		return conn.db.Ping()
-	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), c.driverSettings.Timeout)
-	defer cancel()
-
-	return conn.db.PingContext(ctx)
+	return conn.db.Ping()
 }
 
 func (c *HydrolixConnector) Reconnect(ctx context.Context, dbConn dbConnection, q *sqlutil.Query, cacheKey string) (*sql.DB, error) {
 	if err := dbConn.db.Close(); err != nil {
-		backend.Logger.Warn(fmt.Sprintf("closing existing connection failed: %s", err.Error()))
+		backend.Logger.Warn("closing existing connection failed", "error", err.Error())
 	}
 
 	db, err := c.Driver.Connect(ctx, dbConn.settings, q.ConnectionArgs)
 	if err != nil {
+		if db != nil {
+			_ = db.Close()
+		}
 		return nil, backend.DownstreamError(err)
 	}
 	c.storeDBConnection(cacheKey, dbConnection{db, dbConn.settings})
