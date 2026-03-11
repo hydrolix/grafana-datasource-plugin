@@ -92,7 +92,7 @@ export function QueryEditor(props: Props) {
       hasError: false,
       hasWarning: false,
     });
-  useState("");
+
   let [monaco, setMonaco] = useState<Monaco | null>(null);
 
   const dryRun = useCallback(() => {

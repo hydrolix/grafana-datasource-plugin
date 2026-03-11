@@ -148,9 +148,7 @@ func (c *HydrolixConnector) connect(conn dbConnection) error {
 }
 
 func (c *HydrolixConnector) ping(conn dbConnection) error {
-	if c.driverSettings.Timeout == 0 {
-		return conn.db.Ping()
-	}
+
 	return conn.db.Ping()
 }
 
