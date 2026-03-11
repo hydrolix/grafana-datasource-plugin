@@ -186,7 +186,7 @@ func IntervalSeconds(query *HDXQuery, _ []string, _ parser.Pos, _ *MetaDataProvi
 }
 
 // AdHocFilterMacro implements the $__adHocFilter() macro
-func AdHocFilterMacro(query *HDXQuery, params []string, pos parser.Pos, mdProvider *MetaDataProvider, _ context.Context) (string, error) {
+func AdHocFilterMacro(query *HDXQuery, params []string, pos parser.Pos, mdProvider *MetaDataProvider, ctx context.Context) (string, error) {
 	if query.Filters == nil || len(query.Filters) == 0 {
 		return "1=1", nil
 	}
@@ -220,7 +220,7 @@ func AdHocFilterMacro(query *HDXQuery, params []string, pos parser.Pos, mdProvid
 	if cte == "" {
 		return "", fmt.Errorf("cannot apply ad hoc filters: unable to resolve tableName for ad hoc filter at index %d", pos)
 	}
-	keys, err := mdProvider.GetKeys(cte)
+	keys, err := mdProvider.GetKeys(ctx, cte)
 
 	if err != nil {
 		return "", fmt.Errorf("cannot apply ad hoc filters: unable to resolve keys for cte: %s", cte)

@@ -71,14 +71,9 @@ export function QueryEditor(props: Props) {
     },
     [queryTypeOptions]
   );
-  useMemo(() => {
-    if (props.query.format === undefined) {
-      props.query.format = QueryType.Table;
-    }
-  }, [props.query]);
 
   const [queryType, setQueryType] = useState(
-    getQueryTypeValue(props.query.format!)
+    getQueryTypeValue(props.query.format ?? QueryType.Table)
   );
   const updateQueryType = useCallback(
     (q: SelectableValue<number>) => {
@@ -97,7 +92,7 @@ export function QueryEditor(props: Props) {
       hasError: false,
       hasWarning: false,
     });
-  useState("");
+
   let [monaco, setMonaco] = useState<Monaco | null>(null);
 
   const dryRun = useCallback(() => {

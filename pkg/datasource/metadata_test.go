@@ -28,7 +28,7 @@ func TestQueryPK_Success(t *testing.T) {
 		rowLimit: defaultRowLimit,
 	}
 	provider := &MetaDataProvider{ds: ds}
-	pk, err := provider.QueryPK("db1", "tbl1")
+	pk, err := provider.QueryPK(context.Background(), "db1", "tbl1")
 
 	if err != nil {
 		t.Fatalf("QueryPK returned error: %v", err)
@@ -63,7 +63,7 @@ func TestQueryPK_NoRows_ReturnsNotFound(t *testing.T) {
 	}
 	provider := &MetaDataProvider{ds: ds}
 
-	_, err = provider.QueryPK("db2", "tbl2")
+	_, err = provider.QueryPK(context.Background(), "db2", "tbl2")
 	if err == nil || err.Error() != PRIMARY_KEY_NOT_FOUND_ERROR.Error() {
 		t.Fatalf("expected PRIMARY_KEY_NOT_FOUND_ERROR, got %v", err)
 	}
