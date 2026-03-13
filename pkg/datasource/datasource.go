@@ -7,15 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"runtime/debug"
-	"strconv"
 	"sync"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
-	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/resource/httpadapter"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
@@ -24,7 +21,6 @@ import (
 
 const defaultKeySuffix = "default"
 const defaultRowLimit = int64(-1)
-const envRowLimit = "GF_DATAPROXY_ROW_LIMIT"
 
 var (
 	ErrorMissingMultipleConnectionsConfig = backend.PluginError(errors.New("received connection arguments but the feature is not enabled"))
@@ -321,16 +317,6 @@ func (ds *HydrolixDatasource) newRowLimit(ctx context.Context, _ Connector) int6
 	settingsLimit := ds.DriverSettings().RowLimit
 	if settingsLimit != 0 {
 		return settingsLimit
-	}
-
-	// Handles when row limit is set via environment variable
-	envLimit := os.Getenv(envRowLimit)
-	if envLimit != "" {
-		l, err := strconv.ParseInt(envLimit, 10, 64)
-		if err == nil && l >= 0 {
-			return l
-		}
-		log.DefaultLogger.Error("failed setting row limit from environment variable", "err", err)
 	}
 
 	// Handles row limit from sql config from grafana instance
