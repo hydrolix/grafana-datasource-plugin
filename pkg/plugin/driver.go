@@ -318,8 +318,7 @@ func (h *Hydrolix) MutateQuery(ctx context.Context, req backend.DataQuery) (cont
 func getOAuthToken(jmsg json.RawMessage) (string, bool) {
 	header, ok := getHeader(backend.OAuthIdentityTokenHeaderName, jmsg)
 	if ok && header != "" && strings.HasPrefix(header, "Bearer ") {
-		// return strings.TrimPrefix(header, "Bearer "), true
-		return "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2RlbW8udHJhZmZpY3BlYWsubGl2ZS9jb25maWciLCJhdWQiOiJjb25maWctYXBpIiwic3ViIjoiYTdiYmE4MTAtM2EwYy00MmZkLWFlODQtM2FiZGQ1ZWUwYjgxIiwiaWF0IjoxNzUyNzM5OTU5LjI4MjU0OSwiZXhwIjoxNzg0Mjc1OTU5LjI1MzkxNywianRpIjoiMSJ9.7CSIRDSPN4RRk1IZkq84Yq1EaJgo7uyyjCmQUPgpo2zCJUXuhejKxjjNFItNvlHZwwKEeX60VfBwUp8Cv99kDQ", true
+		return strings.TrimPrefix(header, "Bearer "), true
 	} else {
 		return "", false
 	}
