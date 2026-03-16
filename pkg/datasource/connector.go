@@ -58,6 +58,14 @@ func NewConnector(ctx context.Context, driver sqlds.Driver, settings backend.Dat
 		instanceSettings: settings,
 		pluginSettings:   pluginSettings,
 	}
+	if pluginSettings.CredentialsType != "forwardOAuth" {
+		key := defaultKey(settings.UID)
+		db, err := driver.Connect(ctx, settings, nil)
+		if err != nil {
+			return nil, backend.DownstreamError(err)
+		}
+		conn.storeDBConnection(key, dbConnection{db, settings})
+	}
 
 	return conn, nil
 }

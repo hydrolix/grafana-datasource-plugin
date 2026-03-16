@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
@@ -132,7 +131,7 @@ func TestReconnectClosesAndReplacesConnection(t *testing.T) {
 		settings:   sqlds.DriverSettings{},
 		connectDBs: []*sql.DB{initDB, newDB},
 	}
-	connector, err := NewConnector(context.Background(), driver, inst("uid3"), false)
+	connector, err := NewConnector(context.Background(), driver, inst("uid3"))
 	if err != nil {
 		t.Fatalf("NewConnector: %v", err)
 	}
@@ -152,34 +151,13 @@ func TestReconnectClosesAndReplacesConnection(t *testing.T) {
 	}
 }
 
-func TestGetConnectionFromQuery_DisabledMultiConn_WithArgsReturnsError(t *testing.T) {
-	db, _ := newSqlmockDB(t)
-	driver := &stubDriver{
-		settings:   sqlds.DriverSettings{ForwardHeaders: false},
-		connectDBs: []*sql.DB{db},
-	}
-	connector, err := NewConnector(context.Background(), driver, inst("uid6"), false)
-	if err != nil {
-		t.Fatalf("NewConnector: %v", err)
-	}
-
-	q := &sqlutil.Query{ConnectionArgs: []byte(`{"foo":"bar"}`)}
-	_, _, err = connector.GetConnectionFromQuery(context.Background(), q)
-	if err == nil {
-		t.Fatalf("expected ErrorMissingMultipleConnectionsConfig, got nil")
-	}
-	if !errors.Is(err, ErrorMissingMultipleConnectionsConfig) {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestGetConnectionFromQuery_NoArgs_ReturnsDefault(t *testing.T) {
 	db, _ := newSqlmockDB(t)
 	driver := &stubDriver{
 		settings:   sqlds.DriverSettings{},
 		connectDBs: []*sql.DB{db},
 	}
-	connector, err := NewConnector(context.Background(), driver, inst("uid7"), true /* enable multiple, but no args */)
+	connector, err := NewConnector(context.Background(), driver, inst("uid7"))
 	if err != nil {
 		t.Fatalf("NewConnector: %v", err)
 	}
@@ -209,7 +187,7 @@ func TestGetConnectionFromQuery_NewArgs_CachesPerArgs(t *testing.T) {
 		settings:   sqlds.DriverSettings{},
 		connectDBs: []*sql.DB{initDB, dbA1, dbA2, dbB},
 	}
-	connector, err := NewConnector(context.Background(), driver, inst("uid8"), true)
+	connector, err := NewConnector(context.Background(), driver, inst("uid8"))
 	if err != nil {
 		t.Fatalf("NewConnector: %v", err)
 	}
@@ -252,7 +230,7 @@ func TestDispose_ClosesAllAndClears(t *testing.T) {
 		settings:   sqlds.DriverSettings{},
 		connectDBs: []*sql.DB{db1},
 	}
-	connector, err := NewConnector(context.Background(), driver, inst("uid9"), true)
+	connector, err := NewConnector(context.Background(), driver, inst("uid9"))
 	if err != nil {
 		t.Fatalf("NewConnector: %v", err)
 	}

@@ -184,7 +184,12 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 			if err != nil {
 				var ex *clickhouse.Exception
 				if errors.As(err, &ex) {
-					log.DefaultLogger.Error("[%d] %s \n%s\n", ex.Code, ex.Message, ex.StackTrace)
+					log.DefaultLogger.Error(
+						"clickhouse exception",
+						"code", ex.Code,
+						"message", ex.Message,
+						"stack", ex.StackTrace,
+					)
 				}
 				return db, err
 			}
