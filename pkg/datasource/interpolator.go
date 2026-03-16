@@ -8,6 +8,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
 	"github.com/hydrolix/plugin/pkg/models"
+	"net/http"
 	"regexp"
 	"slices"
 	"sort"
@@ -263,7 +264,7 @@ func GetMacroCTEs(ast []parser.Expr) (map[MacroId]CTE, error) {
 	return visitor.macroIds, nil
 }
 
-func GetHdxQuery(query backend.DataQuery, timeRange *backend.TimeRange, interval *time.Duration) (*HDXQuery, error) {
+func GetHdxQuery(query backend.DataQuery, headers http.Header, timeRange *backend.TimeRange, interval *time.Duration) (*HDXQuery, error) {
 	q := &HDXQuery{}
 
 	if err := json.Unmarshal(query.JSON, &q); err != nil {
@@ -287,6 +288,7 @@ func GetHdxQuery(query backend.DataQuery, timeRange *backend.TimeRange, interval
 		Meta:          q.Meta,
 		TimeRange:     *timeRange,
 		Interval:      *interval,
+		Headers:       headers,
 	}, nil
 }
 
@@ -300,6 +302,7 @@ func (q *HDXQuery) WithSQL(rawSql string) *HDXQuery {
 		Meta:          q.Meta,
 		TimeRange:     q.TimeRange,
 		Interval:      q.Interval,
+		Headers:       q.Headers,
 	}
 }
 
@@ -314,6 +317,7 @@ type HDXQuery struct {
 	} `json:"meta"`
 	TimeRange backend.TimeRange `json:"-"`
 	Interval  time.Duration     `json:"-"`
+	Headers   http.Header       `json:"-"`
 }
 
 type AdHocFilter struct {

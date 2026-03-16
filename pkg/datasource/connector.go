@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
 	"github.com/grafana/sqlds/v4"
+	"github.com/hydrolix/plugin/pkg/models"
 	"net/http"
 	"strings"
 	"sync"
@@ -40,33 +41,42 @@ type HydrolixConnector struct {
 	// are hit. The datasource enabling this should make sure connections are cached
 	// if necessary.
 	enableMultipleConnections bool
+	pluginSettings            models.PluginSettings
 }
 
-func NewConnector(ctx context.Context, driver sqlds.Driver, settings backend.DataSourceInstanceSettings, enableMultipleConnections bool) (Connector, error) {
-	ds := driver.Settings(ctx, settings)
-	db, err := driver.Connect(ctx, settings, nil)
+func NewConnector(ctx context.Context, driver sqlds.Driver, settings backend.DataSourceInstanceSettings) (Connector, error) {
+	pluginSettings, err := models.NewPluginSettings(ctx, settings)
 	if err != nil {
 		return nil, backend.DownstreamError(err)
 	}
+	ds := driver.Settings(ctx, settings)
 
 	conn := &HydrolixConnector{
-		UID:                       settings.UID,
-		Driver:                    driver,
-		driverSettings:            ds,
-		instanceSettings:          settings,
-		enableMultipleConnections: enableMultipleConnections,
+		UID:              settings.UID,
+		Driver:           driver,
+		driverSettings:   ds,
+		instanceSettings: settings,
+		pluginSettings:   pluginSettings,
 	}
-	key := defaultKey(settings.UID)
-	conn.storeDBConnection(key, dbConnection{db, settings})
 
 	return conn, nil
 }
 
 func (c *HydrolixConnector) Connect(ctx context.Context, headers http.Header) (*dbConnection, error) {
-	key := defaultKey(c.UID)
+	key := ""
+	if c.pluginSettings.CredentialsType == "forwardOAuth" {
+		key = keyWithConnectionArgs(c.UID, getOAuthConnectionArgs(headers))
+	} else {
+		key = defaultKey(c.UID)
+	}
 	dbConn, ok := c.getDBConnection(key)
 	if !ok {
-		return nil, ErrorMissingDBConnection
+		db, err := c.Driver.Connect(ctx, c.instanceSettings, getOAuthConnectionArgs(headers))
+		if err != nil {
+			return nil, ErrorMissingDBConnection
+		}
+		// Assign this connection in the cache
+		dbConn = dbConnection{db, dbConn.settings}
 	}
 
 	if c.driverSettings.Retries == 0 {
@@ -204,17 +214,13 @@ func (c *HydrolixConnector) getInstanceSettings() backend.DataSourceInstanceSett
 }
 
 func (c *HydrolixConnector) GetConnectionFromQuery(ctx context.Context, q *sqlutil.Query) (string, dbConnection, error) {
-	if !c.enableMultipleConnections && !c.driverSettings.ForwardHeaders && len(q.ConnectionArgs) > 0 {
-		return "", dbConnection{}, ErrorMissingMultipleConnectionsConfig
-	}
+
 	// The database connection may vary depending on query arguments
 	// The raw arguments are used as key to store the db connection in memory so they can be reused
 	key := defaultKey(c.UID)
-	dbConn, ok := c.getDBConnection(key)
-	if !ok {
-		return "", dbConnection{}, ErrorMissingDBConnection
-	}
-	if !c.enableMultipleConnections || len(q.ConnectionArgs) == 0 {
+	dbConn, _ := c.getDBConnection(key)
+
+	if len(q.ConnectionArgs) == 0 {
 		return key, dbConn, nil
 	}
 
@@ -223,7 +229,7 @@ func (c *HydrolixConnector) GetConnectionFromQuery(ctx context.Context, q *sqlut
 		return key, cachedConn, nil
 	}
 
-	db, err := c.Driver.Connect(ctx, dbConn.settings, q.ConnectionArgs)
+	db, err := c.Driver.Connect(ctx, c.instanceSettings, q.ConnectionArgs)
 	if err != nil {
 		return "", dbConnection{}, backend.DownstreamError(err)
 	}
@@ -232,6 +238,12 @@ func (c *HydrolixConnector) GetConnectionFromQuery(ctx context.Context, q *sqlut
 	c.storeDBConnection(key, dbConn)
 
 	return key, dbConn, nil
+}
+
+func getOAuthConnectionArgs(headers http.Header) json.RawMessage {
+	q := &sqlutil.Query{}
+	applyHeaders(q, headers)
+	return q.ConnectionArgs
 }
 
 func shouldRetry(retryOn []string, err string) bool {
