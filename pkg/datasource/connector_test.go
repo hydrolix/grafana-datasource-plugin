@@ -131,7 +131,7 @@ func TestReconnectClosesAndReplacesConnection(t *testing.T) {
 		settings:   sqlds.DriverSettings{},
 		connectDBs: []*sql.DB{initDB, newDB},
 	}
-	connector, err := NewConnector(context.Background(), driver, inst("uid3"))
+	connector, err := NewConnector(context.Background(), driver, buildInstanceSettings())
 	if err != nil {
 		t.Fatalf("NewConnector: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestGetConnectionFromQuery_NoArgs_ReturnsDefault(t *testing.T) {
 		settings:   sqlds.DriverSettings{},
 		connectDBs: []*sql.DB{db},
 	}
-	connector, err := NewConnector(context.Background(), driver, inst("uid7"))
+	connector, err := NewConnector(context.Background(), driver, buildInstanceSettings())
 	if err != nil {
 		t.Fatalf("NewConnector: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestGetConnectionFromQuery_NewArgs_CachesPerArgs(t *testing.T) {
 		settings:   sqlds.DriverSettings{},
 		connectDBs: []*sql.DB{initDB, dbA1, dbA2, dbB},
 	}
-	connector, err := NewConnector(context.Background(), driver, inst("uid8"))
+	connector, err := NewConnector(context.Background(), driver, buildInstanceSettings())
 	if err != nil {
 		t.Fatalf("NewConnector: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestDispose_ClosesAllAndClears(t *testing.T) {
 		settings:   sqlds.DriverSettings{},
 		connectDBs: []*sql.DB{db1},
 	}
-	connector, err := NewConnector(context.Background(), driver, inst("uid9"))
+	connector, err := NewConnector(context.Background(), driver, buildInstanceSettings())
 	if err != nil {
 		t.Fatalf("NewConnector: %v", err)
 	}
@@ -303,6 +303,10 @@ func (m *MockConnector) GetUID() string { return m.uid }
 func (m *MockConnector) getDriverSettings() sqlds.DriverSettings { return sqlds.DriverSettings{} }
 
 func (m *MockConnector) getInstanceSettings() backend.DataSourceInstanceSettings {
+	return buildInstanceSettings()
+}
+
+func buildInstanceSettings() backend.DataSourceInstanceSettings {
 	settings := models.PluginSettings{
 		Host:            "localhost",
 		Port:            80,
