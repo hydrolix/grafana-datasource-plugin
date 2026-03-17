@@ -258,6 +258,152 @@ func TestDispose_ClosesAllAndClears(t *testing.T) {
 	}
 }
 
+func TestNewConnector_ForwardOAuth_SkipsInitialConnect(t *testing.T) {
+	driver := &stubDriver{
+		settings:   sqlds.DriverSettings{ForwardHeaders: true},
+		connectDBs: []*sql.DB{}, // no DBs provided — Connect should NOT be called
+	}
+	connector, err := NewConnector(context.Background(), driver, buildForwardOAuthInstanceSettings())
+	if err != nil {
+		t.Fatalf("NewConnector: %v", err)
+	}
+
+	// No connection should be cached (forwardOAuth skips initial connect)
+	key := defaultKey(connector.GetUID())
+	_, ok := connector.getDBConnection(key)
+	if ok {
+		t.Fatalf("expected no cached connection for forwardOAuth, but found one")
+	}
+
+	// Driver.Connect should not have been called
+	if driver.connectCalls != 0 {
+		t.Fatalf("expected 0 Connect calls for forwardOAuth, got %d", driver.connectCalls)
+	}
+}
+
+func TestNewConnector_UserAccount_ConnectsImmediately(t *testing.T) {
+	db, _ := newSqlmockDB(t)
+	driver := &stubDriver{
+		settings:   sqlds.DriverSettings{},
+		connectDBs: []*sql.DB{db},
+	}
+	connector, err := NewConnector(context.Background(), driver, buildInstanceSettings())
+	if err != nil {
+		t.Fatalf("NewConnector: %v", err)
+	}
+
+	// Connection should be cached
+	key := defaultKey(connector.GetUID())
+	dbConn, ok := connector.getDBConnection(key)
+	if !ok {
+		t.Fatalf("expected cached connection for userAccount")
+	}
+	if dbConn.db != db {
+		t.Fatalf("cached DB does not match the one provided by driver")
+	}
+
+	// Driver.Connect should have been called once
+	if driver.connectCalls != 1 {
+		t.Fatalf("expected 1 Connect call, got %d", driver.connectCalls)
+	}
+}
+
+func TestGetOAuthConnectionArgs(t *testing.T) {
+	headers := http.Header{}
+	headers.Set("Authorization", "Bearer my-oauth-token")
+	headers.Set("X-Grafana-Org-Id", "5")
+
+	args := getOAuthConnectionArgs(headers)
+	if args == nil {
+		t.Fatalf("expected non-nil ConnectionArgs")
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(args, &parsed); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+
+	raw, ok := parsed[HeaderKey]
+	if !ok {
+		t.Fatalf("expected %q key in ConnectionArgs", HeaderKey)
+	}
+
+	m, ok := raw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected header map, got %T", raw)
+	}
+	if _, ok := m["Authorization"]; !ok {
+		t.Fatalf("missing Authorization in headers")
+	}
+	if _, ok := m["X-Grafana-Org-Id"]; !ok {
+		t.Fatalf("missing X-Grafana-Org-Id in headers")
+	}
+}
+
+func TestGetOAuthConnectionArgs_EmptyHeaders(t *testing.T) {
+	args := getOAuthConnectionArgs(http.Header{})
+	if args == nil {
+		t.Fatalf("expected non-nil ConnectionArgs even for empty headers")
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(args, &parsed); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+
+	_, ok := parsed[HeaderKey]
+	if !ok {
+		t.Fatalf("expected %q key in ConnectionArgs even for empty headers", HeaderKey)
+	}
+}
+
+func TestGetConnectionFromQuery_WithArgs_CreatesNewConnection(t *testing.T) {
+	initDB, _ := newSqlmockDB(t)
+	newDB, _ := newSqlmockDB(t)
+
+	driver := &stubDriver{
+		settings:   sqlds.DriverSettings{},
+		connectDBs: []*sql.DB{initDB, newDB},
+	}
+	connector, err := NewConnector(context.Background(), driver, buildInstanceSettings())
+	if err != nil {
+		t.Fatalf("NewConnector: %v", err)
+	}
+
+	q := &sqlutil.Query{ConnectionArgs: []byte(`{"tenant":"A"}`)}
+	_, dbConn, err := connector.GetConnectionFromQuery(context.Background(), q)
+	if err != nil {
+		t.Fatalf("GetConnectionFromQuery: %v", err)
+	}
+	if dbConn.db != newDB {
+		t.Fatalf("expected new connection for new args")
+	}
+}
+
+func buildForwardOAuthInstanceSettings() backend.DataSourceInstanceSettings {
+	settings := models.PluginSettings{
+		Host:            "localhost",
+		Port:            80,
+		Protocol:        "http",
+		UserName:        "",
+		Password:        "",
+		CredentialsType: "forwardOAuth",
+		Secure:          true,
+		Path:            "/query",
+		SkipTlsVerify:   true,
+		DialTimeout:     "10",
+		QueryTimeout:    "20",
+		DefaultDatabase: "foo",
+	}
+	jsonData, _ := json.Marshal(settings)
+
+	return backend.DataSourceInstanceSettings{
+		Name:                    "test-hydrolix-oauth-datasource",
+		JSONData:                jsonData,
+		DecryptedSecureJSONData: map[string]string{},
+	}
+}
+
 type MockConnector struct {
 	db        *sql.DB
 	uid       string
