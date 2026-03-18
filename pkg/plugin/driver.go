@@ -33,7 +33,7 @@ var (
 	_ sqlds.Driver           = (*Hydrolix)(nil)
 	_ sqlds.QueryMutator     = (*Hydrolix)(nil)
 	_ sqlds.QueryDataMutator = (*Hydrolix)(nil)
-	//	HeaderKey                             = "grafana-http-headers"
+
 	OrgIdHeaderKey = "X-Grafana-Org-Id"
 )
 

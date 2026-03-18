@@ -23,8 +23,7 @@ const defaultKeySuffix = "default"
 const defaultRowLimit = int64(-1)
 
 var (
-	ErrorMissingDBConnection = backend.PluginError(errors.New("unable to get default db connection"))
-	HeaderKey                = "grafana-http-headers"
+	HeaderKey = "grafana-http-headers"
 )
 
 func defaultKey(datasourceUID string) string {

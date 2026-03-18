@@ -82,7 +82,7 @@ func (c *HydrolixConnector) Connect(ctx context.Context, headers http.Header) (*
 	if !ok {
 		db, err := c.Driver.Connect(ctx, c.instanceSettings, getOAuthConnectionArgs(headers.Get(backend.OAuthIdentityTokenHeaderName)))
 		if err != nil {
-			return nil, ErrorMissingDBConnection
+			return nil, err
 		}
 		// Assign this connection in the cache
 		dbConn = dbConnection{db, c.instanceSettings}
