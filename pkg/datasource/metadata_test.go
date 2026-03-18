@@ -3,6 +3,7 @@ package datasource
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -28,7 +29,7 @@ func TestQueryPK_Success(t *testing.T) {
 		rowLimit: defaultRowLimit,
 	}
 	provider := &MetaDataProvider{ds: ds}
-	pk, err := provider.QueryPK(context.Background(), "db1", "tbl1")
+	pk, err := provider.QueryPK(context.Background(), http.Header{}, "db1", "tbl1")
 
 	if err != nil {
 		t.Fatalf("QueryPK returned error: %v", err)
@@ -63,7 +64,7 @@ func TestQueryPK_NoRows_ReturnsNotFound(t *testing.T) {
 	}
 	provider := &MetaDataProvider{ds: ds}
 
-	_, err = provider.QueryPK(context.Background(), "db2", "tbl2")
+	_, err = provider.QueryPK(context.Background(), http.Header{}, "db2", "tbl2")
 	if err == nil || err.Error() != PRIMARY_KEY_NOT_FOUND_ERROR.Error() {
 		t.Fatalf("expected PRIMARY_KEY_NOT_FOUND_ERROR, got %v", err)
 	}
@@ -94,7 +95,7 @@ func TestGetPK_UsesCache_AvoidsSecondQuery(t *testing.T) {
 	ctx := context.Background()
 
 	// First call populates cache
-	pk1, err := provider.GetPK(ctx, "analytics", "events")
+	pk1, err := provider.GetPK(ctx, http.Header{}, "analytics", "events")
 	if err != nil {
 		t.Fatalf("GetPK (first) error: %v", err)
 	}
@@ -103,7 +104,7 @@ func TestGetPK_UsesCache_AvoidsSecondQuery(t *testing.T) {
 	}
 
 	// Second call should be a cache hit -> no new DB call
-	pk2, err := provider.GetPK(ctx, "analytics", "events")
+	pk2, err := provider.GetPK(ctx, http.Header{}, "analytics", "events")
 	if err != nil {
 		t.Fatalf("GetPK (second) error: %v", err)
 	}

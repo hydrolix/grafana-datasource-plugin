@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
@@ -13,6 +12,7 @@ import (
 	"net/http"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // --- helpers ---
@@ -132,7 +132,7 @@ func TestReconnectClosesAndReplacesConnection(t *testing.T) {
 		settings:   sqlds.DriverSettings{},
 		connectDBs: []*sql.DB{initDB, newDB},
 	}
-	connector, err := NewConnector(context.Background(), driver, inst("uid3"), false)
+	connector, err := NewConnector(context.Background(), driver, buildInstanceSettings())
 	if err != nil {
 		t.Fatalf("NewConnector: %v", err)
 	}
@@ -152,34 +152,13 @@ func TestReconnectClosesAndReplacesConnection(t *testing.T) {
 	}
 }
 
-func TestGetConnectionFromQuery_DisabledMultiConn_WithArgsReturnsError(t *testing.T) {
-	db, _ := newSqlmockDB(t)
-	driver := &stubDriver{
-		settings:   sqlds.DriverSettings{ForwardHeaders: false},
-		connectDBs: []*sql.DB{db},
-	}
-	connector, err := NewConnector(context.Background(), driver, inst("uid6"), false)
-	if err != nil {
-		t.Fatalf("NewConnector: %v", err)
-	}
-
-	q := &sqlutil.Query{ConnectionArgs: []byte(`{"foo":"bar"}`)}
-	_, _, err = connector.GetConnectionFromQuery(context.Background(), q)
-	if err == nil {
-		t.Fatalf("expected ErrorMissingMultipleConnectionsConfig, got nil")
-	}
-	if !errors.Is(err, ErrorMissingMultipleConnectionsConfig) {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestGetConnectionFromQuery_NoArgs_ReturnsDefault(t *testing.T) {
 	db, _ := newSqlmockDB(t)
 	driver := &stubDriver{
 		settings:   sqlds.DriverSettings{},
 		connectDBs: []*sql.DB{db},
 	}
-	connector, err := NewConnector(context.Background(), driver, inst("uid7"), true /* enable multiple, but no args */)
+	connector, err := NewConnector(context.Background(), driver, buildInstanceSettings())
 	if err != nil {
 		t.Fatalf("NewConnector: %v", err)
 	}
@@ -209,7 +188,7 @@ func TestGetConnectionFromQuery_NewArgs_CachesPerArgs(t *testing.T) {
 		settings:   sqlds.DriverSettings{},
 		connectDBs: []*sql.DB{initDB, dbA1, dbA2, dbB},
 	}
-	connector, err := NewConnector(context.Background(), driver, inst("uid8"), true)
+	connector, err := NewConnector(context.Background(), driver, buildInstanceSettings())
 	if err != nil {
 		t.Fatalf("NewConnector: %v", err)
 	}
@@ -252,7 +231,7 @@ func TestDispose_ClosesAllAndClears(t *testing.T) {
 		settings:   sqlds.DriverSettings{},
 		connectDBs: []*sql.DB{db1},
 	}
-	connector, err := NewConnector(context.Background(), driver, inst("uid9"), true)
+	connector, err := NewConnector(context.Background(), driver, buildInstanceSettings())
 	if err != nil {
 		t.Fatalf("NewConnector: %v", err)
 	}
@@ -262,6 +241,9 @@ func TestDispose_ClosesAllAndClears(t *testing.T) {
 
 	// Dispose should close both and clear map
 	connector.Dispose()
+
+	// sleep while ttlcache calls eviction callback for connection
+	time.Sleep(100 * time.Millisecond)
 
 	// Both closes must have been hit
 	if err := mock1.ExpectationsWereMet(); err != nil {
@@ -277,6 +259,145 @@ func TestDispose_ClosesAllAndClears(t *testing.T) {
 	}
 	if _, ok := connector.getDBConnection("extra"); ok {
 		t.Fatalf("expected connections map to be cleared")
+	}
+}
+
+func TestNewConnector_ForwardOAuth_SkipsInitialConnect(t *testing.T) {
+	driver := &stubDriver{
+		settings:   sqlds.DriverSettings{ForwardHeaders: true},
+		connectDBs: []*sql.DB{}, // no DBs provided — Connect should NOT be called
+	}
+	connector, err := NewConnector(context.Background(), driver, buildForwardOAuthInstanceSettings())
+	if err != nil {
+		t.Fatalf("NewConnector: %v", err)
+	}
+
+	// No connection should be cached (forwardOAuth skips initial connect)
+	key := defaultKey(connector.GetUID())
+	_, ok := connector.getDBConnection(key)
+	if ok {
+		t.Fatalf("expected no cached connection for forwardOAuth, but found one")
+	}
+
+	// Driver.Connect should not have been called
+	if driver.connectCalls != 0 {
+		t.Fatalf("expected 0 Connect calls for forwardOAuth, got %d", driver.connectCalls)
+	}
+}
+
+func TestNewConnector_UserAccount_ConnectsImmediately(t *testing.T) {
+	db, _ := newSqlmockDB(t)
+	driver := &stubDriver{
+		settings:   sqlds.DriverSettings{},
+		connectDBs: []*sql.DB{db},
+	}
+	connector, err := NewConnector(context.Background(), driver, buildInstanceSettings())
+	if err != nil {
+		t.Fatalf("NewConnector: %v", err)
+	}
+
+	// Connection should be cached
+	key := defaultKey(connector.GetUID())
+	dbConn, ok := connector.getDBConnection(key)
+	if !ok {
+		t.Fatalf("expected cached connection for userAccount")
+	}
+	if dbConn.db != db {
+		t.Fatalf("cached DB does not match the one provided by driver")
+	}
+
+	// Driver.Connect should have been called once
+	if driver.connectCalls != 1 {
+		t.Fatalf("expected 1 Connect call, got %d", driver.connectCalls)
+	}
+}
+
+func TestGetOAuthConnectionArgs(t *testing.T) {
+	args := getOAuthConnectionArgs("Bearer my-oauth-token")
+	if args == nil {
+		t.Fatalf("expected non-nil ConnectionArgs")
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(args, &parsed); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+
+	raw, ok := parsed[HeaderKey]
+	if !ok {
+		t.Fatalf("expected %q key in ConnectionArgs", HeaderKey)
+	}
+
+	m, ok := raw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected header map, got %T", raw)
+	}
+	if _, ok := m["Authorization"]; !ok {
+		t.Fatalf("missing Authorization in headers")
+	}
+}
+
+func TestGetOAuthConnectionArgs_EmptyHeaders(t *testing.T) {
+	args := getOAuthConnectionArgs("")
+	if args == nil {
+		t.Fatalf("expected non-nil ConnectionArgs even for empty headers")
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(args, &parsed); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+
+	_, ok := parsed[HeaderKey]
+	if !ok {
+		t.Fatalf("expected %q key in ConnectionArgs even for empty headers", HeaderKey)
+	}
+}
+
+func TestGetConnectionFromQuery_WithArgs_CreatesNewConnection(t *testing.T) {
+	initDB, _ := newSqlmockDB(t)
+	newDB, _ := newSqlmockDB(t)
+
+	driver := &stubDriver{
+		settings:   sqlds.DriverSettings{},
+		connectDBs: []*sql.DB{initDB, newDB},
+	}
+	connector, err := NewConnector(context.Background(), driver, buildInstanceSettings())
+	if err != nil {
+		t.Fatalf("NewConnector: %v", err)
+	}
+
+	q := &sqlutil.Query{ConnectionArgs: []byte(`{"tenant":"A"}`)}
+	_, dbConn, err := connector.GetConnectionFromQuery(context.Background(), q)
+	if err != nil {
+		t.Fatalf("GetConnectionFromQuery: %v", err)
+	}
+	if dbConn.db != newDB {
+		t.Fatalf("expected new connection for new args")
+	}
+}
+
+func buildForwardOAuthInstanceSettings() backend.DataSourceInstanceSettings {
+	settings := models.PluginSettings{
+		Host:            "localhost",
+		Port:            80,
+		Protocol:        "http",
+		UserName:        "",
+		Password:        "",
+		CredentialsType: "forwardOAuth",
+		Secure:          true,
+		Path:            "/query",
+		SkipTlsVerify:   true,
+		DialTimeout:     "10",
+		QueryTimeout:    "20",
+		DefaultDatabase: "foo",
+	}
+	jsonData, _ := json.Marshal(settings)
+
+	return backend.DataSourceInstanceSettings{
+		Name:                    "test-hydrolix-oauth-datasource",
+		JSONData:                jsonData,
+		DecryptedSecureJSONData: map[string]string{},
 	}
 }
 
@@ -325,6 +446,10 @@ func (m *MockConnector) GetUID() string { return m.uid }
 func (m *MockConnector) getDriverSettings() sqlds.DriverSettings { return sqlds.DriverSettings{} }
 
 func (m *MockConnector) getInstanceSettings() backend.DataSourceInstanceSettings {
+	return buildInstanceSettings()
+}
+
+func buildInstanceSettings() backend.DataSourceInstanceSettings {
 	settings := models.PluginSettings{
 		Host:            "localhost",
 		Port:            80,

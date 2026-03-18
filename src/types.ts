@@ -14,6 +14,7 @@ export interface HdxQuery extends DataQuery {
   format?: number;
   skipNextRun?: () => boolean;
   querySettings: QuerySetting[];
+  oauthPassThru?: boolean;
 }
 
 /**
@@ -59,6 +60,7 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   queryTimeout?: string;
   querySettings?: QuerySetting[];
   exposeErrors?: ExposeErrorsOptions;
+  oauthPassThru?: boolean;
 }
 
 export interface ExposeErrorsOptions {
@@ -89,6 +91,7 @@ export enum Protocol {
 export enum CredentialsType {
   UserAccount = "userAccount",
   ServiceAccount = "serviceAccount",
+  ForwardOAuth = "forwardOAuth",
 }
 
 export interface AdHocFilterKeys {

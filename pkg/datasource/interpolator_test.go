@@ -3,15 +3,72 @@ package datasource
 import (
 	"context"
 	"fmt"
+	"maps"
+	"net/http"
+	"slices"
+	"testing"
+	"time"
+
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"maps"
-	"slices"
-	"testing"
-	"time"
 )
+
+func TestGetHdxQuery_PreservesHeaders(t *testing.T) {
+	headers := http.Header{}
+	headers.Set("Authorization", "Bearer test-token")
+	headers.Set("X-Grafana-Org-Id", "42")
+
+	queryJSON := []byte(`{"rawSql": "SELECT 1", "format": 0}`)
+	from := time.Now().Add(-time.Hour)
+	to := time.Now()
+	dataQuery := backend.DataQuery{
+		RefID:     "A",
+		JSON:      queryJSON,
+		TimeRange: backend.TimeRange{From: from, To: to},
+		Interval:  time.Second,
+	}
+
+	hdxQuery, err := GetHdxQuery(dataQuery, headers, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "SELECT 1", hdxQuery.RawSQL)
+	assert.Equal(t, "Bearer test-token", hdxQuery.Headers.Get("Authorization"))
+	assert.Equal(t, "42", hdxQuery.Headers.Get("X-Grafana-Org-Id"))
+}
+
+func TestGetHdxQuery_NilHeaders(t *testing.T) {
+	queryJSON := []byte(`{"rawSql": "SELECT 1", "format": 0}`)
+	dataQuery := backend.DataQuery{
+		RefID:     "A",
+		JSON:      queryJSON,
+		TimeRange: backend.TimeRange{From: time.Now().Add(-time.Hour), To: time.Now()},
+		Interval:  time.Second,
+	}
+
+	hdxQuery, err := GetHdxQuery(dataQuery, nil, nil, nil)
+	require.NoError(t, err)
+	assert.Nil(t, hdxQuery.Headers)
+}
+
+func TestWithSQL_PreservesHeaders(t *testing.T) {
+	headers := http.Header{}
+	headers.Set("Authorization", "Bearer token123")
+
+	q := &HDXQuery{
+		RawSQL:  "SELECT 1",
+		Headers: headers,
+		TimeRange: backend.TimeRange{
+			From: time.Now().Add(-time.Hour),
+			To:   time.Now(),
+		},
+		Interval: time.Second,
+	}
+
+	newQ := q.WithSQL("SELECT 2")
+	assert.Equal(t, "SELECT 2", newQ.RawSQL)
+	assert.Equal(t, "Bearer token123", newQ.Headers.Get("Authorization"))
+}
 
 func TestGetMacroCTEs(t *testing.T) {
 	type test struct {
