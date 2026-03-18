@@ -195,7 +195,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 				if db != nil {
 					_ = db.Close()
 				}
-				return db, err
+				return nil, err
 			}
 		}
 	}

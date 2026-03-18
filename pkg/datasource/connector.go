@@ -37,11 +37,7 @@ type HydrolixConnector struct {
 	Driver           sqlds.Driver
 	driverSettings   sqlds.DriverSettings
 	instanceSettings backend.DataSourceInstanceSettings
-	// Enabling multiple connections may cause that concurrent connection limits
-	// are hit. The datasource enabling this should make sure connections are cached
-	// if necessary.
-	enableMultipleConnections bool
-	pluginSettings            models.PluginSettings
+	pluginSettings   models.PluginSettings
 }
 
 func NewConnector(ctx context.Context, driver sqlds.Driver, settings backend.DataSourceInstanceSettings) (Connector, error) {
@@ -90,6 +86,7 @@ func (c *HydrolixConnector) Connect(ctx context.Context, headers http.Header) (*
 		}
 		// Assign this connection in the cache
 		dbConn = dbConnection{db, c.instanceSettings}
+		c.storeDBConnection(key, dbConn)
 	}
 
 	if c.driverSettings.Retries == 0 {
@@ -243,7 +240,7 @@ func (c *HydrolixConnector) GetConnectionFromQuery(ctx context.Context, q *sqlut
 		return "", dbConnection{}, backend.DownstreamError(err)
 	}
 	// Assign this connection in the cache
-	dbConn = dbConnection{db, dbConn.settings}
+	dbConn = dbConnection{db, c.instanceSettings}
 	c.storeDBConnection(key, dbConn)
 
 	return key, dbConn, nil
