@@ -7,9 +7,9 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
 	"github.com/grafana/sqlds/v4"
 	"github.com/hydrolix/plugin/pkg/models"
+	"github.com/jellydator/ttlcache/v3"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -33,7 +33,7 @@ type Connector interface {
 
 type HydrolixConnector struct {
 	UID              string
-	connections      sync.Map
+	connections      *ttlcache.Cache[string, dbConnection]
 	Driver           sqlds.Driver
 	driverSettings   sqlds.DriverSettings
 	instanceSettings backend.DataSourceInstanceSettings
@@ -50,6 +50,10 @@ func NewConnector(ctx context.Context, driver sqlds.Driver, settings backend.Dat
 		return nil, backend.DownstreamError(err)
 	}
 	ds := driver.Settings(ctx, settings)
+	connections := *ttlcache.New[string, dbConnection](ttlcache.WithTTL[string, dbConnection](time.Hour))
+	connections.OnEviction(func(ctx context.Context, reason ttlcache.EvictionReason, i *ttlcache.Item[string, dbConnection]) {
+		_ = i.Value().db.Close()
+	})
 
 	conn := &HydrolixConnector{
 		UID:              settings.UID,
@@ -57,6 +61,7 @@ func NewConnector(ctx context.Context, driver sqlds.Driver, settings backend.Dat
 		driverSettings:   ds,
 		instanceSettings: settings,
 		pluginSettings:   pluginSettings,
+		connections:      &connections,
 	}
 	if pluginSettings.CredentialsType != "forwardOAuth" {
 		key := defaultKey(settings.UID)
@@ -73,23 +78,23 @@ func NewConnector(ctx context.Context, driver sqlds.Driver, settings backend.Dat
 func (c *HydrolixConnector) Connect(ctx context.Context, headers http.Header) (*dbConnection, error) {
 	key := ""
 	if c.pluginSettings.CredentialsType == "forwardOAuth" {
-		key = keyWithConnectionArgs(c.UID, getOAuthConnectionArgs(headers))
+		key = keyWithConnectionArgs(c.UID, getOAuthConnectionArgs(headers.Get(backend.OAuthIdentityTokenHeaderName)))
 	} else {
 		key = defaultKey(c.UID)
 	}
 	dbConn, ok := c.getDBConnection(key)
 	if !ok {
-		db, err := c.Driver.Connect(ctx, c.instanceSettings, getOAuthConnectionArgs(headers))
+		db, err := c.Driver.Connect(ctx, c.instanceSettings, getOAuthConnectionArgs(headers.Get(backend.OAuthIdentityTokenHeaderName)))
 		if err != nil {
 			return nil, ErrorMissingDBConnection
 		}
 		// Assign this connection in the cache
-		dbConn = dbConnection{db, dbConn.settings}
+		dbConn = dbConnection{db, c.instanceSettings}
 	}
 
 	if c.driverSettings.Retries == 0 {
 		err := c.connect(dbConn)
-		return nil, err
+		return &dbConn, err
 	}
 
 	err := c.connectWithRetries(ctx, dbConn, key, headers)
@@ -187,24 +192,20 @@ func (c *HydrolixConnector) Reconnect(ctx context.Context, dbConn dbConnection, 
 }
 
 func (c *HydrolixConnector) getDBConnection(key string) (dbConnection, bool) {
-	conn, ok := c.connections.Load(key)
-	if !ok {
+	conn := c.connections.Get(key)
+	if conn == nil {
 		return dbConnection{}, false
 	}
-	return conn.(dbConnection), true
+	return conn.Value(), true
 }
 
 func (c *HydrolixConnector) storeDBConnection(key string, dbConn dbConnection) {
-	c.connections.Store(key, dbConn)
+	c.connections.Set(key, dbConn, ttlcache.DefaultTTL)
 }
 
 // Dispose is called when an existing SQLDatasource needs to be replaced
 func (c *HydrolixConnector) Dispose() {
-	c.connections.Range(func(_, conn interface{}) bool {
-		_ = conn.(dbConnection).db.Close()
-		return true
-	})
-	c.connections.Clear()
+	c.connections.DeleteAll()
 }
 
 func (c *HydrolixConnector) getDriverSettings() sqlds.DriverSettings {
@@ -248,8 +249,10 @@ func (c *HydrolixConnector) GetConnectionFromQuery(ctx context.Context, q *sqlut
 	return key, dbConn, nil
 }
 
-func getOAuthConnectionArgs(headers http.Header) json.RawMessage {
+func getOAuthConnectionArgs(header string) json.RawMessage {
 	q := &sqlutil.Query{}
+	headers := http.Header{}
+	headers.Set(backend.OAuthIdentityTokenHeaderName, header)
 	applyHeaders(q, headers)
 	return q.ConnectionArgs
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/hydrolix/plugin/pkg/datasource"
 	"strconv"
 	"strings"
 	"time"
@@ -29,11 +30,11 @@ type Hydrolix struct {
 }
 
 var (
-	_              sqlds.Driver           = (*Hydrolix)(nil)
-	_              sqlds.QueryMutator     = (*Hydrolix)(nil)
-	_              sqlds.QueryDataMutator = (*Hydrolix)(nil)
-	HeaderKey                             = "grafana-http-headers"
-	OrgIdHeaderKey                        = "X-Grafana-Org-Id"
+	_ sqlds.Driver           = (*Hydrolix)(nil)
+	_ sqlds.QueryMutator     = (*Hydrolix)(nil)
+	_ sqlds.QueryDataMutator = (*Hydrolix)(nil)
+	//	HeaderKey                             = "grafana-http-headers"
+	OrgIdHeaderKey = "X-Grafana-Org-Id"
 )
 
 // NewHydrolix creates plugin instance with default parameters
@@ -159,7 +160,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 			opts.Auth = clickhouse.Auth{
 				Database: settings.DefaultDatabase,
 				Username: "__api_token__",
-				Password: settings.Token,
+				Password: token,
 			}
 		}
 	}
@@ -190,6 +191,9 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 						"message", ex.Message,
 						"stack", ex.StackTrace,
 					)
+				}
+				if db != nil {
+					_ = db.Close()
 				}
 				return db, err
 			}
@@ -329,11 +333,12 @@ func getOrgId(jmsg json.RawMessage) (string, bool) {
 }
 
 func getHeader(headerName string, jmsg json.RawMessage) (string, bool) {
+
 	var m map[string]map[string][]string
 	if jmsg != nil {
 		err := json.Unmarshal(jmsg, &m)
-		if err == nil && m != nil && m[HeaderKey] != nil && m[HeaderKey][headerName] != nil && len(m[HeaderKey][headerName]) > 0 {
-			header := m[HeaderKey][headerName][0]
+		if err == nil && m != nil && m[datasource.HeaderKey] != nil && m[datasource.HeaderKey][headerName] != nil && len(m[datasource.HeaderKey][headerName]) > 0 {
+			header := m[datasource.HeaderKey][headerName][0]
 			return header, true
 		}
 	}

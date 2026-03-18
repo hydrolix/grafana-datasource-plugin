@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // --- helpers ---
@@ -241,6 +242,9 @@ func TestDispose_ClosesAllAndClears(t *testing.T) {
 	// Dispose should close both and clear map
 	connector.Dispose()
 
+	// sleep while ttlcache calls eviction callback for connection
+	time.Sleep(100 * time.Millisecond)
+
 	// Both closes must have been hit
 	if err := mock1.ExpectationsWereMet(); err != nil {
 		t.Fatalf("db1 expectations: %v", err)
@@ -309,11 +313,7 @@ func TestNewConnector_UserAccount_ConnectsImmediately(t *testing.T) {
 }
 
 func TestGetOAuthConnectionArgs(t *testing.T) {
-	headers := http.Header{}
-	headers.Set("Authorization", "Bearer my-oauth-token")
-	headers.Set("X-Grafana-Org-Id", "5")
-
-	args := getOAuthConnectionArgs(headers)
+	args := getOAuthConnectionArgs("Bearer my-oauth-token")
 	if args == nil {
 		t.Fatalf("expected non-nil ConnectionArgs")
 	}
@@ -335,13 +335,10 @@ func TestGetOAuthConnectionArgs(t *testing.T) {
 	if _, ok := m["Authorization"]; !ok {
 		t.Fatalf("missing Authorization in headers")
 	}
-	if _, ok := m["X-Grafana-Org-Id"]; !ok {
-		t.Fatalf("missing X-Grafana-Org-Id in headers")
-	}
 }
 
 func TestGetOAuthConnectionArgs_EmptyHeaders(t *testing.T) {
-	args := getOAuthConnectionArgs(http.Header{})
+	args := getOAuthConnectionArgs("")
 	if args == nil {
 		t.Fatalf("expected non-nil ConnectionArgs even for empty headers")
 	}

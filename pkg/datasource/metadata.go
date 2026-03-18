@@ -101,6 +101,11 @@ func (p *MetaDataProvider) executeQuery(ctx context.Context, headers http.Header
 		return nil, err
 	}
 
+	newHeaders := make(map[string]string, len(headers))
+	for k, _ := range headers {
+		newHeaders[k] = headers.Get(k)
+	}
+
 	dataQuery := backend.DataQuery{
 		RefID: queryID,
 		JSON:  queryJSON,
@@ -112,6 +117,7 @@ func (p *MetaDataProvider) executeQuery(ctx context.Context, headers http.Header
 			DataSourceInstanceSettings: &settings,
 		},
 		Queries: []backend.DataQuery{dataQuery},
+		Headers: newHeaders,
 	}
 
 	// Execute the query using QueryData
