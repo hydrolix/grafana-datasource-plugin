@@ -109,7 +109,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 
 		BlockBufferSize: 2,
 	}
-	//
+
 	if settings.CredentialsType == "userAccount" || settings.CredentialsType == "" {
 		opts.Auth = clickhouse.Auth{
 			Database: settings.DefaultDatabase,
