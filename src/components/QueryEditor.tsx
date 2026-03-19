@@ -55,14 +55,17 @@ export function QueryEditor(props: Props) {
       z-index: 1;
     }
   `;
+  const onChange = props.onChange;
+  const query = props.query;
+
   useEffect(() => {
-    if (!props.query.format) {
-      props.onChange({
-        ...props.query,
+    if (!query.format) {
+      onChange({
+        ...query,
         format: QueryType.Table,
       });
     }
-  }, [props]);
+  }, [onChange, query]);
 
   const queryTypeOptions = useMemo<Array<SelectableValue<number>>>(
     () =>
