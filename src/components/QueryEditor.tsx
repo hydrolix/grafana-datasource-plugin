@@ -62,7 +62,7 @@ export function QueryEditor(props: Props) {
         format: QueryType.Table,
       });
     }
-  });
+  }, [props]);
 
   const queryTypeOptions = useMemo<Array<SelectableValue<number>>>(
     () =>
