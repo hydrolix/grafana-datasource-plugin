@@ -65,7 +65,7 @@ func NewConnector(ctx context.Context, driver sqlds.Driver, settings backend.Dat
 		if err != nil {
 			return nil, backend.DownstreamError(err)
 		}
-		conn.storeDBConnection(key, dbConnection{db, settings})
+		conn.storeDBConnectionWithTTL(key, dbConnection{db, settings}, ttlcache.NoTTL)
 	}
 
 	return conn, nil
@@ -196,8 +196,11 @@ func (c *HydrolixConnector) getDBConnection(key string) (dbConnection, bool) {
 	return conn.Value(), true
 }
 
+func (c *HydrolixConnector) storeDBConnectionWithTTL(key string, dbConn dbConnection, ttl time.Duration) {
+	c.connections.Set(key, dbConn, ttl)
+}
 func (c *HydrolixConnector) storeDBConnection(key string, dbConn dbConnection) {
-	c.connections.Set(key, dbConn, ttlcache.DefaultTTL)
+	c.storeDBConnectionWithTTL(key, dbConn, ttlcache.DefaultTTL)
 }
 
 // Dispose is called when an existing SQLDatasource needs to be replaced
@@ -223,27 +226,36 @@ func (c *HydrolixConnector) GetConnectionFromQuery(ctx context.Context, q *sqlut
 
 	// The database connection may vary depending on query arguments
 	// The raw arguments are used as key to store the db connection in memory so they can be reused
-	key := defaultKey(c.UID)
-	dbConn, _ := c.getDBConnection(key)
-
 	if len(q.ConnectionArgs) == 0 {
+		key := defaultKey(c.UID)
+		dbConn, ok := c.getDBConnection(key)
+
+		if !ok {
+			// Connection not in cache (expired or never created), establish a new one
+			db, err := c.Driver.Connect(ctx, c.instanceSettings, nil)
+			if err != nil {
+				return "", dbConnection{}, backend.DownstreamError(err)
+			}
+			dbConn = dbConnection{db, c.instanceSettings}
+			c.storeDBConnection(key, dbConn)
+		}
+		return key, dbConn, nil
+	} else {
+		key := keyWithConnectionArgs(c.UID, q.ConnectionArgs)
+		if cachedConn, ok := c.getDBConnection(key); ok {
+			return key, cachedConn, nil
+		}
+
+		db, err := c.Driver.Connect(ctx, c.instanceSettings, q.ConnectionArgs)
+		if err != nil {
+			return "", dbConnection{}, backend.DownstreamError(err)
+		}
+		// Assign this connection in the cache
+		dbConn := dbConnection{db, c.instanceSettings}
+		c.storeDBConnection(key, dbConn)
+
 		return key, dbConn, nil
 	}
-
-	key = keyWithConnectionArgs(c.UID, q.ConnectionArgs)
-	if cachedConn, ok := c.getDBConnection(key); ok {
-		return key, cachedConn, nil
-	}
-
-	db, err := c.Driver.Connect(ctx, c.instanceSettings, q.ConnectionArgs)
-	if err != nil {
-		return "", dbConnection{}, backend.DownstreamError(err)
-	}
-	// Assign this connection in the cache
-	dbConn = dbConnection{db, c.instanceSettings}
-	c.storeDBConnection(key, dbConn)
-
-	return key, dbConn, nil
 }
 
 func getOAuthConnectionArgs(header string) json.RawMessage {
