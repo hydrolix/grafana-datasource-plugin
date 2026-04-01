@@ -29,7 +29,7 @@ jobs:
           chmod +x hydrolix-hydrolix-datasource/gpx*
 
       - name: Install and run Docker Compose
-        uses: hoverkraft-tech/compose-action@40041ff1b97dbf152cd2361138c2b03fa29139df
+        uses: hoverkraft-tech/compose-action@4894d2492015c1774ee5a13a95b1072093087ec3
         with:
           compose-file: '.github/e2e-docker-compose.yml'
 
