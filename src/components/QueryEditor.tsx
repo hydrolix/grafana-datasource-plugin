@@ -59,7 +59,7 @@ export function QueryEditor(props: Props) {
   const query = props.query;
 
   useEffect(() => {
-    if (!query.format) {
+    if (query.format === undefined) {
       onChange({
         ...query,
         format: QueryType.Table,
