@@ -41,6 +41,218 @@ func testContextHandler(ctx context.Context, settings map[string]any) context.Co
 }
 
 // TestMutateDataQuery verify allowed query options are properly merged and set into context
+func TestGetHeader(t *testing.T) {
+	tests := []struct {
+		name       string
+		headerName string
+		jmsg       json.RawMessage
+		wantVal    string
+		wantOK     bool
+	}{
+		{
+			name:       "nil message returns empty",
+			headerName: "Authorization",
+			jmsg:       nil,
+			wantVal:    "",
+			wantOK:     false,
+		},
+		{
+			name:       "empty JSON object returns empty",
+			headerName: "Authorization",
+			jmsg:       json.RawMessage(`{}`),
+			wantVal:    "",
+			wantOK:     false,
+		},
+		{
+			name:       "missing header key in message",
+			headerName: "Authorization",
+			jmsg:       json.RawMessage(`{"other-key": {"Authorization": ["Bearer token"]}}`),
+			wantVal:    "",
+			wantOK:     false,
+		},
+		{
+			name:       "header present with value",
+			headerName: "Authorization",
+			jmsg:       json.RawMessage(`{"grafana-http-headers": {"Authorization": ["Bearer my-token"]}}`),
+			wantVal:    "Bearer my-token",
+			wantOK:     true,
+		},
+		{
+			name:       "header present with multiple values returns first",
+			headerName: "Authorization",
+			jmsg:       json.RawMessage(`{"grafana-http-headers": {"Authorization": ["Bearer first", "Bearer second"]}}`),
+			wantVal:    "Bearer first",
+			wantOK:     true,
+		},
+		{
+			name:       "header present with empty array",
+			headerName: "Authorization",
+			jmsg:       json.RawMessage(`{"grafana-http-headers": {"Authorization": []}}`),
+			wantVal:    "",
+			wantOK:     false,
+		},
+		{
+			name:       "different header name",
+			headerName: OrgIdHeaderKey,
+			jmsg:       json.RawMessage(fmt.Sprintf(`{"grafana-http-headers": {"%s": ["42"]}}`, OrgIdHeaderKey)),
+			wantVal:    "42",
+			wantOK:     true,
+		},
+		{
+			name:       "invalid JSON returns empty",
+			headerName: "Authorization",
+			jmsg:       json.RawMessage(`not-json`),
+			wantVal:    "",
+			wantOK:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			val, ok := getHeader(tt.headerName, tt.jmsg)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.wantVal, val)
+		})
+	}
+}
+
+func TestGetOAuthToken(t *testing.T) {
+	tests := []struct {
+		name      string
+		jmsg      json.RawMessage
+		wantToken string
+		wantOK    bool
+	}{
+		{
+			name:      "nil message",
+			jmsg:      nil,
+			wantToken: "",
+			wantOK:    false,
+		},
+		{
+			name:      "valid Bearer token",
+			jmsg:      json.RawMessage(`{"grafana-http-headers": {"Authorization": ["Bearer abc123"]}}`),
+			wantToken: "abc123",
+			wantOK:    true,
+		},
+		{
+			name:      "missing Bearer prefix",
+			jmsg:      json.RawMessage(`{"grafana-http-headers": {"Authorization": ["abc123"]}}`),
+			wantToken: "",
+			wantOK:    false,
+		},
+		{
+			name:      "empty token value",
+			jmsg:      json.RawMessage(`{"grafana-http-headers": {"Authorization": [""]}}`),
+			wantToken: "",
+			wantOK:    false,
+		},
+		{
+			name:      "Bearer with complex JWT token",
+			jmsg:      json.RawMessage(`{"grafana-http-headers": {"Authorization": ["Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.sig"]}}`),
+			wantToken: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.sig",
+			wantOK:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			token, ok := getOAuthToken(tt.jmsg)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.wantToken, token)
+		})
+	}
+}
+
+func TestGetOrgId(t *testing.T) {
+	tests := []struct {
+		name    string
+		jmsg    json.RawMessage
+		wantVal string
+		wantOK  bool
+	}{
+		{
+			name:    "nil message",
+			jmsg:    nil,
+			wantVal: "",
+			wantOK:  false,
+		},
+		{
+			name:    "org id present",
+			jmsg:    json.RawMessage(fmt.Sprintf(`{"grafana-http-headers": {"%s": ["1"]}}`, OrgIdHeaderKey)),
+			wantVal: "1",
+			wantOK:  true,
+		},
+		{
+			name:    "org id missing",
+			jmsg:    json.RawMessage(`{"grafana-http-headers": {"Authorization": ["Bearer token"]}}`),
+			wantVal: "",
+			wantOK:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			val, ok := getOrgId(tt.jmsg)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.wantVal, val)
+		})
+	}
+}
+
+func TestSettings_ForwardHeaders(t *testing.T) {
+	tests := []struct {
+		name            string
+		credentialsType string
+		wantForward     bool
+	}{
+		{
+			name:            "forwardOAuth enables ForwardHeaders",
+			credentialsType: "forwardOAuth",
+			wantForward:     true,
+		},
+		{
+			name:            "userAccount disables ForwardHeaders",
+			credentialsType: "userAccount",
+			wantForward:     false,
+		},
+		{
+			name:            "serviceAccount disables ForwardHeaders",
+			credentialsType: "serviceAccount",
+			wantForward:     false,
+		},
+		{
+			name:            "empty credentialsType disables ForwardHeaders",
+			credentialsType: "",
+			wantForward:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewHydrolix()
+			settings := models.PluginSettings{
+				Host:            "localhost",
+				Port:            80,
+				Protocol:        "http",
+				CredentialsType: tt.credentialsType,
+				DialTimeout:     "10",
+				QueryTimeout:    "20",
+			}
+			jsonData, err := json.Marshal(settings)
+			assert.NoError(t, err)
+
+			config := backend.DataSourceInstanceSettings{
+				JSONData:                jsonData,
+				DecryptedSecureJSONData: map[string]string{},
+			}
+
+			ds := h.Settings(context.Background(), config)
+			assert.Equal(t, tt.wantForward, ds.ForwardHeaders)
+		})
+	}
+}
+
 func TestQueryCustomSettingsPropagation(t *testing.T) {
 
 	for _, protocol := range []string{"http", "native"} {

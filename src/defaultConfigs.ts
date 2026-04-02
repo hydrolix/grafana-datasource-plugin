@@ -1,4 +1,4 @@
-import { Protocol } from "./types";
+import { CredentialsType, Protocol } from "./types";
 import { dateTime } from "@grafana/data";
 
 export default {
@@ -21,4 +21,6 @@ export default {
     maxCount: 5,
     ttl: 300,
   },
+  credentialsType: CredentialsType.UserAccount,
+  oauthPassThru: false,
 };
