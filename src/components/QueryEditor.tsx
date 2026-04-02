@@ -1,6 +1,7 @@
 import React, {
   FormEvent,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -54,6 +55,17 @@ export function QueryEditor(props: Props) {
       z-index: 1;
     }
   `;
+  const onChange = props.onChange;
+  const query = props.query;
+
+  useEffect(() => {
+    if (query.format === undefined) {
+      onChange({
+        ...query,
+        format: QueryType.Table,
+      });
+    }
+  }, [onChange, query]);
 
   const queryTypeOptions = useMemo<Array<SelectableValue<number>>>(
     () =>

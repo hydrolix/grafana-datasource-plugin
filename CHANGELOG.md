@@ -1,4 +1,9 @@
 # Changelog
+
+## 0.10.2
+
+- **Fix**: Query Editor doesn't store default query type (GRAP-165)
+- 
 ## 0.10.1
 
 - **Fix**: Address Grafana plugin review feedback
