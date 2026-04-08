@@ -605,10 +605,6 @@ def wizard():
             default=220
         )
 
-    print('vars')
-    print(dashboard_var_name)
-    print(message_length)
-    print(error_ttl)
     click.echo()
 
     # Configuration
