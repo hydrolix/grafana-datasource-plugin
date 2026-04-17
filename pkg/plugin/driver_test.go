@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/hydrolix/plugin/pkg/models"
-	"github.com/stretchr/testify/assert"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/hydrolix/sqlds/v5/models"
+	"github.com/stretchr/testify/assert"
 )
 
 func findSettingValue(settings []models.QuerySetting, name string) string {

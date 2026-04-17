@@ -3,13 +3,14 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/hydrolix/clickhouse-sql-parser/parser"
-	"github.com/hydrolix/plugin/pkg/datasource"
 	"maps"
 	"net/http"
 	"slices"
 	"time"
+
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/hydrolix/clickhouse-sql-parser/parser"
+	"github.com/hydrolix/sqlds/v5"
 )
 
 func AST(rw http.ResponseWriter, req *http.Request) {
@@ -39,7 +40,7 @@ func AST(rw http.ResponseWriter, req *http.Request) {
 	})
 	_, err = rw.Write(marshal)
 }
-func Interpolate(ds *datasource.HydrolixDatasource, rw http.ResponseWriter, req *http.Request) {
+func Interpolate(ds *sqlds.HydrolixDatasource, rw http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if r := recover(); r != nil {
 			rawMessage, _ := json.Marshal(r)
@@ -59,15 +60,15 @@ func Interpolate(ds *datasource.HydrolixDatasource, rw http.ResponseWriter, req 
 		return
 	}
 
-	body, err := ds.Interpolator.Interpolate(
-		&datasource.HDXQuery{
+	body, err := ds.Interpolator.Interpolate(req.Context(),
+		&sqlds.HDXQuery{
 			RawSQL:    request.Data.RawSql,
 			Filters:   request.Data.Filters,
 			Round:     request.Data.Round,
 			Interval:  interval,
 			TimeRange: timeRange,
 			Headers:   req.Header,
-		}, req.Context())
+		})
 
 	if err != nil {
 		wrapError(rw, err)
@@ -104,7 +105,7 @@ func MacroCTEs(rw http.ResponseWriter, req *http.Request) {
 
 	}
 
-	body, err := datasource.GetMacroCTEs(expr)
+	body, err := sqlds.GetMacroCTEs(expr)
 	if err != nil {
 		wrapError(rw, err)
 		return
@@ -112,7 +113,7 @@ func MacroCTEs(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	rw.WriteHeader(http.StatusOK)
-	marshal, err := json.Marshal(Response[[]datasource.CTE]{
+	marshal, err := json.Marshal(Response[[]sqlds.CTE]{
 		false,
 		"",
 		slices.Collect(maps.Values(body)),
@@ -132,7 +133,7 @@ func wrapError(rw http.ResponseWriter, err error) {
 	return
 }
 
-func Routes(ds *datasource.HydrolixDatasource) map[string]func(http.ResponseWriter, *http.Request) {
+func Routes(ds *sqlds.HydrolixDatasource) map[string]func(http.ResponseWriter, *http.Request) {
 	return map[string]func(http.ResponseWriter, *http.Request){
 		"/ast": AST,
 		"/interpolate": func(writer http.ResponseWriter, request *http.Request) {
@@ -146,11 +147,11 @@ type Request[T any] struct {
 	Data T
 }
 type QueryData struct {
-	RawSql   string                   `json:"rawSql"`
-	Round    string                   `json:"round"`
-	Filters  []datasource.AdHocFilter `json:"filters"`
-	Range    Range                    `json:"range"`
-	Interval string                   `json:"interval"`
+	RawSql   string              `json:"rawSql"`
+	Round    string              `json:"round"`
+	Filters  []sqlds.AdHocFilter `json:"filters"`
+	Range    Range               `json:"range"`
+	Interval string              `json:"interval"`
 }
 
 type Range struct {
