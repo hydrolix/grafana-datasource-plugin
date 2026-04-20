@@ -180,12 +180,14 @@ def create_error_panel_template(dashboard_var_name, datasource_uid, message_leng
             html_content = f.read()
 
         with open(templates_dir / 'before_render.js', 'r') as f:
-            before_render_js = f.read().replace("{{dashboard_var_name}}", dashboard_var_name).replace("{{message_length}}", str(message_length)).replace("{{error_ttl}}", str(error_ttl))
+            before_render_js = f.read()
 
         with open(templates_dir / 'after_render.js', 'r') as f:
-            after_render_js = f.read().replace("{{dashboard_var_name}}", dashboard_var_name)
+            after_render_js = f.read().replace("{{dashboard_var_name}}", dashboard_var_name).replace("{{message_length}}", str(message_length)).replace("{{error_ttl}}", str(error_ttl))
         with open(templates_dir / 'solution_templates.json', 'r') as f:
             solution_templates = f.read()
+        with open(templates_dir / 'styles.css', 'r') as f:
+            styles_css = f.read()
     except FileNotFoundError as e:
         click.echo(f"Error: Template file not found: {e}", err=True)
         sys.exit(1)
@@ -193,6 +195,7 @@ def create_error_panel_template(dashboard_var_name, datasource_uid, message_leng
     panel = {
         "type": "marcusolsson-dynamictext-panel",
         "title": "HDX Datasource Query Errors",
+        "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": datasource_uid},
         "gridPos": {"h": 7, "w": 24, "x": 0, "y": 1},
         "options": {
             "afterRender": after_render_js,
@@ -205,12 +208,13 @@ def create_error_panel_template(dashboard_var_name, datasource_uid, message_leng
             },
             "editors": [
                 "helpers",
-                "afterRender"
+                "afterRender",
+                "styles"
             ],
             "externalStyles": [],
             "helpers": before_render_js,
             "renderMode": "data",
-            "styles": "",
+            "styles": styles_css,
             "wrap": False
         },
         "targets": [{
@@ -230,9 +234,7 @@ def create_error_panel_template(dashboard_var_name, datasource_uid, message_leng
                 "data": "",
                 "method": "GET"
             }
-        }],
-        "repeat": dashboard_var_name + "_selected",
-        "repeatDirection": "v"
+        }]
     }
 
     return panel
@@ -248,15 +250,7 @@ def create_dashboard_variables(dashboard_var_name) -> list:
             "query": "",
             "current": {"value": "", "text": ""},
             "options": []
-        },
-        {
-            "name": dashboard_var_name + "_selected",
-            "type": "custom",
-            "hide": 2,  # Variable hidden from dashboard
-            "query": "",
-            "current": {"value": "", "text": ""},
-            "options": []
-        },
+        }
     ]
 
 
@@ -266,7 +260,6 @@ def create_error_panel_row(dashboard_var_name, datasource_uid, message_length, e
         "type": "row",
         "title": "HDX Datasource Error Panel Row",
         "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
-        "repeat": dashboard_var_name,
         "collapsed": True,
         "panels": [create_error_panel_template(dashboard_var_name, datasource_uid, message_length, error_ttl)]
     }
@@ -509,35 +502,6 @@ def wizard():
         click.echo(f"✗ Error loading dashboards: {e}", err=True)
         sys.exit(1)
 
-    click.echo()
-
-    # Dashboard Variable names
-    questions = [
-        inquirer.Confirm('default_conf',
-                         message="Would you like to use default configuration?",
-                         default=True)
-    ]
-    answers = inquirer.prompt(questions)
-    dashboard_var_name = 'hdx_query_errors'
-    message_length = 220
-    error_ttl = 300
-    if not answers or not answers['default_conf']:
-        dashboard_var_name = click.prompt(
-            'Dashboard variable name',
-            type=str,
-            default='hdx_query_errors'
-        )
-
-        error_ttl = click.prompt(
-            'Error TTL',
-            type=int,
-            default=300
-        )
-        message_length = click.prompt(
-            'Message length (before clicking "show more")',
-            type=int,
-            default=220
-        )
 
     # Datasource
     click.echo("Datasource Configuration")
@@ -610,6 +574,36 @@ def wizard():
     except Exception as e:
         click.echo(f"✗ Error with datasource: {e}", err=True)
         sys.exit(1)
+
+    click.echo()
+
+    # Dashboard Variable names
+    questions = [
+        inquirer.Confirm('default_conf',
+                         message="Would you like to use default configuration?",
+                         default=True)
+    ]
+    answers = inquirer.prompt(questions)
+    dashboard_var_name = 'hdx_query_errors'
+    message_length = 220
+    error_ttl = 300
+    if not answers or not answers['default_conf']:
+        dashboard_var_name = click.prompt(
+            'Dashboard variable name',
+            type=str,
+            default='hdx_query_errors'
+        )
+
+        error_ttl = click.prompt(
+            'Error TTL',
+            type=int,
+            default=300
+        )
+        message_length = click.prompt(
+            'Max message length (before clicking "show more")',
+            type=int,
+            default=220
+        )
 
     click.echo()
 
