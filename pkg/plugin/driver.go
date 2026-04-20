@@ -7,20 +7,20 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/hydrolix/plugin/pkg/datasource"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
-	"github.com/grafana/sqlds/v4"
 	hdxbuild "github.com/hydrolix/plugin/pkg/build"
 	"github.com/hydrolix/plugin/pkg/converters"
-	"github.com/hydrolix/plugin/pkg/models"
+	"github.com/hydrolix/sqlds/v5"
+	"github.com/hydrolix/sqlds/v5/models"
 	"github.com/pkg/errors"
 )
 
@@ -30,9 +30,10 @@ type Hydrolix struct {
 }
 
 var (
-	_ sqlds.Driver           = (*Hydrolix)(nil)
-	_ sqlds.QueryMutator     = (*Hydrolix)(nil)
-	_ sqlds.QueryDataMutator = (*Hydrolix)(nil)
+	_ sqlds.Driver            = (*Hydrolix)(nil)
+	_ sqlds.QueryMutator      = (*Hydrolix)(nil)
+	_ sqlds.QueryDataMutator  = (*Hydrolix)(nil)
+	_ sqlds.QueryErrorMutator = (*Hydrolix)(nil)
 
 	OrgIdHeaderKey = "X-Grafana-Org-Id"
 )
@@ -337,8 +338,8 @@ func getHeader(headerName string, jmsg json.RawMessage) (string, bool) {
 	var m map[string]map[string][]string
 	if jmsg != nil {
 		err := json.Unmarshal(jmsg, &m)
-		if err == nil && m != nil && m[datasource.HeaderKey] != nil && m[datasource.HeaderKey][headerName] != nil && len(m[datasource.HeaderKey][headerName]) > 0 {
-			header := m[datasource.HeaderKey][headerName][0]
+		if err == nil && m != nil && m[sqlds.HeaderKey] != nil && m[sqlds.HeaderKey][headerName] != nil && len(m[sqlds.HeaderKey][headerName]) > 0 {
+			header := m[sqlds.HeaderKey][headerName][0]
 			return header, true
 		}
 	}
@@ -422,4 +423,30 @@ func convertFieldToString(field *data.Field) (*data.Field, error) {
 	}
 
 	return newField, nil
+}
+
+func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
+	if uw, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, e := range uw.Unwrap() {
+			if ex, ok := e.(*proto.Exception); ok {
+				return backend.NewErrorWithSource(
+					backend.DownstreamError(fmt.Errorf("Code: %d. %s: %s", ex.Code, ex.Name, ex.Message)),
+					backend.ErrorSourceDownstream,
+				)
+			}
+		}
+	}
+
+	var ex *proto.Exception
+	if errors.As(err, &ex) {
+		return backend.NewErrorWithSource(
+			backend.DownstreamError(fmt.Errorf("Code: %d. %s: %s", ex.Code, ex.Name, ex.Message)),
+			backend.ErrorSourceDownstream,
+		)
+	}
+
+	return backend.NewErrorWithSource(
+		backend.DownstreamError(err),
+		backend.ErrorSourceDownstream,
+	)
 }
