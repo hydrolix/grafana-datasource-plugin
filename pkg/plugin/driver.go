@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -80,7 +81,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 
 	compression := clickhouse.CompressionLZ4
 	if protocol == clickhouse.HTTP {
-		compression = clickhouse.CompressionGZIP
+		compression = clickhouse.CompressionNone
 	}
 
 	var tlsConfig *tls.Config
@@ -109,6 +110,11 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		TLS:         tlsConfig,
 
 		BlockBufferSize: 2,
+	}
+
+	opts.TransportFunc = func(t *http.Transport) (http.RoundTripper, error) {
+		t.DisableCompression = false
+		return &metadataStrippingTransport{base: t}, nil
 	}
 
 	if settings.CredentialsType == "userAccount" || settings.CredentialsType == "" {
@@ -449,4 +455,18 @@ func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
 		backend.DownstreamError(err),
 		backend.ErrorSourceDownstream,
 	)
+}
+
+type metadataStrippingTransport struct {
+	base http.RoundTripper
+}
+
+func (t *metadataStrippingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		return resp, err
+	}
+	resp.Body = NewStatsStrippingReader(resp.Body)
+	return resp, nil
 }
