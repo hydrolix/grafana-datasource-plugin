@@ -26,6 +26,31 @@ datasources:
         ttl: 300
     secureJsonData:
       password: "${HYDROLIX_PASSWORD}"
+  - name: "qe-innovations-3"
+    type: "hydrolix-hydrolix-datasource"
+    access: proxy
+    isDefault: false
+    orgId: 1
+    version: 1
+    editable: true
+    uid: P5F37BC6B90597936
+    jsonData:
+      protocol: "http"
+      host: qe-innovations-3.hydrolix.dev
+      port: 443
+      secure: true
+      path: "/query"
+      username: "${HYDROLIX_USERNAME}"
+      defaultDatabase: hydro
+      defaultRound: 1m
+      adHocTableVariable: table
+      exposeErrors:
+        enabled: true
+        variableName: "hdx_query_errors"
+        maxCount: 5
+        ttl: 300
+    secureJsonData:
+      password: "${HYDROLIX_PASSWORD}"
   - name: "ClickHouse"
     type: "grafana-clickhouse-datasource"
     access: proxy

@@ -8,3 +8,6 @@ coverage/
 .idea/
 .eslintcache
 .bra.toml
+.DS_Store
+.nvmrc
+junit.xml

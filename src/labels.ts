@@ -317,6 +317,15 @@ export default {
             "Default is empty string.",
         },
         {
+          setting: "hdx_query_streaming_result",
+          type: "boolean",
+          default: true,
+          description:
+            "Enable HTTP streaming for query results. When enabled, the backend streams results incrementally instead of waiting for the full result set, improving perceived query performance.\n" +
+            "\n" +
+            "Default is true.",
+        },
+        {
           setting: "hdx_http_proxy_enabled",
           type: "boolean",
           default: true,
