@@ -1,4 +1,4 @@
-import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import React, { FormEvent, useMemo, useState } from "react";
 import {
   DataSourcePluginOptionsEditorProps,
   onUpdateDatasourceJsonDataOption,
@@ -101,11 +101,7 @@ export function ConfigEditor(props: Props) {
       description: v.description,
     }));
 
-  let [settingErrors, setSettingErrors] = useState<{
-    [setting: string]: string;
-  }>({});
-
-  useEffect(() => {
+  const settingErrors = useMemo(() => {
     const errors: { [setting: string]: string } = {};
     for (const querySettings of jsonData?.querySettings ?? []) {
       const option = querySettingDefinitions[querySettings.setting];
@@ -141,7 +137,7 @@ export function ConfigEditor(props: Props) {
         errors[querySettings.setting] = `value cannot be less than ${min}`;
       }
     }
-    setSettingErrors(errors);
+    return errors;
   }, [jsonData, querySettingDefinitions]);
 
   const getDefaultPort = (protocol: Protocol, secure: boolean) =>
@@ -317,11 +313,11 @@ export function ConfigEditor(props: Props) {
     URL.revokeObjectURL(url);
   };
 
-  let invalidDuration = useRef(false);
+  const [invalidDuration, setInvalidDuration] = useState(false);
   const onRoundChange = (e: FormEvent<HTMLInputElement>) => {
     let round = e.currentTarget.value;
 
-    invalidDuration.current = !QUERY_DURATION_REGEX.test(round);
+    setInvalidDuration(!QUERY_DURATION_REGEX.test(round));
     onOptionsChange({
       ...options,
       jsonData: {
@@ -617,7 +613,7 @@ export function ConfigEditor(props: Props) {
             error={"invalid duration"}
             label={labels.defaultRound.label}
             description={labels.defaultRound.description}
-            invalid={invalidDuration.current}
+            invalid={invalidDuration}
           >
             <Input
               width={40}
