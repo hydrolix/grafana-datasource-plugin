@@ -81,7 +81,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 
 	compression := clickhouse.CompressionLZ4
 	if protocol == clickhouse.HTTP {
-		compression = clickhouse.CompressionNone
+		compression = clickhouse.CompressionLZ4
 	}
 
 	var tlsConfig *tls.Config
@@ -113,7 +113,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 	}
 
 	opts.TransportFunc = func(t *http.Transport) (http.RoundTripper, error) {
-		t.DisableCompression = false
+		// t.DisableCompression = false
 		return &metadataStrippingTransport{base: t}, nil
 	}
 
@@ -462,8 +462,15 @@ type metadataStrippingTransport struct {
 }
 
 func (t *metadataStrippingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-
+	req.Header.Set("Accept-Encoding", "identity")
+	log.DefaultLogger.Warn("metadataStrippingTransport",
+		"req Accept-Encoding", req.Header.Get("Accept-Encoding"),
+		//"req", req.Header.Values("Accept-Encoding"),
+	)
 	resp, err := t.base.RoundTrip(req)
+	resp.Header.Del("Content-Encoding")
+	resp.Header.Del("Content-Length")
+	resp.ContentLength = -1
 	if err != nil {
 		return resp, err
 	}

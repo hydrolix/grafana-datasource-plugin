@@ -28,6 +28,7 @@ var _ = build.SetBeforeBuildCallback(func(cfg build.Config) (build.Config, error
 	cfg.CustomVars = map[string]string{
 		"github.com/grafana/grafana-plugin-sdk-go/build.buildInfoJSON": info,
 	}
+	cfg.EnableDebug = true
 	return cfg, nil
 })
 

@@ -3,6 +3,8 @@ package plugin
 import (
 	"bytes"
 	"io"
+
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 )
 
 // statsPrefix is the marker HDX appends to the response body when
@@ -102,6 +104,7 @@ func findStatsIndex(data []byte) int {
 		return len(data)
 	}
 
+	log.DefaultLogger.Warn("found StatsStrippingReader", "data", string(data))
 	// Verify nothing meaningful follows the stats line.
 	after := data[idx+len(statsPrefix):]
 	nlPos := bytes.IndexByte(after, '\n')
