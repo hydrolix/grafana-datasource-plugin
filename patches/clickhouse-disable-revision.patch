@@ -6,9 +6,9 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 <+>UTF-8
 ===================================================================
 diff --git a/conn_http.go b/conn_http.go
---- a/conn_http.go	(revision 3afb5f73280ad47a91c73e045a6415c237c989c5)
-+++ b/conn_http.go	(date 1777293979175)
-@@ -213,9 +213,9 @@
+--- a/conn_http.go	(revision b24794b0df20877def2a42061fd22c393486ed14)
++++ b/conn_http.go	(date 1777299020021)
+@@ -209,9 +209,9 @@
  		client: &http.Client{
  			Transport: rt,
  		},
@@ -21,7 +21,7 @@ diff --git a/conn_http.go b/conn_http.go
  		buffer:          new(chproto.Buffer),
  		compression:     compression.Method,
  		blockCompressor: compress.NewWriter(compress.Level(compression.Level), compress.Method(compression.Method)),
-@@ -223,12 +223,12 @@
+@@ -219,12 +219,12 @@
  		blockBufferSize: opt.BlockBufferSize,
  	}
 
