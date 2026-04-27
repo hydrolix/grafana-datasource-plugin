@@ -29,6 +29,7 @@ func TestClickHouseQuery(t *testing.T) {
 		Compression: &clickhouse.Compression{
 			Method: clickhouse.CompressionLZ4,
 		},
+		HttpHeaders: map[string]string{"Accept-Encoding": "identity"},
 		Protocol:    clickhouse.HTTP,
 		HttpUrlPath: "/query",
 		TLS:         &tls.Config{},
@@ -69,15 +70,14 @@ type metadataStrippingTransport struct {
 }
 
 func (t *metadataStrippingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	req.Header.Set("Accept-Encoding", "identity")
 	resp, err := t.base.RoundTrip(req)
-	resp.Header.Del("Content-Encoding")
-	resp.Header.Del("Content-Length")
-	resp.ContentLength = -1
 	if err != nil {
 		return resp, err
 	}
 	resp.Body = plugin.NewStatsStrippingReader(resp.Body)
+	resp.Header.Del("Content-Encoding")
+	resp.Header.Del("Content-Length")
+	resp.ContentLength = -1
 	return resp, nil
 }
 
@@ -109,7 +109,7 @@ func TestClickHouseQueryConnectionLevel(t *testing.T) {
 		Addr: []string{"qe-innovations-3.hydrolix.dev:443"},
 		Auth: clickhouse.Auth{
 			Username: "vkohut+test@hydrolix.io",
-			Password: "DevTest83",
+			Password: "*****",
 		},
 		ClientInfo: clickhouse.ClientInfo{
 			Products: getClientInfoProducts(ctx),
@@ -156,7 +156,7 @@ func TestClickHouseQueryBothLevels(t *testing.T) {
 		Addr: []string{"qe-innovations-3.hydrolix.dev:443"},
 		Auth: clickhouse.Auth{
 			Username: "vkohut+test@hydrolix.io",
-			Password: "DevTest83",
+			Password: "*****",
 		},
 		ClientInfo: clickhouse.ClientInfo{
 			Products: getClientInfoProducts(ctx),

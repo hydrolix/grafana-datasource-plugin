@@ -127,7 +127,10 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		if protocol == clickhouse.HTTP {
 			// basic auth
 			if settings.UserName != "" && settings.Password != "" {
-				opts.HttpHeaders = map[string]string{"Authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", settings.UserName, settings.Password)))}
+				opts.HttpHeaders = map[string]string{
+					"Authorization":   "Basic " + base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", settings.UserName, settings.Password))),
+					"Accept-Encoding": "identity",
+				}
 			}
 			// native format
 			opts.Settings = map[string]any{"hdx_query_output_format": "Native"}
@@ -149,7 +152,9 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 			opts.Auth = clickhouse.Auth{
 				Database: settings.DefaultDatabase,
 			}
-			httpHeaders := make(map[string]string, 2)
+			httpHeaders := make(map[string]string, 3)
+			httpHeaders["Accept-Encoding"] = "identity"
+
 			orgId, ok := getOrgId(args)
 			if ok {
 				httpHeaders[OrgIdHeaderKey] = orgId
@@ -462,18 +467,18 @@ type metadataStrippingTransport struct {
 }
 
 func (t *metadataStrippingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	req.Header.Set("Accept-Encoding", "identity")
-	log.DefaultLogger.Warn("metadataStrippingTransport",
-		"req Accept-Encoding", req.Header.Get("Accept-Encoding"),
-		//"req", req.Header.Values("Accept-Encoding"),
-	)
+	//req.Header.Set("Accept-Encoding", "identity")
+	//log.DefaultLogger.Warn("metadataStrippingTransport",
+	//	"req Accept-Encoding", req.Header.Get("Accept-Encoding"),
+	//	//"req", req.Header.Values("Accept-Encoding"),
+	//)
 	resp, err := t.base.RoundTrip(req)
-	resp.Header.Del("Content-Encoding")
-	resp.Header.Del("Content-Length")
-	resp.ContentLength = -1
 	if err != nil {
 		return resp, err
 	}
 	resp.Body = NewStatsStrippingReader(resp.Body)
+	resp.Header.Del("Content-Encoding")
+	resp.Header.Del("Content-Length")
+	resp.ContentLength = -1
 	return resp, nil
 }

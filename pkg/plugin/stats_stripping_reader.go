@@ -2,9 +2,10 @@ package plugin
 
 import (
 	"bytes"
+	"encoding/binary"
 	"io"
 
-	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
+	"github.com/pierrec/lz4/v4"
 )
 
 // statsPrefix is the marker HDX appends to the response body when
@@ -12,13 +13,28 @@ import (
 // "\nX-HDX-Query-Stats:{key=val ...}\n".
 var statsPrefix = []byte("\nX-HDX-Query-Stats:")
 
-// maxStatsLineSize is the maximum expected size of the stats trailer.
-// We hold back this many bytes at the tail of the stream so we can
-// inspect them for the stats line before delivering to the caller.
-// Must be larger than any stats line Hydrolix can produce; a typical
-// line with 15–20 key=value pairs is ~400–600 bytes, but can grow
-// with additional fields, so we use a generous margin.
-const maxStatsLineSize = 2048
+// maxStatsLineSize is the maximum expected size of the trailing stats
+// frame (CityHash128 16 + header 9 + LZ4-compressed stats text). We
+// hold back this many bytes at the tail of the stream so the backward
+// frame walk in findStatsIndex has the entire last frame in view at EOF.
+// A typical stats line of 15–20 key=value pairs compresses to
+// ~200–500 bytes, so 1KB is a comfortable margin.
+const maxStatsLineSize = 1024
+
+// LZ4 ClickHouse compressed-frame header layout:
+//
+//	[ 0..15] CityHash128 checksum
+//	[16   ] compression method (0x82 LZ4 / 0x90 ZSTD / 0x02 NONE)
+//	[17..20] compressed_size LE u32 (includes the 9-byte header)
+//	[21..24] decompressed_size LE u32
+//	[25..  ] payload
+const (
+	lz4FrameHeaderSize  = 25 // checksum + method + sizes
+	lz4FrameMethodLZ4   = 0x82
+	lz4FrameMethodZSTD  = 0x90
+	lz4FrameMethodNone  = 0x02
+	lz4MaxDecompressLen = 64 * 1024
+)
 
 // StatsStrippingReader wraps an io.ReadCloser and strips a trailing
 // X-HDX-Query-Stats line from the stream. It uses a single flat buffer
@@ -95,27 +111,71 @@ func (s *StatsStrippingReader) Close() error {
 }
 
 // findStatsIndex returns the index within data where the trailing
-// X-HDX-Query-Stats line begins, or len(data) if no trailing stats
-// are found. Only matches when the stats line is the last line —
-// nothing meaningful follows except an optional trailing newline.
+// X-HDX-Query-Stats LZ4 frame begins, or len(data) if no such trailer
+// is found. The Hydrolix server bug (when hdx_query_streaming_result=1
+// and Native+LZ4 are used) appends a spurious LZ4-framed
+// "\nX-HDX-Query-Stats:...\n" block as the last frame of the body.
+//
+// Approach B (see http_streaming_doc.md): walk backward from the end
+// of data, looking for a candidate position p where data[p] is a valid
+// frame method byte and the LE u32 immediately after equals the byte
+// distance from p to the end (i.e. the compressed size matches the
+// tail exactly). Then verify by LZ4-decompressing the payload's first
+// few bytes and confirming they begin with "\nX-HDX-Query-Stats:". If
+// any candidate verifies, return frame_start = p - 16. Otherwise pass
+// through (return len(data)) — this also makes the eventual server
+// fix a silent no-op for the client.
 func findStatsIndex(data []byte) int {
-	idx := bytes.LastIndex(data, statsPrefix)
-	if idx < 0 {
+	if len(data) < lz4FrameHeaderSize {
 		return len(data)
 	}
 
-	log.DefaultLogger.Warn("found StatsStrippingReader", "data", string(data))
-	// Verify nothing meaningful follows the stats line.
-	after := data[idx+len(statsPrefix):]
-	nlPos := bytes.IndexByte(after, '\n')
-	if nlPos < 0 {
-		// No trailing newline — stats line runs to the end.
-		return idx
+	// p points at the method byte; we need at least 9 bytes after it
+	// for the header (method + compSize + decompSize) and 16 before
+	// it for the CityHash128.
+	for p := len(data) - 9; p >= 16; p-- {
+		method := data[p]
+		if method != lz4FrameMethodLZ4 &&
+			method != lz4FrameMethodZSTD &&
+			method != lz4FrameMethodNone {
+			continue
+		}
+		compSize := binary.LittleEndian.Uint32(data[p+1 : p+5])
+		if compSize != uint32(len(data)-p) {
+			continue
+		}
+		if !verifyStatsFrame(data[p:]) {
+			// Coincidental method byte / size match inside another
+			// frame's payload — keep walking.
+			continue
+		}
+		return p - 16
 	}
-	if nlPos == len(after)-1 {
-		// Newline is the last byte — expected pattern.
-		return idx
-	}
-	// Data follows the stats line — not the trailer.
 	return len(data)
+}
+
+// verifyStatsFrame reports whether the given ClickHouse compressed
+// frame (starting at the method byte) decompresses to a payload that
+// begins with the X-HDX-Query-Stats marker.
+//
+// Only LZ4 (method 0x82) is verified — the streaming-mode bug is
+// LZ4-specific, and refusing to strip ZSTD/NONE tails is the safe
+// conservative behavior.
+func verifyStatsFrame(frame []byte) bool {
+	if len(frame) < 9 {
+		return false
+	}
+	if frame[0] != lz4FrameMethodLZ4 {
+		return false
+	}
+	decompSize := binary.LittleEndian.Uint32(frame[5:9])
+	if decompSize < uint32(len(statsPrefix)) || decompSize > lz4MaxDecompressLen {
+		return false
+	}
+	dst := make([]byte, decompSize)
+	n, err := lz4.UncompressBlock(frame[9:], dst)
+	if err != nil || n < len(statsPrefix) {
+		return false
+	}
+	return bytes.HasPrefix(dst[:n], statsPrefix)
 }
