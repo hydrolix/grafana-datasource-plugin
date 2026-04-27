@@ -29,9 +29,6 @@ jobs:
       - name: Set version
         run: ./.github/scripts/set-version.sh
 
-      - name: Apply patches to Go dependencies
-        run: ./.github/scripts/apply-patches.sh
-
       - name: Run tests
         run: |
           gotestsum --junitfile junit_report.xml --format testname -- \

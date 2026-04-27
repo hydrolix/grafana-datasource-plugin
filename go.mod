@@ -160,4 +160,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-// replace github.com/ClickHouse/clickhouse-go/v2 => ../clickhouse-go
+replace github.com/ClickHouse/clickhouse-go/v2 => github.com/hydrolix/clickhouse-go/v2 v2.0.0-20260427145713-7d088973b90b
