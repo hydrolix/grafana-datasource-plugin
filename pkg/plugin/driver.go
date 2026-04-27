@@ -79,11 +79,6 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		protocol = clickhouse.HTTP
 	}
 
-	compression := clickhouse.CompressionLZ4
-	if protocol == clickhouse.HTTP {
-		compression = clickhouse.CompressionLZ4
-	}
-
 	var tlsConfig *tls.Config
 	if settings.Secure {
 		tlsConfig = &tls.Config{
@@ -101,7 +96,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 			Products: getClientInfoProducts(ctx),
 		},
 		Compression: &clickhouse.Compression{
-			Method: compression,
+			Method: clickhouse.CompressionLZ4,
 		},
 		Protocol:    protocol,
 		HttpUrlPath: settings.Path,

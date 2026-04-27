@@ -3,7 +3,7 @@ module github.com/hydrolix/plugin
 go 1.25.7
 
 require (
-	github.com/ClickHouse/clickhouse-go/v2 v2.44.1
+	github.com/ClickHouse/clickhouse-go/v2 v2.44.0
 	github.com/grafana/dataplane/sdata v0.0.9 // indirect
 	github.com/grafana/grafana-plugin-sdk-go v0.290.1
 	github.com/hydrolix/clickhouse-sql-parser v0.3.0
@@ -14,7 +14,10 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/clickhouse v0.35.0
 )
 
-require github.com/docker/go-connections v0.6.0
+require (
+	github.com/docker/go-connections v0.6.0
+	github.com/pierrec/lz4/v4 v4.1.25
+)
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
@@ -104,7 +107,6 @@ require (
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/paulmach/orb v0.12.0 // indirect
-	github.com/pierrec/lz4/v4 v4.1.25 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 	github.com/prometheus/client_golang v1.23.2 // indirect
@@ -158,4 +160,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/ClickHouse/clickhouse-go/v2 => ../clickhouse-go
+// replace github.com/ClickHouse/clickhouse-go/v2 => ../clickhouse-go

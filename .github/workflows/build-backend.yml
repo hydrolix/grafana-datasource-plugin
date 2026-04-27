@@ -27,6 +27,9 @@ jobs:
       - name: Set version
         run: ./.github/scripts/set-version.sh
 
+      - name: Apply patches to Go dependencies
+        run: ./.github/scripts/apply-patches.sh
+
       - name: Build backend
         run: mage
 
