@@ -157,8 +157,8 @@ github.com/hashicorp/go-plugin v1.7.0 h1:YghfQH/0QmPNc/AZMTFE3ac8fipZyZECHdDPshf
 github.com/hashicorp/go-plugin v1.7.0/go.mod h1:BExt6KEaIYx804z8k4gRzRLEvxKVb+kn0NMcihqOqb8=
 github.com/hashicorp/yamux v0.1.2 h1:XtB8kyFOyHXYVFnwT5C3+Bdo8gArse7j2AQ0DA0Uey8=
 github.com/hashicorp/yamux v0.1.2/go.mod h1:C+zze2n6e/7wshOZep2A70/aQU6QBRWJO/G6FT1wIns=
-github.com/hydrolix/clickhouse-go/v2 v2.0.0-20260427145713-7d088973b90b h1:7sZ2eDS1QM1vu2HQ+Zxyc7crqGx4baKyB3fli7PwDAo=
-github.com/hydrolix/clickhouse-go/v2 v2.0.0-20260427145713-7d088973b90b/go.mod h1:giJfUVlMkcfUEPVfRpt51zZaGEx9i17gCos8gBl392c=
+github.com/hydrolix/clickhouse-go/v2 v2.0.0-20260429075001-7e43c7fdd551 h1:kLQAYgKiIyamR9lp5FITq/ZtrY4vzPuY4F454ZVctwY=
+github.com/hydrolix/clickhouse-go/v2 v2.0.0-20260429075001-7e43c7fdd551/go.mod h1:giJfUVlMkcfUEPVfRpt51zZaGEx9i17gCos8gBl392c=
 github.com/hydrolix/clickhouse-sql-parser v0.3.0 h1:H1dTFltNcIp5KWToEh8WsSkVDkvCyaf5K9MDt8jDy1s=
 github.com/hydrolix/clickhouse-sql-parser v0.3.0/go.mod h1:XM12SuNWq8DPbgWQ6mB8tIxg2BucGZrX6636VuSk2No=
 github.com/hydrolix/sqlds/v5 v5.0.0 h1:YhJGgZUkywG673NmH0O68D7MtNCYqpkA7vxGItNOn2g=
