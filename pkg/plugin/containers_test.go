@@ -33,7 +33,7 @@ func NewClickhouseContainer(ctx context.Context, username, password string) (*Cl
 	cwd := path.Join(path.Dir(filename), "..")
 
 	clickHouseContainer, err := clickhouse.Run(ctx,
-		"clickhouse/clickhouse-server:latest", // TODO: set version
+		"clickhouse/clickhouse-server:24.8",
 		clickhouse.WithUsername(username),
 		clickhouse.WithPassword(password),
 		// clickhouse.WithDatabase(database),
