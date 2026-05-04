@@ -6,6 +6,7 @@
  */
 {
   "compilerOptions": {
+    "moduleResolution": "node",
     "alwaysStrict": true,
     "declaration": false,
     "rootDir": "../src",
