@@ -37,7 +37,6 @@
     "@testing-library/react": "14.0.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.8.7",
-    "@types/uuid": "^10.0.0",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@types/testing-library__jest-dom": "5.14.8",
     "@types/webpack-livereload-plugin": "^2.3.6",
