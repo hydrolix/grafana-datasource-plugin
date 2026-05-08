@@ -4,6 +4,7 @@ playwright-report/
 playwright/
 test-results/
 coverage/
+hydrolix-hydrolix-datasource/
 .vscode/
 .idea/
 .eslintcache
