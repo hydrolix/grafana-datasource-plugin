@@ -1,5 +1,5 @@
 import { Icon, Monaco, Spinner, useTheme2 } from "@grafana/ui";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { css } from "@emotion/css";
 import { InterpolationResult } from "../types";
 
@@ -10,11 +10,7 @@ interface Props {
 }
 
 export function ValidationBar({ monaco, query, interpolationResult }: Props) {
-  let [validating, setValidating] = useState<boolean>(false);
-
-  useEffect(() => {
-    setValidating(interpolationResult?.originalSql !== query);
-  }, [query, interpolationResult?.originalSql]);
+  const validating = interpolationResult?.originalSql !== query;
 
   const theme = useTheme2();
   const styles = useMemo(() => {

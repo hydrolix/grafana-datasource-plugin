@@ -30,7 +30,7 @@ jobs:
     name: Build Backend
     uses: ./.github/workflows/build-backend.yml
     with:
-      go_version: '1.24.4'
+      go_version: '1.25.7'
 
   test-backend:
     name: Test Backend

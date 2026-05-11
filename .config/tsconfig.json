@@ -6,7 +6,6 @@
  */
 {
   "compilerOptions": {
-    "moduleResolution": "node",
     "alwaysStrict": true,
     "declaration": false,
     "rootDir": "../src",
@@ -18,7 +17,8 @@
     "compilerOptions": {
       "module": "commonjs",
       "target": "es5",
-      "esModuleInterop": true
+      "esModuleInterop": true,
+      "moduleResolution": "node"
     },
     "transpileOnly": true
   },
