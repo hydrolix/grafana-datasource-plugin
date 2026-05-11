@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -78,11 +79,6 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		protocol = clickhouse.HTTP
 	}
 
-	compression := clickhouse.CompressionLZ4
-	if protocol == clickhouse.HTTP {
-		compression = clickhouse.CompressionGZIP
-	}
-
 	var tlsConfig *tls.Config
 	if settings.Secure {
 		tlsConfig = &tls.Config{
@@ -100,7 +96,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 			Products: getClientInfoProducts(ctx),
 		},
 		Compression: &clickhouse.Compression{
-			Method: compression,
+			Method: clickhouse.CompressionLZ4,
 		},
 		Protocol:    protocol,
 		HttpUrlPath: settings.Path,
@@ -109,6 +105,11 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		TLS:         tlsConfig,
 
 		BlockBufferSize: 2,
+	}
+
+	opts.TransportFunc = func(t *http.Transport) (http.RoundTripper, error) {
+		t.DisableCompression = false
+		return &metadataStrippingTransport{base: t}, nil
 	}
 
 	if settings.CredentialsType == "userAccount" || settings.CredentialsType == "" {
@@ -121,10 +122,15 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		if protocol == clickhouse.HTTP {
 			// basic auth
 			if settings.UserName != "" && settings.Password != "" {
-				opts.HttpHeaders = map[string]string{"Authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", settings.UserName, settings.Password)))}
+				opts.HttpHeaders = map[string]string{
+					"Authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", settings.UserName, settings.Password))),
+				}
 			}
 			// native format
-			opts.Settings = map[string]any{"hdx_query_output_format": "Native"}
+			opts.Settings = map[string]any{
+				"hdx_query_output_format":    "Native",
+				"hdx_query_streaming_result": "true",
+			}
 		}
 	} else {
 		token := ""
@@ -144,6 +150,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 				Database: settings.DefaultDatabase,
 			}
 			httpHeaders := make(map[string]string, 2)
+
 			orgId, ok := getOrgId(args)
 			if ok {
 				httpHeaders[OrgIdHeaderKey] = orgId
@@ -156,7 +163,10 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 				opts.HttpHeaders = httpHeaders
 			}
 			// native format
-			opts.Settings = map[string]any{"hdx_query_output_format": "Native"}
+			opts.Settings = map[string]any{
+				"hdx_query_output_format":    "Native",
+				"hdx_query_streaming_result": "true",
+			}
 		} else {
 			opts.Auth = clickhouse.Auth{
 				Database: settings.DefaultDatabase,
@@ -449,4 +459,33 @@ func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
 		backend.DownstreamError(err),
 		backend.ErrorSourceDownstream,
 	)
+}
+
+type metadataStrippingTransport struct {
+	base http.RoundTripper
+}
+
+func (t *metadataStrippingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Force identity encoding so the body is the raw Native+LZ4 frame
+	// stream we know how to walk. Done in the transport (not via
+	// opts.HttpHeaders) so it applies to every code path uniformly,
+	// including anonymous queries where HttpHeaders is left empty.
+	req.Header.Set("Accept-Encoding", "identity")
+
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		return resp, err
+	}
+	// Only rewrite successful query responses. Error and other non-200
+	// payloads (plain text, JSON) must reach the client untouched —
+	// scanning them for LZ4 frame markers risks false positives that
+	// would truncate the original message.
+	if resp.StatusCode != http.StatusOK {
+		return resp, nil
+	}
+	resp.Body = newStatsStrippingReader(resp.Body)
+	resp.Header.Del("Content-Encoding")
+	resp.Header.Del("Content-Length")
+	resp.ContentLength = -1
+	return resp, nil
 }
