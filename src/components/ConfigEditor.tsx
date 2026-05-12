@@ -43,23 +43,33 @@ export interface Props
 
 export function ConfigEditor(props: Props) {
   const { onOptionsChange, options } = props;
-  if (!Object.keys(options.jsonData).length) {
-    onOptionsChange({
-      ...options,
-      jsonData: defaultConfigs,
-    });
-  }
   const { jsonData, secureJsonFields } = options;
 
-  if (Object.keys(options.jsonData).length && !jsonData.adHocDefaultTimeRange) {
-    onOptionsChange({
-      ...options,
-      jsonData: {
-        ...options.jsonData,
-        adHocDefaultTimeRange: defaultConfigs.adHocDefaultTimeRange,
-      },
-    });
-  }
+  // Apply defaults via effect (not inline) — Grafana 13 / React 18 drops
+  // setState during render. Detect a fresh datasource by checking the domain
+  // fields rather than `Object.keys(jsonData).length`, since Grafana 13 seeds
+  // jsonData with `{ pdcInjected: false }`.
+  useEffect(() => {
+    const isUninitialized =
+      options.jsonData.protocol === undefined &&
+      options.jsonData.port === undefined &&
+      options.jsonData.host === undefined;
+    if (isUninitialized) {
+      onOptionsChange({
+        ...options,
+        jsonData: { ...options.jsonData, ...defaultConfigs },
+      });
+    } else if (!options.jsonData.adHocDefaultTimeRange) {
+      onOptionsChange({
+        ...options,
+        jsonData: {
+          ...options.jsonData,
+          adHocDefaultTimeRange: defaultConfigs.adHocDefaultTimeRange,
+        },
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const labels = allLabels.components.config.editor;
   const querySettings = allLabels.components.querySettings;

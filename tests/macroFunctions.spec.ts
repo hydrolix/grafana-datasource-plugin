@@ -1,6 +1,6 @@
 import { test, expect, PanelEditPage } from "@grafana/plugin-e2e";
 // @ts-ignore
-import { ConfigPageSteps, queryTextSet, timerangeSet, setMaxDataPoints } from "./helpers";
+import { closeWhatsNewDialog, ConfigPageSteps, queryTextSet, timerangeSet, setMaxDataPoints } from "./helpers";
 
 /**
  * Runs sequentially in order to avoid multiple datasource creation.
@@ -15,7 +15,7 @@ let panelEditPage: PanelEditPage;
 /**
  * Creates one datasource and resets panel page before each test
  */
-test.beforeEach(async ({ dashboardPage, createDataSourceConfigPage }) => {
+test.beforeEach(async ({ dashboardPage, createDataSourceConfigPage, page }) => {
   if (panelEditPage === undefined) {
     const dsConfigPage = await ConfigPageSteps.createDatasourceConfigPage(
       "macroFunctions tests",
@@ -26,6 +26,7 @@ test.beforeEach(async ({ dashboardPage, createDataSourceConfigPage }) => {
     await configPageSteps.saveSuccess(dsConfigPage);
   }
   await dashboardPage.goto();
+  await closeWhatsNewDialog(page);
   panelEditPage = await dashboardPage.addPanel();
   await panelEditPage.datasource.set("macroFunctions tests");
   await panelEditPage.toggleTableView();

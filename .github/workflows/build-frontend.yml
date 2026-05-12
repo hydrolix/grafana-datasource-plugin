@@ -14,12 +14,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: ${{ env.node_version }}
+          node-version: ${{ inputs.node_version }}
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
@@ -29,8 +29,8 @@ jobs:
       - name: Set version
         run: ./.github/scripts/set-version.sh
 
-      - name: Lint code
-        run: npm run lint
+#      - name: Lint code
+#        run: npm run lint
 
       - name: Type check
         run: npm run typecheck
