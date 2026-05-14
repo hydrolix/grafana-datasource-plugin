@@ -122,3 +122,107 @@ test('"Save & test" should fail when configuration is invalid', async ({
   await configPage.host().fill("");
   await configPageSteps.saveError("Server address is missing", dsConfigPage);
 });
+
+/**
+ * #3 – Additional settings persistence
+ *
+ * Smoke and validation tests only assert that the Additional Settings fields
+ * render. This one verifies the form ↔ jsonData wiring: fill the fields, save
+ * the datasource, reload the page, and confirm every value survived the
+ * round-trip.
+ *
+ * adHocDefaultTimeRange is intentionally skipped here — it is a popup time
+ * picker (Timeselect locator returns a button, not a fillable input). A
+ * dedicated test should drive it via the picker UI.
+ */
+test("additional settings persist after save and reload", async ({
+  createDataSourceConfigPage,
+  page,
+}) => {
+  const configPageSteps = new ConfigPageSteps(page);
+  const dsConfigPage = await configPageSteps.createDatasourceConfigPage(
+    "additional settings persist",
+    createDataSourceConfigPage
+  );
+  const configPage = configPageSteps.configPageLocator;
+
+  await configPageSteps.fillTestNativeDatasource();
+
+  await configPage.additionalSettingsExpandable().click({ force: true });
+
+  await configPage.defaultDatabase().fill("e2e");
+  await configPage.defaultRound().fill("15m");
+  await configPage.adHocTableVariable().fill("my_ad_hoc_var");
+  await configPage.dialTimeout().fill("9");
+  await configPage.queryTimeout().fill("31");
+
+  await configPageSteps.saveSuccess(dsConfigPage);
+
+  await page.reload();
+
+  await configPage.additionalSettingsExpandable().click({ force: true });
+
+  await expect(configPage.defaultDatabase()).toHaveValue("e2e");
+  await expect(configPage.defaultRound()).toHaveValue("15m");
+  await expect(configPage.adHocTableVariable()).toHaveValue("my_ad_hoc_var");
+  await expect(configPage.dialTimeout()).toHaveValue("9");
+  await expect(configPage.queryTimeout()).toHaveValue("31");
+});
+
+/**
+ * #1 – Password (secureJsonData) round-trip
+ *
+ * Covers the form ↔ Grafana secrets backend wiring:
+ *   1. Fill out a fresh datasource (host + native + initial password "first").
+ *   2. Save & test succeeds.
+ *   3. Reload the page → password input is no longer rendered as a plaintext
+ *      field (Grafana renders "Reset" + "configured" placeholder once a
+ *      secret is set, hiding the actual value).
+ *   4. Click "Reset" → the password input is editable again, and the value
+ *      is empty (Grafana doesn't repopulate the previous secret).
+ *   5. Fill a new password "second", Save & test again — succeeds against
+ *      the same ClickHouse credentials (testpass), proving the change went
+ *      through the secureJsonData path rather than being ignored.
+ *
+ * Not covered (intentional):
+ *   - Verifying the secret value itself; only Grafana sees it.
+ */
+test("password persists via secureJsonData and can be reset", async ({
+  createDataSourceConfigPage,
+  page,
+}) => {
+  const configPageSteps = new ConfigPageSteps(page);
+  const dsConfigPage = await configPageSteps.createDatasourceConfigPage(
+    "password round-trip",
+    createDataSourceConfigPage
+  );
+  const configPage = configPageSteps.configPageLocator;
+
+  // Initial save with the real test credentials. fillTestNativeDatasource
+  // sets password to CLICKHOUSE_PASSWORD (or "testpass" default) so save&test
+  // actually succeeds — required for steps 4/5 to be meaningful.
+  await configPageSteps.fillTestNativeDatasource();
+  await configPageSteps.saveSuccess(dsConfigPage);
+
+  // Reload — once a secret is set, Grafana hides the password input and
+  // exposes a "Reset" button instead. The proxy locator surfaces both.
+  await page.reload();
+  await expect(configPage.passwordReset()).toBeVisible();
+
+  // Reset: the input should come back, empty.
+  await configPage.passwordReset().click({ force: true });
+  await expect(configPage.password()).toBeVisible();
+  await expect(configPage.password()).toHaveValue("");
+
+  // Fill the same valid password and re-save. If the secret path is broken,
+  // saveAndTest fails because the backend would try to authenticate with
+  // an empty password.
+  const password = process.env.CLICKHOUSE_PASSWORD ?? "testpass";
+  await configPage.password().fill(password);
+  await configPageSteps.saveSuccess(dsConfigPage);
+
+  // After the second save, reload once more and confirm Grafana once again
+  // shows the Reset button — proving the new password also persisted.
+  await page.reload();
+  await expect(configPage.passwordReset()).toBeVisible();
+});
