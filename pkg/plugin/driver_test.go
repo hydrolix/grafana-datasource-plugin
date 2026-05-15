@@ -448,19 +448,19 @@ func TestGrafanaAdminCommentInjection(t *testing.T) {
 			&backend.User{Email: "alice@example.com", Login: "alice"},
 			`{"rawSql":"SELECT 1","refId":"A"}`)
 		got := findSettingValue(settings, adminCommentSetting)
-		assert.Contains(t, got, "grafana_user_email=alice@example.com")
-		assert.Contains(t, got, "grafana_user_login=alice")
-		assert.Contains(t, got, "grafana_ref_id=A")
-		assert.Contains(t, got, "grafana_panel_id=unknown")
+		assert.Contains(t, got, "user_email=alice@example.com")
+		assert.Contains(t, got, "user_login=alice")
+		assert.Contains(t, got, "ref_id=A")
+		assert.Contains(t, got, "panel_id=unknown")
 	})
 
 	t.Run("nil PluginContext.User emits unknown", func(t *testing.T) {
 		settings := adminCommentValueFromMutate(t, plugin, nil,
 			`{"rawSql":"SELECT 1","refId":"B"}`)
 		got := findSettingValue(settings, adminCommentSetting)
-		assert.Contains(t, got, "grafana_user_email=unknown")
-		assert.Contains(t, got, "grafana_user_login=unknown")
-		assert.Contains(t, got, "grafana_ref_id=B")
+		assert.Contains(t, got, "user_email=unknown")
+		assert.Contains(t, got, "user_login=unknown")
+		assert.Contains(t, got, "ref_id=B")
 	})
 
 	t.Run("empty email but populated login", func(t *testing.T) {
@@ -468,8 +468,8 @@ func TestGrafanaAdminCommentInjection(t *testing.T) {
 			&backend.User{Email: "", Login: "alice"},
 			`{"rawSql":"SELECT 1","refId":"A"}`)
 		got := findSettingValue(settings, adminCommentSetting)
-		assert.Contains(t, got, "grafana_user_email=unknown")
-		assert.Contains(t, got, "grafana_user_login=alice")
+		assert.Contains(t, got, "user_email=unknown")
+		assert.Contains(t, got, "user_login=alice")
 	})
 
 	t.Run("panel metadata from query JSON is included when present", func(t *testing.T) {
@@ -478,7 +478,7 @@ func TestGrafanaAdminCommentInjection(t *testing.T) {
 			`{"rawSql":"SELECT 1","refId":"A","meta":{"grafana":{"panelId":7,"panelName":"Requests","dashboardUID":"abc123","dashboardTitle":"Production","app":"dashboard"}}}`)
 		got := findSettingValue(settings, adminCommentSetting)
 		assert.Equal(t,
-			"grafana_user_email=alice@example.com; grafana_user_login=alice; grafana_panel_id=7; grafana_panel_name=Requests; grafana_dashboard_uid=abc123; grafana_dashboard_title=Production; grafana_app=dashboard; grafana_ref_id=A",
+			"user_email=alice@example.com; user_login=alice; panel_id=7; panel_name=Requests; dashboard_uid=abc123; dashboard_title=Production; app=dashboard; ref_id=A",
 			got)
 	})
 
@@ -487,11 +487,11 @@ func TestGrafanaAdminCommentInjection(t *testing.T) {
 			&backend.User{Email: "alice@example.com", Login: "alice"},
 			`{"rawSql":"SELECT 1","refId":"A","meta":{"grafana":{"app":"explore"}}}`)
 		got := findSettingValue(settings, adminCommentSetting)
-		assert.Contains(t, got, "grafana_panel_id=unknown")
-		assert.Contains(t, got, "grafana_panel_name=unknown")
-		assert.Contains(t, got, "grafana_dashboard_uid=unknown")
-		assert.Contains(t, got, "grafana_dashboard_title=unknown")
-		assert.Contains(t, got, "grafana_app=explore")
+		assert.Contains(t, got, "panel_id=unknown")
+		assert.Contains(t, got, "panel_name=unknown")
+		assert.Contains(t, got, "dashboard_uid=unknown")
+		assert.Contains(t, got, "dashboard_title=unknown")
+		assert.Contains(t, got, "app=explore")
 	})
 
 	t.Run("malformed query JSON does not fail injection", func(t *testing.T) {
@@ -517,7 +517,7 @@ func TestGrafanaAdminCommentInjection(t *testing.T) {
 			`{"rawSql":"SELECT 1","refId":"A","querySettings":[{"setting":"hdx_query_admin_comment","value":"custom=foo"}]}`)
 		got := findSettingValue(settings, adminCommentSetting)
 		assert.True(t, strings.HasPrefix(got, "custom=foo; "))
-		assert.Contains(t, got, "grafana_user_email=alice@example.com")
+		assert.Contains(t, got, "user_email=alice@example.com")
 	})
 
 	t.Run("query-level setting cannot remove managed user metadata", func(t *testing.T) {
@@ -525,8 +525,8 @@ func TestGrafanaAdminCommentInjection(t *testing.T) {
 			&backend.User{Email: "alice@example.com", Login: "alice"},
 			`{"rawSql":"SELECT 1","refId":"A","querySettings":[{"setting":"hdx_query_admin_comment","value":""}]}`)
 		got := findSettingValue(settings, adminCommentSetting)
-		assert.Contains(t, got, "grafana_user_email=alice@example.com")
-		assert.Contains(t, got, "grafana_user_login=alice")
+		assert.Contains(t, got, "user_email=alice@example.com")
+		assert.Contains(t, got, "user_login=alice")
 	})
 
 	t.Run("MutateQuery converts managed comment into clickhouse.CustomSetting", func(t *testing.T) {
@@ -548,7 +548,7 @@ func TestGrafanaAdminCommentInjection(t *testing.T) {
 		ctxSettings := ctx.Value("querySettings").(map[string]any)
 		v, ok := ctxSettings[adminCommentSetting].(clickhouse.CustomSetting)
 		assert.True(t, ok)
-		assert.Contains(t, v.Value, "grafana_user_email=alice@example.com")
+		assert.Contains(t, v.Value, "user_email=alice@example.com")
 	})
 }
 

@@ -299,14 +299,14 @@ func buildGrafanaAdminComment(req *backend.QueryDataRequest, q backend.DataQuery
 	}
 
 	parts := []string{
-		"grafana_user_email=" + email,
-		"grafana_user_login=" + login,
-		"grafana_panel_id=" + panelIDString(meta.PanelID),
-		"grafana_panel_name=" + normalizeAdminCommentValue(meta.PanelName),
-		"grafana_dashboard_uid=" + normalizeAdminCommentValue(meta.DashboardUID),
-		"grafana_dashboard_title=" + normalizeAdminCommentValue(meta.DashboardTitle),
-		"grafana_app=" + normalizeAdminCommentValue(meta.App),
-		"grafana_ref_id=" + normalizeAdminCommentValue(q.RefID),
+		"user_email=" + email,
+		"user_login=" + login,
+		"panel_id=" + panelIDString(meta.PanelID),
+		"panel_name=" + normalizeAdminCommentValue(meta.PanelName),
+		"dashboard_uid=" + normalizeAdminCommentValue(meta.DashboardUID),
+		"dashboard_title=" + normalizeAdminCommentValue(meta.DashboardTitle),
+		"app=" + normalizeAdminCommentValue(meta.App),
+		"ref_id=" + normalizeAdminCommentValue(q.RefID),
 	}
 	return strings.Join(parts, "; ")
 }
