@@ -570,6 +570,45 @@ describe("HdxDataSource", () => {
       expect(sentTarget.querySettings).toEqual([]);
     });
 
+    it("should forward Grafana panel metadata to target.meta.grafana", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+      const req = {
+        targets: [{ rawSql: "select 1", refId: "A", querySettings: [] }],
+        panelId: 7,
+        panelName: "Requests",
+        dashboardUID: "abc123",
+        dashboardTitle: "Production",
+        app: "dashboard",
+      } as unknown as DataQueryRequest<HdxQuery>;
+      await firstValueFrom(datasource.query(req));
+      const sentTarget = queryMock.mock.calls[0][0].targets[0];
+      expect(sentTarget.meta.grafana).toEqual({
+        panelId: 7,
+        panelName: "Requests",
+        dashboardUID: "abc123",
+        dashboardTitle: "Production",
+        app: "dashboard",
+      });
+    });
+
+    it("should not break when panel metadata fields are missing", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+      const req = {
+        targets: [{ rawSql: "select 1", refId: "A", querySettings: [] }],
+      } as unknown as DataQueryRequest<HdxQuery>;
+      await firstValueFrom(datasource.query(req));
+      const sentTarget = queryMock.mock.calls[0][0].targets[0];
+      expect(sentTarget.meta.grafana).toEqual({
+        panelId: undefined,
+        panelName: undefined,
+        dashboardUID: undefined,
+        dashboardTitle: undefined,
+        app: undefined,
+      });
+    });
+
     it("should replace template variables in setting values", async () => {
       const { datasource, queryMock } = setupDataSourceMock({
         variables: [fooVariable],

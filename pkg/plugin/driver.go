@@ -242,6 +242,75 @@ func (h *Hydrolix) Settings(ctx context.Context, config backend.DataSourceInstan
 	}
 }
 
+// adminCommentSetting is the ClickHouse setting used to carry Grafana
+// attribution metadata to Hydrolix query heads.
+const adminCommentSetting = "hdx_query_admin_comment"
+
+// grafanaQueryMeta holds attribution fields forwarded by the frontend from
+// DataQueryRequest. These values are best-effort and not identity-bearing.
+type grafanaQueryMeta struct {
+	PanelID        json.RawMessage `json:"panelId"`
+	PanelName      string          `json:"panelName"`
+	DashboardUID   string          `json:"dashboardUID"`
+	DashboardTitle string          `json:"dashboardTitle"`
+	App            string          `json:"app"`
+}
+
+// normalizeAdminCommentValue sanitises a value so it can be safely placed in
+// the semicolon-separated hdx_query_admin_comment fragment. Empty values
+// become "unknown".
+func normalizeAdminCommentValue(v string) string {
+	v = strings.TrimSpace(v)
+	v = strings.NewReplacer("\n", " ", "\r", " ", ";", " ").Replace(v)
+	if v == "" {
+		return "unknown"
+	}
+	return v
+}
+
+// panelIDString converts a JSON-encoded panel id (number or string) to its
+// printable form, falling back to "unknown" when absent.
+func panelIDString(raw json.RawMessage) string {
+	s := strings.TrimSpace(string(raw))
+	if s == "" || s == "null" {
+		return "unknown"
+	}
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		var unquoted string
+		if err := json.Unmarshal(raw, &unquoted); err == nil {
+			return normalizeAdminCommentValue(unquoted)
+		}
+	}
+	return normalizeAdminCommentValue(s)
+}
+
+// buildGrafanaAdminComment builds the managed Grafana metadata fragment for
+// the hdx_query_admin_comment setting. The output uses stable ordering.
+func buildGrafanaAdminComment(req *backend.QueryDataRequest, q backend.DataQuery, meta grafanaQueryMeta) string {
+	email := "unknown"
+	login := "unknown"
+	if req != nil && req.PluginContext.User != nil {
+		if req.PluginContext.User.Email != "" {
+			email = normalizeAdminCommentValue(req.PluginContext.User.Email)
+		}
+		if req.PluginContext.User.Login != "" {
+			login = normalizeAdminCommentValue(req.PluginContext.User.Login)
+		}
+	}
+
+	parts := []string{
+		"grafana_user_email=" + email,
+		"grafana_user_login=" + login,
+		"grafana_panel_id=" + panelIDString(meta.PanelID),
+		"grafana_panel_name=" + normalizeAdminCommentValue(meta.PanelName),
+		"grafana_dashboard_uid=" + normalizeAdminCommentValue(meta.DashboardUID),
+		"grafana_dashboard_title=" + normalizeAdminCommentValue(meta.DashboardTitle),
+		"grafana_app=" + normalizeAdminCommentValue(meta.App),
+		"grafana_ref_id=" + normalizeAdminCommentValue(q.RefID),
+	}
+	return strings.Join(parts, "; ")
+}
+
 // MutateQueryData merges datasource's query options with the target query's query options.
 func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRequest) (context.Context, *backend.QueryDataRequest) {
 	pluginSettings, err := models.NewPluginSettings(ctx, *req.PluginContext.DataSourceInstanceSettings)
@@ -258,6 +327,9 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 		var dataQuery struct {
 			RawSql        string                `json:"rawSql"`
 			QuerySettings []models.QuerySetting `json:"querySettings,omitempty"`
+			Meta          struct {
+				Grafana grafanaQueryMeta `json:"grafana"`
+			} `json:"meta"`
 		}
 		_ = json.Unmarshal(q.JSON, &dataQuery)
 		mergedSettings := make(map[string]string)
@@ -269,6 +341,13 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 			for _, setting := range dataQuery.QuerySettings {
 				mergedSettings[setting.Setting] = setting.Value
 			}
+		}
+
+		managed := buildGrafanaAdminComment(req, q, dataQuery.Meta.Grafana)
+		if existing, ok := mergedSettings[adminCommentSetting]; ok && strings.TrimSpace(existing) != "" {
+			mergedSettings[adminCommentSetting] = existing + "; " + managed
+		} else {
+			mergedSettings[adminCommentSetting] = managed
 		}
 
 		mergedSettingsArray := make([]models.QuerySetting, len(mergedSettings))

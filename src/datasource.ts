@@ -168,6 +168,13 @@ export class DataSource extends DataSourceWithBackend<
       querySettings: builder.build(),
       meta: {
         timezone: this.resolveTimezone(request),
+        grafana: {
+          panelId: request.panelId,
+          panelName: request.panelName,
+          dashboardUID: request.dashboardUID,
+          dashboardTitle: request.dashboardTitle,
+          app: request.app,
+        },
       },
     };
   }

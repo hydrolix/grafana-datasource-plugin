@@ -350,11 +350,18 @@ func TestQueryCustomSettingsPropagation(t *testing.T) {
 			assert.Equal(t, "0", findSettingValue(actualSettings, "hdx_query_timerange_required"))
 			assert.Equal(t, "20", findSettingValue(actualSettings, "hdx_query_max_result_rows"))
 
-			// datasource-level settings that were not overridden keep original values
+			// datasource-level settings that were not overridden keep original values.
+			// hdx_query_admin_comment has the managed Grafana fragment appended, so
+			// only the prefix is asserted here; full coverage lives in dedicated tests.
 			for _, v := range dsQuerySettings {
-				if !slices.Contains([]string{"hdx_query_timerange_required", "hdx_query_max_result_rows"}, v.Setting) {
-					assert.EqualValues(t, v.Value, findSettingValue(actualSettings, v.Setting))
+				if slices.Contains([]string{"hdx_query_timerange_required", "hdx_query_max_result_rows"}, v.Setting) {
+					continue
 				}
+				if v.Setting == adminCommentSetting {
+					assert.True(t, strings.HasPrefix(findSettingValue(actualSettings, v.Setting), v.Value+"; "))
+					continue
+				}
+				assert.EqualValues(t, v.Value, findSettingValue(actualSettings, v.Setting))
 			}
 
 			assert.NotContains(t, strings.ToLower(dataQuery.RawSql), " querysettings ")
@@ -375,9 +382,14 @@ func TestQueryCustomSettingsPropagation(t *testing.T) {
 			assert.Equal(t, "20", findSettingValue(actualSettings, "hdx_query_max_result_rows"))
 
 			for _, v := range dsQuerySettings {
-				if !slices.Contains([]string{"hdx_query_timerange_required", "hdx_query_max_result_rows"}, v.Setting) {
-					assert.EqualValues(t, v.Value, findSettingValue(actualSettings, v.Setting))
+				if slices.Contains([]string{"hdx_query_timerange_required", "hdx_query_max_result_rows"}, v.Setting) {
+					continue
 				}
+				if v.Setting == adminCommentSetting {
+					assert.True(t, strings.HasPrefix(findSettingValue(actualSettings, v.Setting), v.Value+"; "))
+					continue
+				}
+				assert.EqualValues(t, v.Value, findSettingValue(actualSettings, v.Setting))
 			}
 
 			ctxSettings := ctx0.Value("querySettings").(map[string]any)
@@ -390,5 +402,179 @@ func TestQueryCustomSettingsPropagation(t *testing.T) {
 			assert.NotContains(t, strings.ToLower(dataQuery.RawSql), " querysettings ")
 
 		})
+	}
+}
+
+// adminCommentValueFromMutate runs MutateQueryData against an empty-settings
+// data source and returns the resulting hdx_query_admin_comment value.
+func adminCommentValueFromMutate(t *testing.T, plugin *Hydrolix, user *backend.User, queryJSON string) (settings []models.QuerySetting) {
+	t.Helper()
+	jsonData, err := json.Marshal(models.PluginSettings{
+		Host: "localhost", Port: 80, Protocol: "http",
+		DialTimeout: "10", QueryTimeout: "20",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var refIDProbe struct {
+		RefID string `json:"refId"`
+	}
+	_ = json.Unmarshal([]byte(queryJSON), &refIDProbe)
+	req := &backend.QueryDataRequest{
+		PluginContext: backend.PluginContext{
+			User: user,
+			DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{
+				Name:     "ds",
+				JSONData: jsonData,
+			},
+		},
+		Queries: []backend.DataQuery{{RefID: refIDProbe.RefID, JSON: []byte(queryJSON)}},
+	}
+	_, req = plugin.MutateQueryData(context.Background(), req)
+	var out struct {
+		QuerySettings []models.QuerySetting `json:"querySettings"`
+	}
+	if err := json.Unmarshal(req.Queries[0].JSON, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out.QuerySettings
+}
+
+func TestGrafanaAdminCommentInjection(t *testing.T) {
+	plugin := &Hydrolix{querySettingsContextHandler: testContextHandler}
+
+	t.Run("no existing settings — admin comment is created from PluginContext.User", func(t *testing.T) {
+		settings := adminCommentValueFromMutate(t, plugin,
+			&backend.User{Email: "alice@example.com", Login: "alice"},
+			`{"rawSql":"SELECT 1","refId":"A"}`)
+		got := findSettingValue(settings, adminCommentSetting)
+		assert.Contains(t, got, "grafana_user_email=alice@example.com")
+		assert.Contains(t, got, "grafana_user_login=alice")
+		assert.Contains(t, got, "grafana_ref_id=A")
+		assert.Contains(t, got, "grafana_panel_id=unknown")
+	})
+
+	t.Run("nil PluginContext.User emits unknown", func(t *testing.T) {
+		settings := adminCommentValueFromMutate(t, plugin, nil,
+			`{"rawSql":"SELECT 1","refId":"B"}`)
+		got := findSettingValue(settings, adminCommentSetting)
+		assert.Contains(t, got, "grafana_user_email=unknown")
+		assert.Contains(t, got, "grafana_user_login=unknown")
+		assert.Contains(t, got, "grafana_ref_id=B")
+	})
+
+	t.Run("empty email but populated login", func(t *testing.T) {
+		settings := adminCommentValueFromMutate(t, plugin,
+			&backend.User{Email: "", Login: "alice"},
+			`{"rawSql":"SELECT 1","refId":"A"}`)
+		got := findSettingValue(settings, adminCommentSetting)
+		assert.Contains(t, got, "grafana_user_email=unknown")
+		assert.Contains(t, got, "grafana_user_login=alice")
+	})
+
+	t.Run("panel metadata from query JSON is included when present", func(t *testing.T) {
+		settings := adminCommentValueFromMutate(t, plugin,
+			&backend.User{Email: "alice@example.com", Login: "alice"},
+			`{"rawSql":"SELECT 1","refId":"A","meta":{"grafana":{"panelId":7,"panelName":"Requests","dashboardUID":"abc123","dashboardTitle":"Production","app":"dashboard"}}}`)
+		got := findSettingValue(settings, adminCommentSetting)
+		assert.Equal(t,
+			"grafana_user_email=alice@example.com; grafana_user_login=alice; grafana_panel_id=7; grafana_panel_name=Requests; grafana_dashboard_uid=abc123; grafana_dashboard_title=Production; grafana_app=dashboard; grafana_ref_id=A",
+			got)
+	})
+
+	t.Run("missing panel metadata emits unknown", func(t *testing.T) {
+		settings := adminCommentValueFromMutate(t, plugin,
+			&backend.User{Email: "alice@example.com", Login: "alice"},
+			`{"rawSql":"SELECT 1","refId":"A","meta":{"grafana":{"app":"explore"}}}`)
+		got := findSettingValue(settings, adminCommentSetting)
+		assert.Contains(t, got, "grafana_panel_id=unknown")
+		assert.Contains(t, got, "grafana_panel_name=unknown")
+		assert.Contains(t, got, "grafana_dashboard_uid=unknown")
+		assert.Contains(t, got, "grafana_dashboard_title=unknown")
+		assert.Contains(t, got, "grafana_app=explore")
+	})
+
+	t.Run("malformed query JSON does not fail injection", func(t *testing.T) {
+		jsonData, _ := json.Marshal(models.PluginSettings{
+			Host: "h", Port: 80, Protocol: "http", DialTimeout: "1", QueryTimeout: "1",
+		})
+		req := &backend.QueryDataRequest{
+			PluginContext: backend.PluginContext{
+				User:                       &backend.User{Email: "a@b", Login: "a"},
+				DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{JSONData: jsonData},
+			},
+			Queries: []backend.DataQuery{{RefID: "A", JSON: []byte(`{"rawSql":"SELECT 1","refId":"A"`)}},
+		}
+		_, _ = plugin.MutateQueryData(context.Background(), req)
+		// Malformed JSON cannot be re-serialised via jsonSet, so the query JSON
+		// is left untouched — verify that the call did not panic.
+		assert.Equal(t, `{"rawSql":"SELECT 1","refId":"A"`, string(req.Queries[0].JSON))
+	})
+
+	t.Run("existing query-level admin comment is preserved and appended", func(t *testing.T) {
+		settings := adminCommentValueFromMutate(t, plugin,
+			&backend.User{Email: "alice@example.com", Login: "alice"},
+			`{"rawSql":"SELECT 1","refId":"A","querySettings":[{"setting":"hdx_query_admin_comment","value":"custom=foo"}]}`)
+		got := findSettingValue(settings, adminCommentSetting)
+		assert.True(t, strings.HasPrefix(got, "custom=foo; "))
+		assert.Contains(t, got, "grafana_user_email=alice@example.com")
+	})
+
+	t.Run("query-level setting cannot remove managed user metadata", func(t *testing.T) {
+		settings := adminCommentValueFromMutate(t, plugin,
+			&backend.User{Email: "alice@example.com", Login: "alice"},
+			`{"rawSql":"SELECT 1","refId":"A","querySettings":[{"setting":"hdx_query_admin_comment","value":""}]}`)
+		got := findSettingValue(settings, adminCommentSetting)
+		assert.Contains(t, got, "grafana_user_email=alice@example.com")
+		assert.Contains(t, got, "grafana_user_login=alice")
+	})
+
+	t.Run("MutateQuery converts managed comment into clickhouse.CustomSetting", func(t *testing.T) {
+		jsonData, _ := json.Marshal(models.PluginSettings{
+			Host: "h", Port: 80, Protocol: "http", DialTimeout: "1", QueryTimeout: "1",
+		})
+		req := &backend.QueryDataRequest{
+			PluginContext: backend.PluginContext{
+				User:                       &backend.User{Email: "alice@example.com", Login: "alice"},
+				DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{JSONData: jsonData},
+			},
+			Queries: []backend.DataQuery{{
+				RefID: "A",
+				JSON:  []byte(`{"rawSql":"SELECT 1","refId":"A"}`),
+			}},
+		}
+		ctx, req := plugin.MutateQueryData(context.Background(), req)
+		ctx, _ = plugin.MutateQuery(ctx, req.Queries[0])
+		ctxSettings := ctx.Value("querySettings").(map[string]any)
+		v, ok := ctxSettings[adminCommentSetting].(clickhouse.CustomSetting)
+		assert.True(t, ok)
+		assert.Contains(t, v.Value, "grafana_user_email=alice@example.com")
+	})
+}
+
+func TestNormalizeAdminCommentValue(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"", "unknown"},
+		{"   ", "unknown"},
+		{"  foo  ", "foo"},
+		{"line1\nline2", "line1 line2"},
+		{"a;b;c", "a b c"},
+		{"  a;\nb  ", "a  b"},
+	}
+	for _, c := range cases {
+		assert.Equal(t, c.want, normalizeAdminCommentValue(c.in), "input=%q", c.in)
+	}
+}
+
+func TestPanelIDString(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"", "unknown"},
+		{"null", "unknown"},
+		{"7", "7"},
+		{`"7"`, "7"},
+		{`"with space"`, "with space"},
+	}
+	for _, c := range cases {
+		assert.Equal(t, c.want, panelIDString(json.RawMessage(c.in)), "input=%q", c.in)
 	}
 }
