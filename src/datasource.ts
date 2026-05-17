@@ -171,9 +171,11 @@ export class DataSource extends DataSourceWithBackend<
         grafana: {
           panelId: request.panelId,
           panelName: request.panelName,
+          panelPluginId: request.panelPluginId,
           dashboardUID: request.dashboardUID,
           dashboardTitle: request.dashboardTitle,
           app: request.app,
+          requestId: request.requestId,
         },
       },
     };

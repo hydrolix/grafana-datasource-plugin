@@ -61,6 +61,10 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   querySettings?: QuerySetting[];
   exposeErrors?: ExposeErrorsOptions;
   oauthPassThru?: boolean;
+  // When true, the Grafana user's identity (email, login, display name) is
+  // forwarded to Hydrolix inside the hdx_query_admin_comment attribution
+  // metadata. Defaults to false so PII is opt-in.
+  includeUserIdentityInAttribution?: boolean;
 }
 
 export interface ExposeErrorsOptions {
