@@ -1,6 +1,6 @@
 import { test, expect } from "@grafana/plugin-e2e";
 // @ts-ignore
-import { ConfigPageSteps, queryTextSet } from "./helpers";
+import { closeWhatsNewDialog, ConfigPageSteps, queryTextSet } from "./helpers";
 import { wait } from "fork-ts-checker-webpack-plugin/lib/utils/async/wait";
 
 test("smoke: should render query editor", async ({
@@ -18,6 +18,7 @@ test("smoke: should render query editor", async ({
   await configPageSteps.saveSuccess(dsConfigPage);
 
   await dashboardPage.goto();
+  await closeWhatsNewDialog(page);
   const panelEditPage = await dashboardPage.addPanel();
   await panelEditPage.datasource.set("queryEditor render");
   await expect(
@@ -46,6 +47,7 @@ test("should provide editor hints", async ({
   await configPageSteps.saveSuccess(dsConfigPage);
 
   await dashboardPage.goto();
+  await closeWhatsNewDialog(page);
   const panelEditPage = await dashboardPage.addPanel();
   await panelEditPage.datasource.set("queryEditor hints");
 

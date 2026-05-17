@@ -43,23 +43,33 @@ export interface Props
 
 export function ConfigEditor(props: Props) {
   const { onOptionsChange, options } = props;
-  if (!Object.keys(options.jsonData).length) {
-    onOptionsChange({
-      ...options,
-      jsonData: defaultConfigs,
-    });
-  }
   const { jsonData, secureJsonFields } = options;
 
-  if (Object.keys(options.jsonData).length && !jsonData.adHocDefaultTimeRange) {
-    onOptionsChange({
-      ...options,
-      jsonData: {
-        ...options.jsonData,
-        adHocDefaultTimeRange: defaultConfigs.adHocDefaultTimeRange,
-      },
-    });
-  }
+  // Apply defaults via effect (not inline) — Grafana 13 / React 18 drops
+  // setState during render. Detect a fresh datasource by checking the domain
+  // fields rather than `Object.keys(jsonData).length`, since Grafana 13 seeds
+  // jsonData with `{ pdcInjected: false }`.
+  useEffect(() => {
+    const isUninitialized =
+      options.jsonData.protocol === undefined &&
+      options.jsonData.port === undefined &&
+      options.jsonData.host === undefined;
+    if (isUninitialized) {
+      onOptionsChange({
+        ...options,
+        jsonData: { ...options.jsonData, ...defaultConfigs },
+      });
+    } else if (!options.jsonData.adHocDefaultTimeRange) {
+      onOptionsChange({
+        ...options,
+        jsonData: {
+          ...options.jsonData,
+          adHocDefaultTimeRange: defaultConfigs.adHocDefaultTimeRange,
+        },
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const labels = allLabels.components.config.editor;
   const querySettings = allLabels.components.querySettings;
@@ -71,6 +81,7 @@ export function ConfigEditor(props: Props) {
   const credentialsTypesOptions = [
     { label: "User Account", value: CredentialsType.UserAccount },
     { label: "Service Account", value: CredentialsType.ServiceAccount },
+    { label: "Forward OAuth Identity", value: CredentialsType.ForwardOAuth },
   ];
   let querySettingDefinitions = useMemo(() => {
     return querySettings.values.reduce((acc, cur) => {
@@ -185,6 +196,7 @@ export function ConfigEditor(props: Props) {
       jsonData: {
         ...options.jsonData,
         credentialsType,
+        oauthPassThru: credentialsType === CredentialsType.ForwardOAuth,
       },
     });
   };
@@ -506,7 +518,8 @@ export function ConfigEditor(props: Props) {
               onChange={(e) => onCredentialsTypeToggle(e!)}
             />
           </Field>
-          {jsonData.credentialsType !== CredentialsType.ServiceAccount && (
+          {(!jsonData.credentialsType ||
+            jsonData.credentialsType === CredentialsType.UserAccount) && (
             <>
               <Field
                 data-testid={labels.username.testId}
@@ -814,6 +827,29 @@ export function ConfigEditor(props: Props) {
                 </Field>
               </>
             )}
+          </ConfigSection>
+          <Divider />
+          <ConfigSection title="Attribution">
+            <Field
+              data-testid={labels.includeUserIdentityInAttribution.testId}
+              label={labels.includeUserIdentityInAttribution.label}
+              description={labels.includeUserIdentityInAttribution.description}
+            >
+              <Switch
+                id="includeUserIdentityInAttribution"
+                className="gf-form"
+                value={jsonData.includeUserIdentityInAttribution ?? false}
+                onChange={(e) => {
+                  onOptionsChange({
+                    ...options,
+                    jsonData: {
+                      ...jsonData,
+                      includeUserIdentityInAttribution: e.currentTarget.checked,
+                    },
+                  });
+                }}
+              />
+            </Field>
           </ConfigSection>
           <Divider />
           <ConfigSection title="Query Settings">

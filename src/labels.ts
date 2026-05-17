@@ -53,7 +53,8 @@ export default {
         credentialsType: {
           testId: "data-testid data-testid hdx_credentialsType",
           label: "Credentials Type",
-          description: "User or service account",
+          description:
+            "User Account, Service Account or Forward OAuth Identity",
         },
         token: {
           testId: "data-testid hdx_token",
@@ -153,6 +154,12 @@ export default {
           testId: "data-testid hdx_useDefaultPortAiBaseUrl",
           label: "Use default",
           description: "Use default Assistant API base URL",
+        },
+        includeUserIdentityInAttribution: {
+          testId: "data-testid hdx_includeUserIdentityInAttribution",
+          label: "Forward user identity in attribution",
+          description:
+            "When enabled, the Grafana user's email, login, and display name are forwarded to Hydrolix as part of the query's admin comment metadata. When disabled (default), these fields are recorded as 'unknown'.",
         },
       },
     },
@@ -314,6 +321,15 @@ export default {
             "Add an admin comment to the query which is stored in Active Queries. This field can be filled automatically by Superset or Grafana to include username information in order to track user activity.\n" +
             "\n" +
             "Default is empty string.",
+        },
+        {
+          setting: "hdx_query_streaming_result",
+          type: "boolean",
+          default: true,
+          description:
+            "Enable HTTP streaming for query results. When enabled, the backend streams results incrementally instead of waiting for the full result set, improving perceived query performance.\n" +
+            "\n" +
+            "Default is true.",
         },
         {
           setting: "hdx_http_proxy_enabled",

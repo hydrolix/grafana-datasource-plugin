@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/clickhouse"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -33,7 +32,7 @@ func NewClickhouseContainer(ctx context.Context, username, password string) (*Cl
 	cwd := path.Join(path.Dir(filename), "..")
 
 	clickHouseContainer, err := clickhouse.Run(ctx,
-		"clickhouse/clickhouse-server:latest", // TODO: set version
+		"clickhouse/clickhouse-server:24.8",
 		clickhouse.WithUsername(username),
 		clickhouse.WithPassword(password),
 		// clickhouse.WithDatabase(database),
@@ -70,8 +69,8 @@ func NewClickhouseContainer(ctx context.Context, username, password string) (*Cl
 	if err != nil {
 		return nil, err
 	}
-	httpPort, _ := clickHouseContainer.MappedPort(ctx, nat.Port("8123/tcp"))
-	nativePort, _ := clickHouseContainer.MappedPort(ctx, nat.Port("9000/tcp"))
+	httpPort, _ := clickHouseContainer.MappedPort(ctx, "8123/tcp")
+	nativePort, _ := clickHouseContainer.MappedPort(ctx, "9000/tcp")
 
 	u, err := url.Parse(connStr)
 	if err != nil {
@@ -89,7 +88,7 @@ func NewClickhouseContainer(ctx context.Context, username, password string) (*Cl
 		Hostname:         u.Hostname(),
 		Username:         username, Password: password,
 		Args:       args,
-		NativePort: uint16(nativePort.Int()),
-		HttpPort:   uint16(httpPort.Int()),
+		NativePort: nativePort.Num(),
+		HttpPort:   httpPort.Num(),
 	}, nil
 }

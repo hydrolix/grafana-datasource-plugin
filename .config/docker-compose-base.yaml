@@ -1,13 +1,13 @@
 services:
   grafana:
     user: root
-    container_name: 'hydrolix-datasource'
+    container_name: 'hydrolix-hydrolix-datasource'
 
     build:
       context: .
       args:
         grafana_image: ${GRAFANA_IMAGE:-grafana-enterprise}
-        grafana_version: ${GRAFANA_VERSION:-11.5.4}
+        grafana_version: ${GRAFANA_VERSION:-12.2.0}
         development: ${DEVELOPMENT:-false}
         anonymous_auth_enabled: ${ANONYMOUS_AUTH_ENABLED:-true}
     ports:
@@ -19,9 +19,9 @@ services:
     cap_add:
       - SYS_PTRACE
     volumes:
-      - ../dist:/var/lib/grafana/plugins/hydrolix-datasource
+      - ../dist:/var/lib/grafana/plugins/hydrolix-hydrolix-datasource
       - ../provisioning:/etc/grafana/provisioning
-      - ..:/root/hydrolix-datasource
+      - ..:/root/hydrolix-hydrolix-datasource
 
     environment:
       NODE_ENV: development

@@ -1,0 +1,17 @@
+
+.hdx-error-table-tr {
+    border-bottom:1px solid rgba(255,255,255,.08);
+}
+
+.hdx-error-table-td {
+    padding:6px 4px;
+}
+
+.hdx-error-table-time {
+    white-space:nowrap;
+    opacity:.75;
+}
+
+.hdx-error-table-button {
+    color: #797676;
+}

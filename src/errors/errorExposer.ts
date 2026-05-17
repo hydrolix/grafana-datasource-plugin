@@ -1,8 +1,8 @@
-import { VariableWithOptions } from "@grafana/data/dist/types/types/templateVars";
 import { locationService, TemplateSrv } from "@grafana/runtime";
 import { ErrorMessageBeautifier } from "./errorBeautifier";
 import { ErrorFixSuggestion, ExposeErrorsOptions } from "../types";
 import { SOLUTION_TEMPLATES } from "./solutionTemplates";
+import {VariableWithOptions} from "@grafana/data";
 
 export class ErrorExposer {
   constructor(

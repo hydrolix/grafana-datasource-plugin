@@ -3,12 +3,13 @@ package plugin_test
 import (
 	"context"
 	"encoding/json"
-	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/grafana/sqlds/v4"
-	"github.com/hydrolix/plugin/pkg/models"
-	"github.com/testcontainers/testcontainers-go"
 	"log"
 	"os"
+
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/hydrolix/sqlds/v5"
+	"github.com/hydrolix/sqlds/v5/models"
+	"github.com/testcontainers/testcontainers-go"
 )
 
 // DsTestSuite is base test suite struct with CH container support.

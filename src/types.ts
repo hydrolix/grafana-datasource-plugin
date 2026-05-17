@@ -14,6 +14,7 @@ export interface HdxQuery extends DataQuery {
   format?: number;
   skipNextRun?: () => boolean;
   querySettings: QuerySetting[];
+  oauthPassThru?: boolean;
 }
 
 /**
@@ -59,6 +60,11 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   queryTimeout?: string;
   querySettings?: QuerySetting[];
   exposeErrors?: ExposeErrorsOptions;
+  oauthPassThru?: boolean;
+  // When true, the Grafana user's identity (email, login, display name) is
+  // forwarded to Hydrolix inside the hdx_query_admin_comment attribution
+  // metadata. Defaults to false so PII is opt-in.
+  includeUserIdentityInAttribution?: boolean;
 }
 
 export interface ExposeErrorsOptions {
@@ -89,6 +95,7 @@ export enum Protocol {
 export enum CredentialsType {
   UserAccount = "userAccount",
   ServiceAccount = "serviceAccount",
+  ForwardOAuth = "forwardOAuth",
 }
 
 export interface AdHocFilterKeys {
