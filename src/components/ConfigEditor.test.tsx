@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { ConfigEditor, Props } from "./ConfigEditor";
 import "@testing-library/jest-dom";
 import fs from "fs";
@@ -46,6 +46,47 @@ describe("ConfigEditor", () => {
     expect(screen.getByLabelText(labels.host.label)).toBeInTheDocument();
     expect(screen.getByLabelText(labels.username.label)).toBeInTheDocument();
     expect(screen.getByLabelText(labels.password.label)).toBeInTheDocument();
+  });
+
+  // The Attribution section lives inside the collapsible "Additional
+  // Settings" config section. ConfigSection's collapse button is an
+  // IconButton with aria-label "Expand section <title>" (or "Collapse …"
+  // when open); click it to reveal the nested fields.
+  function expandAdditionalSettings() {
+    fireEvent.click(
+      screen.getByLabelText(`Expand section ${labels.additionalSettings.label}`)
+    );
+  }
+
+  it("renders the user-identity attribution toggle in the Attribution section", () => {
+    render(<ConfigEditor {...getDefaultProps({})} />);
+    expandAdditionalSettings();
+    expect(
+      screen.getByTestId(labels.includeUserIdentityInAttribution.testId)
+    ).toBeInTheDocument();
+  });
+
+  it("user-identity attribution toggle defaults to off", () => {
+    render(<ConfigEditor {...getDefaultProps({})} />);
+    expandAdditionalSettings();
+    const input = document.getElementById(
+      "includeUserIdentityInAttribution"
+    ) as HTMLInputElement;
+    expect(input).toBeTruthy();
+    expect(input.checked).toBe(false);
+  });
+
+  it("user-identity attribution toggle reflects saved value", () => {
+    render(
+      <ConfigEditor
+        {...getDefaultProps({ includeUserIdentityInAttribution: true })}
+      />
+    );
+    expandAdditionalSettings();
+    const input = document.getElementById(
+      "includeUserIdentityInAttribution"
+    ) as HTMLInputElement;
+    expect(input.checked).toBe(true);
   });
 
   // it('port input is enabled', () => {

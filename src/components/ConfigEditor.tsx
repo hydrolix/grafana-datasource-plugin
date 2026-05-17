@@ -829,6 +829,29 @@ export function ConfigEditor(props: Props) {
             )}
           </ConfigSection>
           <Divider />
+          <ConfigSection title="Attribution">
+            <Field
+              data-testid={labels.includeUserIdentityInAttribution.testId}
+              label={labels.includeUserIdentityInAttribution.label}
+              description={labels.includeUserIdentityInAttribution.description}
+            >
+              <Switch
+                id="includeUserIdentityInAttribution"
+                className="gf-form"
+                value={jsonData.includeUserIdentityInAttribution ?? false}
+                onChange={(e) => {
+                  onOptionsChange({
+                    ...options,
+                    jsonData: {
+                      ...jsonData,
+                      includeUserIdentityInAttribution: e.currentTarget.checked,
+                    },
+                  });
+                }}
+              />
+            </Field>
+          </ConfigSection>
+          <Divider />
           <ConfigSection title="Query Settings">
             <div style={{ marginBottom: "20px" }}>
               <Select

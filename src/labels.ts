@@ -155,6 +155,12 @@ export default {
           label: "Use default",
           description: "Use default Assistant API base URL",
         },
+        includeUserIdentityInAttribution: {
+          testId: "data-testid hdx_includeUserIdentityInAttribution",
+          label: "Forward user identity in attribution",
+          description:
+            "When enabled, the Grafana user's email, login, and display name are forwarded to Hydrolix as part of the query's admin comment metadata. When disabled (default), these fields are recorded as 'unknown'.",
+        },
       },
     },
     query: {
