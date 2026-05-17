@@ -147,3 +147,93 @@ services:
       CLICKHOUSE_PASSWORD:
       HYDROLIX_USERNAME:
       HYDROLIX_PASSWORD:
+
+
+  clickhouse-server:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse-server
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--host", "clickhouse-server", "--query", "SELECT 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    volumes:
+      - ./testdata/containers:/testdata
+    environment:
+      CLICKHOUSE_ALWAYS_RUN_INITDB_SCRIPTS: "1"
+      CLICKHOUSE_SKIP_USER_SETUP: "0"
+      CLICKHOUSE_USER: testuser
+      CLICKHOUSE_PASSWORD: testpass
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        cp /testdata/tcconfig.xml /etc/clickhouse-server/config.d/tcconfig.xml
+        cp /testdata/initdb.sql /docker-entrypoint-initdb.d/initdb.sql
+        exec /entrypoint.sh "$@"
+
+  # Playwright e2e runner. Joins the grafana service's network namespace so
+  # the tests reach the dev Grafana on `localhost:3000`.
+  #
+  # The image is built once via `.config/playwright/Dockerfile` and bakes in
+  # Node 22, the npm dependencies (npm ci off package.json + package-lock.json)
+  # and the Chromium browser. Subsequent `docker compose run --rm playwright`
+  # invocations skip the install entirely — they start in seconds instead of
+  # the previous 4–5 minutes per run.
+  #
+  # Rebuild the image when package.json/package-lock.json changes (Docker
+  # invalidates the npm-ci layer automatically) or when bumping
+  # @playwright/test (so the bundled browser stays in sync):
+  #
+  #   docker compose build playwright
+  #
+  # Run on-demand (the service does not start with `docker compose up` since
+  # there's no `command:` / `restart:` keeping it alive — use `run`):
+  #
+  #   docker compose run --rm playwright                                  # full suite
+  #   docker compose run --rm playwright tests/configEditor.spec.ts       # one spec
+  #   docker compose run --rm playwright --grep "interpolated query"      # ad-hoc
+  #
+  # CLICKHOUSE_* and HYDROLIX_* are declared empty so they pass through from
+  # the host shell when set — matching the pattern used by the grafana
+  # service's x-common-variables block.
+  playwright:
+    build:
+      context: .
+      dockerfile: .config/playwright/Dockerfile
+    container_name: playwright-e2e
+    # Share the grafana container's network namespace so `localhost:3000`
+    # inside this container reaches the dev grafana directly (no separate
+    # service DNS / port mapping needed). `depends_on` is also expressed
+    # via the shared network — when grafana isn't up, this would fail fast.
+    network_mode: "service:grafana"
+    depends_on:
+      - grafana
+    working_dir: /work
+    volumes:
+      - .:/work
+      # Anonymous volume preserves the image-baked node_modules through the
+      # `.:/work` bind mount. On first container start the volume is
+      # initialised from the image's /work/node_modules; on subsequent
+      # `--rm` runs it is re-initialised the same way (fast filesystem copy,
+      # not a fresh npm install), so we never hit the network for deps at
+      # test time and the host's macOS-built binaries never leak in.
+      - /work/node_modules
+    environment:
+      # Default to the dev compose grafana. Override from the host shell to
+      # point the suite at a non-compose Grafana, e.g.
+      #   E2E_GRAFANA_URL=https://grafana.example/ docker compose run --rm playwright
+      E2E_GRAFANA_URL: "${E2E_GRAFANA_URL:-http://localhost:3000}"
+      PLAYWRIGHT_JUNIT_OUTPUT_FILE: /work/junit_report.xml
+      CI: "1"
+      CLICKHOUSE_HOSTNAME:
+      CLICKHOUSE_USERNAME:
+      CLICKHOUSE_PASSWORD:
+      HYDROLIX_USERNAME:
+      HYDROLIX_PASSWORD:

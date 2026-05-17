@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.10.5
+- **Feature**: Add Grafana User telemetry
+
 ## 0.10.2
 
 - **Fix**: Query Editor doesn't store default query type (GRAP-165)
