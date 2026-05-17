@@ -17,7 +17,7 @@ import { closeWhatsNewDialog, ConfigPageSteps, queryTextSet } from "./helpers";
  */
 test("user telemetry — metadata is sent from UI and merged into SETTINGS", async ({
   createDataSourceConfigPage,
-  dashboardPage,
+  gotoDashboardPage,
   page,
   context,
 }) => {
@@ -34,12 +34,56 @@ test("user telemetry — metadata is sent from UI and merged into SETTINGS", asy
   await page
     .getByLabel("Expand section Additional Settings")
     .click({ force: true });
+  // Grafana's <Switch> renders a visually-hidden <input> alongside the
+  // styled <label aria-label="Toggle switch"> that users actually see.
+  // Targeting the input fails with "outside of viewport" because it sits
+  // off-screen for accessibility — click the visible label instead. Same
+  // pattern as ElementContext.switch() in tests/helpers.ts.
   await page
     .getByTestId("data-testid hdx_includeUserIdentityInAttribution")
-    .locator("input")
-    .check({ force: true });
+    .getByLabel("Toggle switch")
+    .click({ force: true });
 
   await configPageSteps.saveSuccess(dsConfigPage);
+
+  // Create a saved dashboard via the HTTP API, with the marker query baked
+  // into the panel target. Two reasons we don't go through the panel-edit
+  // UI here:
+  //   1. The default flow (dashboardPage.addPanel on an unsaved dashboard)
+  //      leaves panelName and dashboardTitle as undefined on DataQueryRequest;
+  //      JSON.stringify drops undefined keys, so the wire never carries them
+  //      and the assertions below can't see the wiring.
+  //   2. Panel-edit mode reports app="panel-editor" but this test asserts
+  //      app=dashboard — we want the dashboard-view refresh path.
+  const userMarker = "e2e_user_supplied_" + Date.now();
+  const query = `SELECT getSetting('hdx_query_admin_comment') AS c SETTINGS hdx_query_admin_comment='custom=${userMarker}'`;
+  const dashboardTitle = `user-telemetry-${Date.now()}`;
+  const panelName = "Telemetry Test Panel";
+  const dsRef = {
+    type: dsConfigPage.datasource.type,
+    uid: dsConfigPage.datasource.uid,
+  };
+  const createResp = await page.request.post("/api/dashboards/db", {
+    data: {
+      dashboard: {
+        title: dashboardTitle,
+        schemaVersion: 38,
+        panels: [
+          {
+            id: 1,
+            title: panelName,
+            type: "table",
+            datasource: dsRef,
+            targets: [{ refId: "A", datasource: dsRef, rawSql: query }],
+            gridPos: { x: 0, y: 0, w: 24, h: 8 },
+          },
+        ],
+        time: { from: "now-6h", to: "now" },
+      },
+      overwrite: true,
+    },
+  });
+  const { uid } = await createResp.json();
 
   // Intercept /api/ds/query — capture both the outgoing POST body (what
   // the browser sent, i.e. target.meta.grafana before any server-side
@@ -65,19 +109,13 @@ test("user telemetry — metadata is sent from UI and merged into SETTINGS", asy
     }
   });
 
-  await dashboardPage.goto();
+  // The marker query (baked into the dashboard JSON above) asks the server
+  // to echo back the setting value it actually applied. The user-supplied
+  // marker proves the SETTINGS clause from the SQL survived; the plugin's
+  // managed block proves the merge ran.
+  const dashboardPage = await gotoDashboardPage({ uid });
   await closeWhatsNewDialog(page);
-  const panelEditPage = await dashboardPage.addPanel();
-  await panelEditPage.datasource.set("user telemetry");
-  await panelEditPage.toggleTableView();
-
-  // The query asks the server to echo back the setting value it actually
-  // applied. The user-supplied marker proves the SETTINGS clause from the
-  // SQL survived; the plugin's managed block proves the merge ran.
-  const userMarker = "e2e_user_supplied_" + Date.now();
-  const query = `SELECT getSetting('hdx_query_admin_comment') AS c SETTINGS hdx_query_admin_comment='custom=${userMarker}'`;
-  await queryTextSet("A", query, panelEditPage);
-  await expect(panelEditPage.refreshPanel()).toBeOK();
+  await dashboardPage.refreshDashboard();
 
   // Wait until the response carrying our marker arrives. Other refreshes
   // (defaults, autocomplete probes) may fire alongside; pick the one whose
@@ -102,14 +140,12 @@ test("user telemetry — metadata is sent from UI and merged into SETTINGS", asy
   const meta = target?.meta?.grafana;
   expect(meta, "target.meta.grafana must be present on every query").toBeTruthy();
 
-  // Every field the frontend wires up from DataQueryRequest must appear on
-  // the wire. Drop one in src/datasource.ts and these assertions break.
+  // Fields Grafana populates on every DataQueryRequest in every supported
+  // version. Drop one in src/datasource.ts and these break.
   for (const field of [
     "panelId",
-    "panelName",
     "panelPluginId",
     "dashboardUID",
-    "dashboardTitle",
     "app",
     "requestId",
   ]) {
@@ -118,12 +154,24 @@ test("user telemetry — metadata is sent from UI and merged into SETTINGS", asy
 
   // `app` and `requestId` are populated by Grafana on every request — if
   // either is missing or empty, the wiring in datasource.ts is broken.
-  expect(meta.app).toBeTruthy();
+  expect(meta.app).toBe("dashboard");
   expect(typeof meta.requestId).toBe("string");
   expect(meta.requestId.length).toBeGreaterThan(0);
-  // `panelPluginId` is set by Grafana once a visualization is chosen
-  // (table after toggleTableView).
-  expect(meta.panelPluginId).toBeTruthy();
+  // `panelPluginId` reflects the saved panel's visualization type.
+  expect(meta.panelPluginId).toBe("table");
+  expect(meta.dashboardUID).toBe(uid);
+
+  // `panelName` and `dashboardTitle` were added to DataQueryRequest in
+  // Grafana 11.x and are absent on 10.x — JSON.stringify drops undefined
+  // keys, so the wire shape varies by version. The wiring itself is
+  // covered exhaustively by unit tests in src/datasource.test.ts; here we
+  // only assert the values are correct when Grafana provides them.
+  if (meta.panelName !== undefined) {
+    expect(meta.panelName).toBe(panelName);
+  }
+  if (meta.dashboardTitle !== undefined) {
+    expect(meta.dashboardTitle).toBe(dashboardTitle);
+  }
 
   // === Aspect #2: managed comment is merged into the SQL SETTINGS clause ===
   const ourResponse = responseBodies.find((b) => {
