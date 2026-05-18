@@ -4,12 +4,6 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
-    inputs:
-      publish_to_aws:
-        description: 'Publish to AWS S3'
-        required: true
-        default: false
-        type: boolean
 
 jobs:
   build-frontend:
@@ -61,8 +55,8 @@ jobs:
   publish-aws:
     name: Publish to AWS S3
     uses: ./.github/workflows/s3_publish.yml
-    if: inputs.publish_to_aws
-    needs: [package]
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    needs: [package, e2e]
     secrets:
       aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
       aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
