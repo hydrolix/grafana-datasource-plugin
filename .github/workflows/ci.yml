@@ -8,7 +8,7 @@ on:
       publish_to_aws:
         description: 'Publish to AWS S3'
         required: true
-        default: false
+        default: true
         type: boolean
 
 jobs:
@@ -61,7 +61,7 @@ jobs:
   publish-aws:
     name: Publish to AWS S3
     uses: ./.github/workflows/s3_publish.yml
-    if: inputs.publish_to_aws
+    if: inputs.publish_to_aws && github.event_name == 'pull_request' && github.base_ref == 'main'
     needs: [package]
     secrets:
       aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
