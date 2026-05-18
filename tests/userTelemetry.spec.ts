@@ -34,14 +34,18 @@ test("user telemetry — metadata is sent from UI and merged into SETTINGS", asy
   await page
     .getByLabel("Expand section Additional Settings")
     .click({ force: true });
-  // Grafana's <Switch> renders a visually-hidden <input> alongside the
-  // styled <label aria-label="Toggle switch"> that users actually see.
-  // Targeting the input fails with "outside of viewport" because it sits
-  // off-screen for accessibility — click the visible label instead. Same
-  // pattern as ElementContext.switch() in tests/helpers.ts.
-  await page
-    .getByTestId("data-testid hdx_includeUserIdentityInAttribution")
-    .getByLabel("Toggle switch")
+  // Grafana's <Switch> shape changed in 11.x: pre-11 it exposed only a
+  // visually-hidden <label aria-label="Toggle switch">, 11+ exposes
+  // role="switch" on the input. Mirror the .or() fallback used by
+  // ElementContext.switch() in tests/helpers.ts so this works on every
+  // supported Grafana version.
+  const userIdentityToggle = page.getByTestId(
+    "data-testid hdx_includeUserIdentityInAttribution"
+  );
+  await userIdentityToggle
+    .getByRole("switch")
+    .or(userIdentityToggle.getByLabel("Toggle switch"))
+    .first()
     .click({ force: true });
 
   await configPageSteps.saveSuccess(dsConfigPage);
