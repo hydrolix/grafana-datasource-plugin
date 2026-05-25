@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.6
+- **Fix**: Default compression value
+- **Feature**: Improve Grafana User telemetry
+
 ## 0.10.5
 - **Feature**: Add Grafana User telemetry
 

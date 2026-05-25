@@ -1,6 +1,6 @@
 {
   "name": "hydrolix-hydrolix-datasource",
-  "version": "0.10.5",
+  "version": "0.10.6",
   "scripts": {
     "build": "webpack -c ./.config/webpack/webpack.config.ts --env production",
     "dev": "webpack -w -c ./.config/webpack/webpack.config.ts --env development",
@@ -25,7 +25,10 @@
     "lodash": "^4.17.23",
     "@braintree/sanitize-url": "7.0.2",
     "uuid": "^14.0.0",
-    "fast-uri": "^3.1.2"
+    "fast-uri": "^3.1.2",
+    "protobufjs": "^7.5.8",
+    "js-cookie": "^3.0.7",
+    "brace-expansion": "^5.0.6"
   },
   "devDependencies": {
     "@grafana/eslint-config": "^9.0.0",

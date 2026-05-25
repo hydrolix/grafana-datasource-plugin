@@ -6,18 +6,24 @@ import (
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
 )
 
-// rewriteAdminCommentInSettings inspects the trailing SETTINGS clause of the
-// last SELECT statement in sql and ensures the managed Grafana attribution
-// fragment is merged into the hdx_query_admin_comment value. If the existing
-// value contains a previously-injected managed block (bracketed by the
-// adminCommentManagedStart / adminCommentManagedEnd markers), that block is
-// stripped first so repeated invocations don't accumulate copies.
+// rewriteAdminCommentInSettings merges the managed Grafana attribution
+// fragment into a user-supplied hdx_query_admin_comment value inside the
+// trailing SETTINGS clause of the last SELECT statement in sql. This rewrite
+// exists purely to prevent a user-authored SQL-level hdx_query_admin_comment
+// from silently overriding the session-level managed fragment carried by the
+// driver context. If the existing value contains a previously-injected managed
+// block (bracketed by the adminCommentManagedStart / adminCommentManagedEnd
+// markers), that block is stripped first so repeated invocations don't
+// accumulate copies.
 //
 // Returns the rewritten SQL and ok=true on success. Returns ok=false (and an
 // empty string) when:
 //   - sql does not parse (e.g. dialect quirk or pre-interpolation macro),
-//   - the last statement is not a SELECT, or
-//   - the SELECT has no trailing SETTINGS clause to merge into.
+//   - the last statement is not a SELECT,
+//   - the SELECT has no trailing SETTINGS clause, or
+//   - the SETTINGS clause does not contain hdx_query_admin_comment — there is
+//     no override to defend against, and the session-level injection already
+//     carries the managed fragment.
 //
 // In the ok=false case the caller should leave the SQL untouched; the
 // session-level injection via clickhouse driver settings still applies.
@@ -35,18 +41,30 @@ func rewriteAdminCommentInSettings(sql, managed string) (string, bool) {
 	}
 	clause := sel.Settings
 
-	// Capture the splice end point from the original parse — settingsClauseEndOffset
-	// looks at the last item's type, and upsertAdminCommentItem may append a new
-	// item that wasn't in the source, which would skew the math.
+	if !hasAdminCommentItem(clause) {
+		return "", false
+	}
+
 	spliceEnd := settingsClauseEndOffset(clause)
 
 	merged := buildMergedAdminCommentValue(clause, managed)
-	upsertAdminCommentItem(clause, merged)
+	updateAdminCommentItem(clause, merged)
 
 	// Splice preserves whitespace/comments outside the clause. clause.String()
 	// always emits uppercase "SETTINGS " regardless of source casing —
 	// cosmetic only (ClickHouse is case-insensitive), accepted trade-off.
 	return sql[:clause.SettingsPos] + clause.String() + sql[spliceEnd:], true
+}
+
+// hasAdminCommentItem reports whether clause carries an hdx_query_admin_comment
+// entry. Matching is case-insensitive on the key.
+func hasAdminCommentItem(clause *parser.SettingsClause) bool {
+	for _, item := range clause.Items {
+		if item.Name != nil && strings.EqualFold(item.Name.Name, adminCommentSetting) {
+			return true
+		}
+	}
+	return false
 }
 
 // settingsClauseEndOffset returns the byte index one past the end of clause
@@ -87,10 +105,11 @@ func encodeSQLStringLiteral(raw string) string {
 }
 
 // buildMergedAdminCommentValue extracts the current hdx_query_admin_comment
-// value from clause (if any), strips any previously-injected managed block,
-// and concatenates the new managed fragment. The returned value is in RAW
-// form — apostrophes are not doubled. upsertAdminCommentItem re-encodes them
-// before constructing the new StringLiteral.
+// value from clause (caller guarantees the key is present via
+// hasAdminCommentItem), strips any previously-injected managed block, and
+// concatenates the new managed fragment. The returned value is in RAW form —
+// apostrophes are not doubled. updateAdminCommentItem re-encodes them before
+// constructing the new StringLiteral.
 func buildMergedAdminCommentValue(clause *parser.SettingsClause, managed string) string {
 	existing := ""
 	for _, item := range clause.Items {
@@ -111,13 +130,13 @@ func buildMergedAdminCommentValue(clause *parser.SettingsClause, managed string)
 	return stripped + "; " + managed
 }
 
-// upsertAdminCommentItem replaces the hdx_query_admin_comment entry in clause
-// with a string-literal carrying value, creating a new entry at the end of
-// the list when no match exists. Matching is case-insensitive on the key.
-// value is in raw form — apostrophes are encoded here so the emitted SQL is
-// well-formed even when the value originated from a name like "O'Brien" or
-// a user-controlled panel title.
-func upsertAdminCommentItem(clause *parser.SettingsClause, value string) {
+// updateAdminCommentItem replaces the existing hdx_query_admin_comment entry
+// in clause with a string-literal carrying value. Caller must have verified
+// the key is present via hasAdminCommentItem — a missing key is a no-op here.
+// Matching is case-insensitive on the key. value is in raw form — apostrophes
+// are encoded here so the emitted SQL is well-formed even when the value
+// originated from a name like "O'Brien" or a user-controlled panel title.
+func updateAdminCommentItem(clause *parser.SettingsClause, value string) {
 	lit := &parser.StringLiteral{Literal: encodeSQLStringLiteral(value)}
 	for _, item := range clause.Items {
 		if item.Name != nil && strings.EqualFold(item.Name.Name, adminCommentSetting) {
@@ -125,8 +144,4 @@ func upsertAdminCommentItem(clause *parser.SettingsClause, value string) {
 			return
 		}
 	}
-	clause.Items = append(clause.Items, &parser.SettingExprList{
-		Name: &parser.Ident{Name: adminCommentSetting},
-		Expr: lit,
-	})
 }

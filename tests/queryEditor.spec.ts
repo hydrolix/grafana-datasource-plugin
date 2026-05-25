@@ -32,6 +32,50 @@ test("smoke: should render query editor", async ({
   await expect(queryRow.getByTestId("data-testid query type")).toBeVisible();
 });
 
+test("should show beautified Hydrolix error in query row on syntax error", async ({
+  createDataSourceConfigPage,
+  dashboardPage,
+  page,
+}) => {
+  const configPageSteps = new ConfigPageSteps(page);
+  const dsConfigPage = await configPageSteps.createDatasourceConfigPage(
+    "queryEditor error message",
+    createDataSourceConfigPage
+  );
+  await configPageSteps.fillTestHttpDatasource();
+  await configPageSteps.saveSuccess(dsConfigPage);
+
+  await dashboardPage.goto();
+  await closeWhatsNewDialog(page);
+  const panelEditPage = await dashboardPage.addPanel();
+  await panelEditPage.datasource.set("queryEditor error message");
+
+  // ORDER BY after LIMIT is a ClickHouse syntax error (Code: 62).
+  await queryTextSet(
+    "A",
+    "SELECT * FROM e2e.macros LIMIT 1 ORDER BY datetime DESC",
+    panelEditPage
+  );
+  await panelEditPage.refreshPanel();
+
+  // Grafana renders the beautified per-query error inside the QueryEditorRow,
+  // not in the panel's "No data" status element (which fires when the backend
+  // returns an empty frame alongside the error).
+  const queryRow = panelEditPage.getQueryEditorRow("A");
+  const errorText = queryRow.getByText(/Syntax error/i);
+  await expect(errorText).toBeVisible({ timeout: 30000 });
+
+  // Beautified content from ErrorMessageBeautifier — the message extracted
+  // after "DB::Exception:" should surface in the panel.
+  await expect(errorText).toContainText(/Syntax error/i);
+
+  // None of the raw transport wrapping should leak through.
+  await expect(queryRow).not.toContainText(/error querying the database/i);
+  await expect(queryRow).not.toContainText(/sendQuery/i);
+  await expect(queryRow).not.toContainText(/HTTP 400/i);
+  await expect(queryRow).not.toContainText(/DB::Exception/i);
+});
+
 test("should provide editor hints", async ({
   createDataSourceConfigPage,
   dashboardPage,

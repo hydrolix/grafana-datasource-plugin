@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download GitHub artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: plugin-package
 
@@ -29,7 +29,7 @@ jobs:
           chmod +x hydrolix-hydrolix-datasource/gpx*
 
       - name: Install and run Docker Compose
-        uses: hoverkraft-tech/compose-action@40041ff1b97dbf152cd2361138c2b03fa29139df
+        uses: hoverkraft-tech/compose-action@4894d2492015c1774ee5a13a95b1072093087ec3
         with:
           compose-file: '.github/e2e-docker-compose.yml'
 
@@ -49,7 +49,7 @@ jobs:
           PLAYWRIGHT_JUNIT_OUTPUT_FILE: junit_report.xml
 
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: e2e-results-${{ matrix.grafana_version }}
