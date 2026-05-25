@@ -24,11 +24,14 @@ func TestRewriteAdminCommentInSettings(t *testing.T) {
 		assert.Equal(t, "", out)
 	})
 
-	t.Run("appends admin comment when SETTINGS lacks the key", func(t *testing.T) {
+	t.Run("leaves sql untouched when SETTINGS lacks the admin comment key", func(t *testing.T) {
+		// The rewrite exists only to defend against a user-authored SQL-level
+		// override of hdx_query_admin_comment. Without that key, the
+		// session-level injection already carries the managed fragment and
+		// the user's SETTINGS should not be modified.
 		out, ok := rewriteAdminCommentInSettings("SELECT 1 FROM t SETTINGS max_rows=1000", managed)
-		assert.True(t, ok)
-		assert.Contains(t, out, "max_rows=1000")
-		assert.Contains(t, out, "hdx_query_admin_comment='"+managed+"'")
+		assert.False(t, ok)
+		assert.Equal(t, "", out)
 	})
 
 	t.Run("merges into existing admin comment with user prefix", func(t *testing.T) {
@@ -53,7 +56,7 @@ func TestRewriteAdminCommentInSettings(t *testing.T) {
 	})
 
 	t.Run("repeated invocation does not duplicate managed block", func(t *testing.T) {
-		sql := "SELECT 1 FROM t SETTINGS max_rows=10"
+		sql := "SELECT 1 FROM t SETTINGS hdx_query_admin_comment='custom=foo'"
 		first, ok := rewriteAdminCommentInSettings(sql, managed)
 		assert.True(t, ok)
 		second, ok := rewriteAdminCommentInSettings(first, managed)
@@ -63,6 +66,7 @@ func TestRewriteAdminCommentInSettings(t *testing.T) {
 		assert.Equal(t, 1, strings.Count(third, "grafana_meta_start"))
 		assert.Equal(t, 1, strings.Count(third, "grafana_meta_end"))
 		assert.Equal(t, 1, strings.Count(third, "user_email=alice@example.com"))
+		assert.Equal(t, 1, strings.Count(third, "custom=foo"))
 	})
 
 	t.Run("case-insensitive match on existing admin comment key", func(t *testing.T) {
@@ -88,7 +92,7 @@ func TestRewriteAdminCommentInSettings(t *testing.T) {
 	t.Run("preserves sql preceding the SETTINGS clause byte-for-byte", func(t *testing.T) {
 		// Whitespace, comments, and case outside the SETTINGS region must be
 		// preserved by the splice — only the SETTINGS clause itself is re-emitted.
-		in := "  SELECT\n  *\n  FROM t  /* note */  SETTINGS max_rows=1"
+		in := "  SELECT\n  *\n  FROM t  /* note */  SETTINGS hdx_query_admin_comment='custom=foo'"
 		out, ok := rewriteAdminCommentInSettings(in, managed)
 		assert.True(t, ok)
 		assert.True(t, strings.HasPrefix(out, "  SELECT\n  *\n  FROM t  /* note */  "))
@@ -116,7 +120,7 @@ func TestRewriteAdminCommentInSettings(t *testing.T) {
 		// character would terminate the string literal early and either
 		// produce malformed SQL or — worse — open a SQL injection vector.
 		managedWithApostrophe := "grafana_meta_start; user_name=Alice O'Brien; grafana_meta_end"
-		in := "SELECT 1 FROM t SETTINGS max_rows=10"
+		in := "SELECT 1 FROM t SETTINGS hdx_query_admin_comment='seed=value'"
 		out, ok := rewriteAdminCommentInSettings(in, managedWithApostrophe)
 		assert.True(t, ok)
 		// The emitted SQL must re-parse — proves the apostrophe didn't break
@@ -138,7 +142,7 @@ func TestRewriteAdminCommentInSettings(t *testing.T) {
 		// land at the SQL level.
 		hostile := "x'; SELECT 1 FROM secrets; --"
 		managedWithHostile := "grafana_meta_start; panel_name=" + hostile + "; grafana_meta_end"
-		in := "SELECT 1 FROM t SETTINGS max_rows=10"
+		in := "SELECT 1 FROM t SETTINGS hdx_query_admin_comment='seed=value'"
 		out, ok := rewriteAdminCommentInSettings(in, managedWithHostile)
 		assert.True(t, ok)
 		stmts, err := parser.NewParser(out).ParseStmts()
@@ -183,13 +187,20 @@ func TestMutateInterpolatedQuery(t *testing.T) {
 		assert.Equal(t, in, out)
 	})
 
-	t.Run("managed fragment in context and SETTINGS present — sql rewritten", func(t *testing.T) {
+	t.Run("managed fragment in context and SETTINGS overrides admin_comment — sql rewritten", func(t *testing.T) {
+		ctx := context.WithValue(context.Background(), managedAdminCommentCtxKey{}, managed)
+		in := "SELECT 1 FROM t SETTINGS hdx_query_admin_comment='custom=foo'"
+		_, out := plugin.MutateInterpolatedQuery(ctx, in)
+		assert.NotEqual(t, in, out)
+		assert.Contains(t, out, "custom=foo")
+		assert.Contains(t, out, "user_email=alice@example.com")
+	})
+
+	t.Run("SETTINGS without admin_comment key — sql unchanged (session-level path carries the fragment)", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), managedAdminCommentCtxKey{}, managed)
 		in := "SELECT 1 FROM t SETTINGS max_rows=1"
 		_, out := plugin.MutateInterpolatedQuery(ctx, in)
-		assert.NotEqual(t, in, out)
-		assert.Contains(t, out, "max_rows=1")
-		assert.Contains(t, out, "user_email=alice@example.com")
+		assert.Equal(t, in, out)
 	})
 
 	t.Run("no SETTINGS clause — sql unchanged (driver-context path is the safety net)", func(t *testing.T) {
