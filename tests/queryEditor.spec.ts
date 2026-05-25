@@ -32,7 +32,7 @@ test("smoke: should render query editor", async ({
   await expect(queryRow.getByTestId("data-testid query type")).toBeVisible();
 });
 
-test("should show beautified ClickHouse error in query row on syntax error", async ({
+test("should show beautified Hydrolix error in query row on syntax error", async ({
   createDataSourceConfigPage,
   dashboardPage,
   page,
