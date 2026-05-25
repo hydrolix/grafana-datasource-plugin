@@ -31,11 +31,11 @@ type Hydrolix struct {
 }
 
 var (
-	_ sqlds.Driver                     = (*Hydrolix)(nil)
-	_ sqlds.QueryMutator               = (*Hydrolix)(nil)
-	_ sqlds.QueryDataMutator           = (*Hydrolix)(nil)
-	_ sqlds.QueryErrorMutator          = (*Hydrolix)(nil)
-	_ sqlds.InterpolatedQueryMutator   = (*Hydrolix)(nil)
+	_ sqlds.Driver                   = (*Hydrolix)(nil)
+	_ sqlds.QueryMutator             = (*Hydrolix)(nil)
+	_ sqlds.QueryDataMutator         = (*Hydrolix)(nil)
+	_ sqlds.QueryErrorMutator        = (*Hydrolix)(nil)
+	_ sqlds.InterpolatedQueryMutator = (*Hydrolix)(nil)
 
 	OrgIdHeaderKey = "X-Grafana-Org-Id"
 )
@@ -80,6 +80,11 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		protocol = clickhouse.HTTP
 	}
 
+	compression := clickhouse.CompressionLZ4
+	if protocol == clickhouse.HTTP {
+		compression = clickhouse.CompressionNone
+	}
+
 	var tlsConfig *tls.Config
 	if settings.Secure {
 		tlsConfig = &tls.Config{
@@ -97,7 +102,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 			Products: getClientInfoProducts(ctx),
 		},
 		Compression: &clickhouse.Compression{
-			Method: clickhouse.CompressionLZ4,
+			Method: compression,
 		},
 		Protocol:    protocol,
 		HttpUrlPath: settings.Path,
@@ -110,7 +115,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 
 	opts.TransportFunc = func(t *http.Transport) (http.RoundTripper, error) {
 		t.DisableCompression = false
-		return &metadataStrippingTransport{base: t}, nil
+		return t, nil
 	}
 
 	if settings.CredentialsType == "userAccount" || settings.CredentialsType == "" {
@@ -129,8 +134,8 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 			}
 			// native format
 			opts.Settings = map[string]any{
-				"hdx_query_output_format":    "Native",
-				"hdx_query_streaming_result": "true",
+				"hdx_query_output_format": "Native",
+				//"hdx_query_streaming_result": "true",
 			}
 		}
 	} else {
@@ -165,8 +170,8 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 			}
 			// native format
 			opts.Settings = map[string]any{
-				"hdx_query_output_format":    "Native",
-				"hdx_query_streaming_result": "true",
+				"hdx_query_output_format": "Native",
+				//"hdx_query_streaming_result": "true",
 			}
 		} else {
 			opts.Auth = clickhouse.Auth{
@@ -731,33 +736,4 @@ func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
 		backend.DownstreamError(err),
 		backend.ErrorSourceDownstream,
 	)
-}
-
-type metadataStrippingTransport struct {
-	base http.RoundTripper
-}
-
-func (t *metadataStrippingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	// Force identity encoding so the body is the raw Native+LZ4 frame
-	// stream we know how to walk. Done in the transport (not via
-	// opts.HttpHeaders) so it applies to every code path uniformly,
-	// including anonymous queries where HttpHeaders is left empty.
-	req.Header.Set("Accept-Encoding", "identity")
-
-	resp, err := t.base.RoundTrip(req)
-	if err != nil {
-		return resp, err
-	}
-	// Only rewrite successful query responses. Error and other non-200
-	// payloads (plain text, JSON) must reach the client untouched —
-	// scanning them for LZ4 frame markers risks false positives that
-	// would truncate the original message.
-	if resp.StatusCode != http.StatusOK {
-		return resp, nil
-	}
-	resp.Body = newStatsStrippingReader(resp.Body)
-	resp.Header.Del("Content-Encoding")
-	resp.Header.Del("Content-Length")
-	resp.ContentLength = -1
-	return resp, nil
 }
