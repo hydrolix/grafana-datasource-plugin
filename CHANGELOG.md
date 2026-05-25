@@ -1,8 +1,8 @@
 # Changelog
 
 ## 0.10.6
-- **Fix**: Fix compression settings
-- **Fix**: Improve Grafana User telemetry propagation for queries with SETTINGS clause
+- **Fix**: Default compression value
+- **Feature**: Improve Grafana User telemetry
 
 ## 0.10.5
 - **Feature**: Add Grafana User telemetry
