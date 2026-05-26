@@ -166,7 +166,14 @@ export function QueryEditor(props: Props) {
       }
     },
     300,
-    [showSql, interpolationId]
+    // `props.datasource.options` is mutated by `datasource.query()` (see
+    // dryRun() below). When the user clicks "Show Interpolated Query" on a
+    // freshly-opened panel, options is undefined → dryRun() runs onRunQuery
+    // which populates options, but without this dep the debounce never
+    // re-fires and the UI stays on "processing" forever. Including options
+    // here makes the React re-render triggered by setDryRunTriggered(true)
+    // re-arm the debounce, so the next pass takes the interpolate branch.
+    [showSql, interpolationId, props.datasource.options]
   );
   // eslint-disable-next-line eqeqeq
   let dirty = interpolationResult?.interpolationId != interpolationId;

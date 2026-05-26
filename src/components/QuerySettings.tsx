@@ -1,15 +1,7 @@
 import React, { useCallback, useMemo, useState } from "react";
 import labels from "../labels";
 import { AccessoryButton, InputGroup } from "@grafana/plugin-ui";
-import {
-  Box,
-  Collapse,
-  Combobox,
-  ComboboxOption,
-  Input,
-  Stack,
-  useStyles2,
-} from "@grafana/ui";
+import { Box, Collapse, Input, Select, Stack, useStyles2 } from "@grafana/ui";
 import { useToggle } from "react-use";
 import { GrafanaTheme2 } from "@grafana/data";
 import { css } from "@emotion/css";
@@ -67,12 +59,12 @@ export function QuerySettings({ settings, onSettingsChange }: Props) {
   }, [settingsArray, updateSettings]);
 
   const onNameChange = useCallback(
-    (index: number, setting: ComboboxOption) => {
+    (index: number, setting: string) => {
       let copy = [...settingsArray];
       copy[index] = {
-        setting: setting.value,
+        setting: setting,
         value: "",
-        type: settingTypes[setting.value],
+        type: settingTypes[setting],
       };
       updateSettings(copy);
     },
@@ -110,15 +102,15 @@ export function QuerySettings({ settings, onSettingsChange }: Props) {
   }) => {
     if (setting.type === "boolean") {
       return (
-        <Combobox
+        <Select
           width={10}
           options={[
             { value: "1", label: "Yes" },
             { value: "0", label: "No" },
           ]}
-          onChange={(v) => onValueUpdate(setting.setting, v.value)}
+          onChange={(v) => onValueUpdate(setting.setting, v.value ?? "")}
           value={setting.value ?? "0"}
-        ></Combobox>
+        ></Select>
       );
     } else if (setting.type === "textarea") {
       return (
@@ -188,14 +180,14 @@ export function QuerySettings({ settings, onSettingsChange }: Props) {
             <div className={styles.body}>
               {settingsArray.map((setting, i) => (
                 <InputGroup key={i}>
-                  <Combobox
+                  <Select
                     options={options}
-                    onChange={(e) => onNameChange(i, e)}
+                    onChange={(e) => onNameChange(i, e.value ?? "")}
                     width={"auto"}
                     value={setting.setting}
                     minWidth={10}
                     maxWidth={40}
-                  ></Combobox>
+                  ></Select>
                   <Input disabled={true} value={"="} width={3}></Input>
                   {settingInput(setting)}
                   <AccessoryButton
