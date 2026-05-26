@@ -82,7 +82,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 
 	compression := clickhouse.CompressionLZ4
 	if protocol == clickhouse.HTTP {
-		compression = clickhouse.CompressionNone
+		compression = clickhouse.CompressionGZIP
 	}
 
 	var tlsConfig *tls.Config
@@ -114,8 +114,8 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 	}
 
 	opts.TransportFunc = func(t *http.Transport) (http.RoundTripper, error) {
-		t.DisableCompression = false
-		return t, nil
+		t.DisableCompression = true
+		return &metadataStrippingTransport{base: t}, nil
 	}
 
 	if settings.CredentialsType == "userAccount" || settings.CredentialsType == "" {
@@ -736,4 +736,51 @@ func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
 		backend.DownstreamError(err),
 		backend.ErrorSourceDownstream,
 	)
+}
+
+type metadataStrippingTransport struct {
+	base http.RoundTripper
+}
+
+func (t *metadataStrippingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Force identity encoding so the body is the raw Native+LZ4 frame
+	// stream we know how to walk. Done in the transport (not via
+	// opts.HttpHeaders) so it applies to every code path uniformly,
+	// including anonymous queries where HttpHeaders is left empty.
+	//
+	// Disabled for the time being and sticking to content encoding gzip + streaming ruled by proxy or hdx cluster.
+	// Because having native+lz4 causes issues of the payload processing in clickhouse-go when turbine returns an error.
+	//req.Header.Set("Accept-Encoding", "identity")
+
+	// Only streaming responses carry the trailing Stats block we strip.
+	// Without hdx_query_streaming_result on the request the response body
+	// is a plain result frame — scanning it would risk false positives.
+	streamingRequested := req.URL.Query().Get("hdx_query_streaming_result") != ""
+
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		return resp, err
+	}
+
+	// Only rewrite successful query responses. Error and other non-200
+	// payloads (plain text, JSON) must reach the client untouched.
+	if resp.StatusCode != http.StatusOK {
+		return resp, nil
+	}
+
+	body, err := newDecompressReader(resp.Body, resp.Header.Get("Content-Encoding"))
+	if err != nil {
+		_ = resp.Body.Close()
+		return nil, err
+	}
+
+	if streamingRequested {
+		resp.Body = newStatsStrippingReader(body)
+	} else {
+		resp.Body = body
+	}
+	resp.Header.Del("Content-Encoding")
+	resp.Header.Del("Content-Length")
+	resp.ContentLength = -1
+	return resp, nil
 }
