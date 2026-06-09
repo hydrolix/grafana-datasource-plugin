@@ -362,3 +362,44 @@ Hydrolix queries fully support Grafana's template variables, allowing the creati
 
 > For more details about template variables, see
 > Grafana’s [Template variables documentation](https://grafana.com/docs/grafana/latest/dashboards/variables/add-template-variables/).
+
+### Annotations
+
+The Hydrolix data source can be used as a Grafana annotation source. Add an annotation under **Dashboard settings → Annotations**, pick the Hydrolix data source, and write a SQL query that returns the rows you want to mark. The SQL editor opens blank — there is no starter template. If you leave the SQL empty the query is skipped silently and no markers are rendered (no error toast).
+
+Binding result columns to annotation fields (time, time end, title, text, tags) is handled by Grafana's built-in annotation field-mapping UI — the plugin imposes no column-name convention. Any column from your `SELECT` can be mapped to any field via that UI.
+
+#### Instant annotations
+
+A query that returns rows with a single time column will render instant markers — one vertical line per row.
+
+```sql
+SELECT
+  event_time,
+  event_type,
+  message
+FROM events
+WHERE $__timeFilter(event_time)
+ORDER BY event_time
+```
+
+Map `event_time` → **Time**, `message` → **Text**, and `event_type` → **Tags** in the annotation field-mapping UI.
+
+#### Region annotations
+
+To render a region (a shaded interval rather than an instant), return both a start and an end timestamp, then map the second one to **Time end**.
+
+```sql
+SELECT
+  started_at,
+  ended_at,
+  incident_name,
+  severity
+FROM incidents
+WHERE $__timeFilter(started_at)
+ORDER BY started_at
+```
+
+Map `started_at` → **Time**, `ended_at` → **Time end**, `incident_name` → **Text**, `severity` → **Tags**.
+
+Ad hoc filters set on the dashboard apply to your panel queries; they do not affect annotation queries (annotation queries are intentionally insulated from the panel filter cache so refreshing one does not clobber the other).

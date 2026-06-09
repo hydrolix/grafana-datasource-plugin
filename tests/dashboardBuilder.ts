@@ -21,6 +21,13 @@ interface CustomVariableOpts {
     current?: string;
 }
 
+interface AnnotationOpts {
+    name?: string;
+    rawSql: string;
+    iconColor?: string;
+    enable?: boolean;
+}
+
 interface CreateResult {
     uid: string;
 }
@@ -46,6 +53,7 @@ export class DashboardBuilder {
     private title: string;
     private panels: unknown[] = [];
     private variables: unknown[] = [];
+    private annotations: unknown[] = [];
     private timeRange: { from: string; to: string } | undefined;
     private nextPanelId = 1;
 
@@ -108,6 +116,22 @@ export class DashboardBuilder {
         return this;
     }
 
+    addAnnotation(opts: AnnotationOpts): this {
+        this.annotations.push({
+            name: opts.name ?? `annotation-${this.annotations.length + 1}`,
+            enable: opts.enable ?? true,
+            iconColor: opts.iconColor ?? "rgba(255, 96, 96, 1)",
+            datasource: {type: this.datasource.type, uid: this.datasource.uid},
+            target: {
+                refId: "Anno",
+                rawSql: opts.rawSql,
+                round: "",
+                querySettings: [],
+            },
+        });
+        return this;
+    }
+
     async create(): Promise<CreateResult> {
         const dashboard: Record<string, unknown> = {
             title: this.title,
@@ -116,6 +140,9 @@ export class DashboardBuilder {
             templating: {list: this.variables},
             timezone: "utc",
         };
+        if (this.annotations.length) {
+            dashboard.annotations = {list: this.annotations};
+        }
         if (this.timeRange) {
             dashboard.time = {from: this.timeRange.from, to: this.timeRange.to};
         }
