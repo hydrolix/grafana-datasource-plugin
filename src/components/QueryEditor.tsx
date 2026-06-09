@@ -251,16 +251,21 @@ export function QueryEditor(props: Props) {
                     {labels.showInterpolatedQuery.label}
                   </Button>
                 )}
-                <div style={{ marginLeft: "auto", order: 2, display: "table" }}>
+                <div
+                  style={{
+                    marginLeft: "auto",
+                    order: 2,
+                    display: "flex",
+                    gap: 4,
+                  }}
+                >
                   <ToolbarButton
-                    style={{ display: "table-cell" }}
                     tooltip={labels.formatQuery.tooltip}
                     onClick={formatQuery}
                   >
                     <Icon name="brackets-curly" />
                   </ToolbarButton>
                   <ToolbarButton
-                    style={{ display: "table-cell" }}
                     tooltip={labels.runQuery.tooltip}
                     onClick={props.onRunQuery}
                   >
