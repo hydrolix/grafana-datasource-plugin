@@ -95,6 +95,8 @@ function isAnnotationRequest(request: DataQueryRequest<HdxQuery>): boolean {
 }
 ```
 
+Verified against `grafana/grafana@main` that annotation and panel queries arrive as separate `DataQueryRequest`s and are never mixed: `executeAnnotationQuery.ts:70-75` builds one request per annotation with a single `Anno` target, `PanelQueryRunner.ts:311` builds its own request from the panel's own targets only, and unified alerting bypasses `datasource.query()` entirely by POSTing to `/api/v1/eval`. The `.some()` is conservative — every target in a Grafana-issued request is either all annotation or all panel.
+
 Detection reads the `source` field that `prepareQuery` (and `getDefaultQuery`) set on annotation targets (see D5). No refId inspection, no panelId inference, no heuristics.
 
 `isAnnotationRequest` lives as a free function in `src/annotations.ts`, alongside the hooks that set `source: 'annotation'`. It is pure over the request shape (no `DataSource` state), so the reader and the writer of the `source` field sit in one file and the function is unit-testable without instantiating `DataSource`. `datasource.ts` imports it.
