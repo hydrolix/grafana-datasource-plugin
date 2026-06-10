@@ -1,8 +1,68 @@
 // @ts-nocheck
-import {Locator, Page, test} from "@playwright/test";
+import {BrowserContext, Locator, Page, test} from "@playwright/test";
 import {DataSourceConfigPage, expect, PanelEditPage,} from "@grafana/plugin-e2e";
 import allLabels from "../src/labels";
 import {CreateDataSourcePageArgs} from "@grafana/plugin-e2e/dist/types";
+
+/**
+ * Install a passthrough route on `urlPattern` that captures the rawSql out of
+ * every POST body and returns the array (mutated as requests come in).
+ *
+ * The fetch+fulfill pair is wrapped in try/catch: when the page navigates or
+ * the test ends between the two calls, the Response is disposed and fulfill
+ * throws `route.fulfill: Fetch response has been disposed`. Swallowing it
+ * doesn't lose captured data (we push before fetching) and prevents the route
+ * handler from failing the test (the failure looks like a flake on 11.x).
+ */
+export async function captureSqls(
+    context: BrowserContext,
+    urlPattern: string | RegExp = "**/api/ds/query**",
+): Promise<string[]> {
+    const sqls: string[] = [];
+    await context.route(urlPattern, async (route, request) => {
+        if (request.method() === "POST") {
+            try {
+                const json = JSON.parse(request.postData() ?? "");
+                const sql = json?.queries?.[0]?.rawSql;
+                if (sql) sqls.push(sql);
+            } catch {
+                // ignore non-JSON
+            }
+        }
+        try {
+            const response = await route.fetch();
+            await route.fulfill({response});
+        } catch {
+            // route disposed / target closed: ignore
+        }
+    });
+    return sqls;
+}
+
+/**
+ * Like {@link captureSqls} but captures the full POST body as a string. Useful
+ * when assertions need to read structure beyond `rawSql` (querySettings,
+ * datasource ref, etc.).
+ */
+export async function captureRequestBodies(
+    context: BrowserContext,
+    urlPattern: string | RegExp = "**/api/ds/query**",
+): Promise<string[]> {
+    const bodies: string[] = [];
+    await context.route(urlPattern, async (route, request) => {
+        if (request.method() === "POST") {
+            const body = request.postData() ?? "";
+            if (body) bodies.push(body);
+        }
+        try {
+            const response = await route.fetch();
+            await route.fulfill({response});
+        } catch {
+            // route disposed / target closed: ignore
+        }
+    });
+    return bodies;
+}
 
 /**
  * Decorator for Playwright steps
