@@ -1,0 +1,115 @@
+schema: spec-driven
+
+# General principles shown to AI when generating OpenSpec artifacts.
+# Specifics (paths, npm scripts, quality-gate commands, locator quirks) live
+# in .claude/CLAUDE.md. Operational details for build / run / e2e live in
+# the .claude/skills/grafana-plugin-* skills — do not duplicate them here.
+#
+# Hierarchy: MUST = enforced by CI/review. SHOULD = strong recommendation.
+# CAN = allowed without extra approval.
+context: |
+  # Hydrolix Grafana Datasource Plugin
+
+  TypeScript + React frontend on `DataSourceWithBackend`. Go backend on
+  `sqlds` for the query pipeline. Compatibility floor: Grafana >= 10 — do
+  not introduce branches for older versions.
+
+  ## Before coding
+  - MUST ask clarifying questions for ambiguous requirements.
+  - MUST draft an approach (API shape, data flow across the frontend/backend
+    boundary, failure modes) before writing code. Get explicit approval.
+  - SHOULD list pros/cons when more than two approaches exist.
+  - SHOULD plan test layering (frontend unit / Go unit / e2e) up front.
+
+  ## Code style
+  - MUST NOT introduce `any` without an inline justification; prefer
+    `unknown` + a type guard, or a precise type from `@grafana/data`.
+  - MUST keep React components functional + hooks. No new class components.
+  - MUST wrap Go errors with `%w`; use `errors.Is` / `errors.As` for control
+    flow, never string matching.
+  - MUST pass `ctx context.Context` first; honor `Done` and deadlines.
+  - SHOULD return concrete types and accept interfaces.
+  - SHOULD prefer Grafana SDK primitives and Go stdlib over new
+    dependencies — the plugin ships into Grafana's process.
+  - MUST NOT comment WHAT the code does. Add a comment only when the WHY
+    is non-obvious.
+
+  ## Datasource invariants
+  - `sqlds` is the single backend query path; do not add parallel paths.
+  - MUST NOT mutate the `DataQueryRequest` handed to `query()`. Use a
+    spread copy for any retag or normalization.
+  - Macro expansion lives server-side (`/interpolate` resource). Do not
+    duplicate macro logic in the frontend.
+
+  ## Testing
+  - MUST add unit tests for new pure helpers and hooks.
+  - MUST add Go unit tests for new code with branching logic or sqlds
+    touchpoints. Run with `-race`.
+  - SHOULD add an e2e for any user-visible behavior change.
+  - MUST keep e2e deterministic — seed fixtures explicitly, pin time
+    ranges, do not rely on the system clock.
+
+  ## Self-review checklist
+  1. Clarity — readable without a comment?
+  2. Complexity — many branches or deep nesting? Refactor.
+  3. Data shape — clearer algorithm/structure available?
+  4. Dependencies — hidden state / globals that should be parameters?
+  5. Naming — brainstorm three; pick the most consistent.
+
+# Per-artifact rules — keep proposals / designs / specs / tasks tight and
+# reviewable. Format details, not content guidance.
+rules:
+  proposal:
+    - Keep under ~500 words. Lead with "Why"; defer "How" to design.md.
+    - The proposal is self-contained general information. It MUST NOT
+      cross-reference design.md sections ("see design.md D6", "per
+      decision Dx"). Readers find the "How" in design.md on their own.
+      If a bullet feels like it needs a cross-reference to make sense,
+      the bullet is at the wrong level of detail — drop the detail, do
+      not link out to it.
+    - The `What Changes` section lists capability-level surfaces only —
+      files touched, hooks / capabilities / components added or removed,
+      UI behaviors enabled, breaking-vs-non-breaking. One line per bullet.
+    - The `What Changes` section MUST NOT contain function signatures,
+      return semantics, code snippets, detection algorithms, enumerated
+      test cases, or the rationale for any design choice. Those belong
+      in design.md (decisions, mechanisms) or tasks.md (test enumeration).
+    - Test coverage is mentioned at the layering level only — e.g.,
+      "unit + Playwright e2e coverage". Specific cases live in tasks.md.
+    - The `Capabilities` section uses kebab-case names matching `specs/<name>/`.
+    - Mark breaking changes with **BREAKING**. The plugin must not break
+      Grafana 10.x dashboards on upgrade.
+  design:
+    - Required when the change crosses the frontend/backend boundary or
+      mutates shared datasource state.
+    - Each decision states its rationale (one sentence is fine when the
+      reasoning is obvious from the decision itself). Rejected
+      alternatives SHOULD be listed when meaningful — i.e., a reasonable
+      reader might have picked them and the rejection carries
+      information. Omit the "Alternative considered" block when no
+      meaningful alternative exists; do not pad with strawmen.
+    - Risks formatted "[Risk] → Mitigation" with the proving signal
+      (test, log, observability metric).
+  specs:
+    - While `proposal.md` or `design.md` is still being polished, MUST NOT
+      edit `specs/*/spec.md`. Specs codify settled decisions — propagate
+      them in a single follow-up pass once the upstream artifacts are
+      stable and the user signals approval. Editing specs in parallel
+      with design iteration churns scenarios against decisions still in
+      motion.
+    - Scenarios use exactly four hashtags (`#### Scenario:`). Three or
+      bullets fail validation silently.
+    - Use SHALL/MUST in requirement text. Avoid should/may in normative text.
+    - Every requirement gets at least one scenario; each scenario is shaped
+      as a test the implementation can satisfy.
+  tasks:
+    - While `proposal.md` or `design.md` is still being polished, MUST NOT
+      edit `tasks.md`. Tasks depend on settled decisions — propagate them
+      in a single follow-up pass once the upstream artifacts are stable
+      and the user signals approval. Editing tasks in parallel with
+      design iteration produces task lists that drift from the design.
+    - Group by `## N. <Group>`. Each task is `- [ ] N.M ...` so `/opsx:apply`
+      can track progress.
+    - Order by dependency. Implementation before tests; unit before e2e.
+    - Every behavior-affecting change includes at least one unit-test task
+      and at least one e2e task.

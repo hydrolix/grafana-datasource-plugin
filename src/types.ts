@@ -6,6 +6,8 @@ import {
 } from "@grafana/data";
 import { DataQuery } from "@grafana/schema";
 
+export type HdxQuerySource = "annotation";
+
 export interface HdxQuery extends DataQuery {
   rawSql: string;
   round: string;
@@ -15,6 +17,7 @@ export interface HdxQuery extends DataQuery {
   skipNextRun?: () => boolean;
   querySettings: QuerySetting[];
   oauthPassThru?: boolean;
+  source?: HdxQuerySource;
 }
 
 /**

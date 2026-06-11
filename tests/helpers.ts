@@ -65,6 +65,57 @@ export async function captureRequestBodies(
 }
 
 /**
+ * Capture paired request bodies + response bodies for every POST to
+ * `urlPattern`. The returned `requests` and `responses` arrays are kept in
+ * lockstep — index `i` in one corresponds to index `i` in the other — so
+ * callers can locate a request by its payload (e.g. `queries[0].source ===
+ * "annotation"`) and read the backend's reply at the same index.
+ *
+ * The response body is consumed once (`response.text()`) and replayed via
+ * `fulfill({response, body})` so the page receives identical bytes. As with
+ * {@link captureRequestBodies}, the fetch+fulfill pair is wrapped in try/catch
+ * to swallow `route.fulfill: Fetch response has been disposed` when navigation
+ * tears the route down mid-flight.
+ */
+export async function captureRequestsAndResponses(
+    context: BrowserContext,
+    urlPattern: string | RegExp = "**/api/ds/query**",
+): Promise<{ requests: string[]; responses: string[] }> {
+    const requests: string[] = [];
+    const responses: string[] = [];
+    await context.route(urlPattern, async (route, request) => {
+        if (request.method() !== "POST") {
+            try {
+                const response = await route.fetch();
+                await route.fulfill({response});
+            } catch {
+                // ignore
+            }
+            return;
+        }
+        const reqBody = request.postData() ?? "";
+        try {
+            const response = await route.fetch();
+            try {
+                const respText = await response.text();
+                requests.push(reqBody);
+                responses.push(respText);
+                await route.fulfill({response, body: respText});
+            } catch {
+                try {
+                    await route.fulfill({response});
+                } catch {
+                    // ignore
+                }
+            }
+        } catch {
+            // route disposed / target closed: ignore
+        }
+    });
+    return {requests, responses};
+}
+
+/**
  * Decorator for Playwright steps
  */
 export function step(target: Function, context: ClassMethodDecoratorContext) {

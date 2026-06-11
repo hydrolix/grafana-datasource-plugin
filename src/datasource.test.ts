@@ -1,11 +1,12 @@
 import { firstValueFrom, of } from "rxjs";
-import { DataQueryRequest, toDataFrame } from "@grafana/data";
+import { CoreApp, DataQueryRequest, toDataFrame } from "@grafana/data";
 import {
   MockDataSourceInstanceSettings,
   setupDataSourceMock,
 } from "__mocks__/datasource";
 import { adHocTableVariable, fooVariable } from "./__mocks__/variable";
 import { AdHocFilterKeys, HdxQuery } from "./types";
+import { ZERO_TIME_RANGE } from "./editor/metadataProvider";
 
 describe("HdxDataSource", () => {
   beforeEach(() => {
@@ -667,6 +668,129 @@ describe("HdxDataSource", () => {
         (s: any) => s.setting === "hdx_query_admin_comment"
       );
       expect(comment.value).toBe("templatedFoo");
+    });
+  });
+
+  describe("annotation request retag", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    const realRange = {
+      from: { valueOf: () => 1 } as any,
+      to: { valueOf: () => 2 } as any,
+      raw: { from: "now-1h", to: "now" },
+    } as any;
+
+    function buildRequest(
+      targets: Partial<HdxQuery>[],
+      overrides: Partial<DataQueryRequest<HdxQuery>> = {}
+    ): DataQueryRequest<HdxQuery> {
+      return {
+        app: CoreApp.Dashboard,
+        range: realRange,
+        targets: targets.map(
+          (t, i) =>
+            ({
+              refId: `R${i}`,
+              rawSql: "SELECT 1",
+              round: "",
+              querySettings: [],
+              ...t,
+            } as HdxQuery)
+        ),
+        filters: [],
+        ...overrides,
+      } as DataQueryRequest<HdxQuery>;
+    }
+
+    it("retags annotation requests to app='annotation' before super.query", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const req = buildRequest([{ source: "annotation" }]);
+      await firstValueFrom(datasource.query(req));
+
+      expect(queryMock.mock.calls[0][0].app).toBe("annotation");
+    });
+
+    it("does not retag panel requests", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const req = buildRequest([{}]);
+      await firstValueFrom(datasource.query(req));
+
+      expect(queryMock.mock.calls[0][0].app).toBe(CoreApp.Dashboard);
+    });
+
+    it("does not overwrite this.filters from an annotation request", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const panelFilters = [{ key: "k", operator: "=", value: "v" }];
+      await firstValueFrom(
+        datasource.query(buildRequest([{}], { filters: panelFilters as any }))
+      );
+      expect(datasource.filters).toEqual(panelFilters);
+
+      await firstValueFrom(
+        datasource.query(
+          buildRequest([{ source: "annotation" }], { filters: [] })
+        )
+      );
+      expect(datasource.filters).toEqual(panelFilters);
+    });
+
+    it("updates this.filters for a panel request (regression check)", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const panelFilters = [{ key: "k2", operator: "=", value: "v2" }];
+      await firstValueFrom(
+        datasource.query(buildRequest([{}], { filters: panelFilters as any }))
+      );
+      expect(datasource.filters).toEqual(panelFilters);
+    });
+
+    it("updates this.options for an annotation request with a real range", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const req = buildRequest([{ source: "annotation" }]);
+      await firstValueFrom(datasource.query(req));
+
+      expect(datasource.options?.range).toBe(realRange);
+      expect(datasource.options?.app).toBe("annotation");
+    });
+
+    it("leaves this.options unchanged for ZERO_TIME_RANGE", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const prior = buildRequest([{}]);
+      await firstValueFrom(datasource.query(prior));
+      const snapshot = datasource.options;
+
+      const zero = buildRequest([{ source: "annotation" }], {
+        range: ZERO_TIME_RANGE as any,
+      });
+      await firstValueFrom(datasource.query(zero));
+      expect(datasource.options).toBe(snapshot);
+    });
+
+    it("does not mutate the original DataQueryRequest", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const req = buildRequest([{ source: "annotation" }]);
+      const originalApp = req.app;
+      const originalTargets = req.targets;
+
+      await firstValueFrom(datasource.query(req));
+
+      expect(req.app).toBe(originalApp);
+      expect(req.targets).toBe(originalTargets);
     });
   });
 });
