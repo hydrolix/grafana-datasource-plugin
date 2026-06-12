@@ -1,0 +1,35 @@
+name: Validate
+
+# Pre-merge metadata checks for release / hotfix PRs.
+#   - branch ⇔ manifest version equality (and maintenance-line consistency)
+#   - CHANGELOG section exists and is non-empty for the manifest version
+#   - PR head is up-to-date with the target branch
+#   - manifest version is greater than the highest tag on the target line
+
+on:
+  workflow_call:
+
+jobs:
+  validate:
+    name: Validate metadata
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Branch ⇔ manifest version
+        run: ./.github/scripts/check-branch-version.sh
+
+      - name: CHANGELOG section
+        run: ./.github/scripts/check-changelog.sh
+
+      - name: Up-to-date with target
+        run: ./.github/scripts/check-up-to-date.sh
+        env:
+          GITHUB_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+      - name: Version monotonicity
+        run: ./.github/scripts/check-monotonicity.sh

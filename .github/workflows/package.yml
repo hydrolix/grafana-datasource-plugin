@@ -1,4 +1,9 @@
-name: Packege
+name: Package
+
+# Build the plugin zip from previously-uploaded frontend / backend artifacts.
+# Signs and attests only when `sign` is true (post-merge stable releases). Pre-
+# merge PR runs pass sign=false — the resulting zip carries no signature and
+# is not eligible for the catalog, but is fine for plugin-validator and e2e.
 
 on:
   workflow_call:
@@ -7,14 +12,22 @@ on:
         description: "Node.js version to use"
         required: true
         type: string
+      sign:
+        description: "Sign the plugin and produce a build-provenance attestation"
+        required: false
+        type: boolean
+        default: false
     secrets:
       grafana_token:
-        description: "Grafana access policy token for signing"
-        required: true
+        description: "Grafana access policy token (required when sign=true)"
+        required: false
     outputs:
       version:
-        description: "Plugin version"
+        description: "Plugin version (read from manifest after set-version.sh runs)"
         value: ${{ jobs.package.outputs.version }}
+      zip_name:
+        description: "Packaged zip filename"
+        value: ${{ jobs.package.outputs.zip_name }}
 
 jobs:
   package:
@@ -26,6 +39,7 @@ jobs:
       attestations: write
     outputs:
       version: ${{ steps.create.outputs.version }}
+      zip_name: ${{ steps.create.outputs.zip_name }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -54,6 +68,7 @@ jobs:
         run: ./.github/scripts/set-version.sh
 
       - name: Sign plugin
+        if: ${{ inputs.sign }}
         run: npx --yes @grafana/sign-plugin@latest
         env:
           GRAFANA_ACCESS_POLICY_TOKEN: ${{ secrets.grafana_token }}
@@ -63,11 +78,18 @@ jobs:
         run: |
           PLUGIN_NAME=$(npm pkg get name | tr -d '"')
           PLUGIN_VERSION=$(npm pkg get version | tr -d '"')
-          echo "version=$PLUGIN_VERSION" >> $GITHUB_OUTPUT
           ZIP_NAME=$PLUGIN_NAME-$PLUGIN_VERSION.zip
           chmod 0775 dist/gpx_*
-          mv dist/ $PLUGIN_NAME/
-          zip $ZIP_NAME $PLUGIN_NAME -r
+          mv dist/ "$PLUGIN_NAME/"
+          zip "$ZIP_NAME" "$PLUGIN_NAME" -r
+          echo "version=$PLUGIN_VERSION" >> "$GITHUB_OUTPUT"
+          echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Attest build provenance
+        if: ${{ inputs.sign }}
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "*.zip"
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v2

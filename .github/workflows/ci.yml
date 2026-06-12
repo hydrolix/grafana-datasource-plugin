@@ -1,11 +1,22 @@
 name: CI Pipeline
 
+# Pre-merge pipeline. Runs on every PR. For PRs targeting main or
+# maintenance/** the release-specific validation gates engage (branch ⇔
+# manifest, CHANGELOG, ancestry, monotonicity, rc S3 upload). For PRs to other
+# branches (develop, feature PRs) only the always-on build/test/package path
+# runs. The umbrella ci-required job is the single required status check.
+
 on:
   pull_request:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 jobs:
+  validate:
+    name: Validate metadata
+    if: github.base_ref == 'main' || startsWith(github.base_ref, 'maintenance/')
+    uses: ./.github/workflows/validate.yml
+
   build-frontend:
     name: Build Frontend
     uses: ./.github/workflows/build-frontend.yml
@@ -15,16 +26,6 @@ jobs:
   test-frontend:
     name: Test Frontend
     uses: ./.github/workflows/test-frontend.yml
-    with:
-      node_version: '22'
-
-  compatibility-check:
-    name: Compatibility Check
-    uses: ./.github/workflows/compatibility-check.yml
-    needs: build-frontend
-    permissions:
-      pull-requests: write
-      contents: read
     with:
       node_version: '22'
 
@@ -40,6 +41,16 @@ jobs:
     with:
       go_version: '1.26.5'
 
+  compatibility-check:
+    name: Compatibility Check
+    uses: ./.github/workflows/compatibility-check.yml
+    needs: build-frontend
+    with:
+      node_version: '22'
+    permissions:
+      pull-requests: write
+      contents: read
+
   package:
     name: Package Plugin
     uses: ./.github/workflows/package.yml
@@ -50,29 +61,68 @@ jobs:
       attestations: write
     with:
       node_version: '22'
-    secrets:
-      grafana_token: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
+      sign: false
+
+  plugin-validator:
+    name: Plugin Validator
+    uses: ./.github/workflows/plugin-validator.yml
+    needs: package
 
   e2e:
     name: E2E Tests
     uses: ./.github/workflows/e2e.yml
-    needs: [package]
+    needs: package
 
-  publish-aws:
-    name: Publish to AWS S3
+  # RC artifacts are uploaded to S3 on every PR sync so testers can pull
+  # them. Cascaded-skipped on PRs to non-release branches (no validate),
+  # explicitly skipped when the manifest is not an rc (stable promotion).
+  publish-rc-to-s3:
+    name: Publish RC to S3
     uses: ./.github/workflows/s3_publish.yml
-    if: github.event_name == 'pull_request' && github.base_ref == 'main'
-    needs: [package, e2e]
+    needs: [validate, package, plugin-validator, e2e]
+    if: contains(needs.package.outputs.version, '-rc')
     secrets:
       aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
       aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-  create-github-release:
-    name: Create GitHub Release
-    uses: ./.github/workflows/release.yml
-    needs: [package, e2e]
-    if: github.event_name == 'pull_request' && github.base_ref == 'main'
-    with:
-      version: ${{ needs.package.outputs.version }}
-    permissions:
-      contents: write
+  # Single required status check in the branch protection ruleset for main
+  # and maintenance/**. Asserts every dep succeeded; tolerates skips only for
+  # jobs that are legitimately optional (validate on non-release PRs,
+  # publish-rc-to-s3 on stable / non-release PRs).
+  ci-required:
+    name: ci-required
+    needs:
+      - validate
+      - build-frontend
+      - test-frontend
+      - build-backend
+      - test-backend
+      - compatibility-check
+      - package
+      - plugin-validator
+      - e2e
+      - publish-rc-to-s3
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert required jobs succeeded
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS_JSON" | jq .
+          # Jobs that may be skipped without failing the gate.
+          SKIPPABLE='["validate","publish-rc-to-s3"]'
+          if echo "$NEEDS_JSON" | jq -e --argjson skip "$SKIPPABLE" '
+            to_entries | all(
+              if ([.key] | inside($skip)) then
+                .value.result == "success" or .value.result == "skipped"
+              else
+                .value.result == "success"
+              end
+            )
+          ' >/dev/null; then
+            echo "All required jobs succeeded"
+            exit 0
+          fi
+          echo "One or more required jobs failed or were unexpectedly skipped"
+          exit 1

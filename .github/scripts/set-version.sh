@@ -17,13 +17,15 @@ IS_HOTFIX_SOURCE_BRANCH=false
 [[ "$GITHUB_REF_NAME" =~ ^hotfix[/_-].+ ]] && IS_HOTFIX_SOURCE_BRANCH=true
 
 if $IS_RELEASE_SOURCE_BRANCH || $IS_HOTFIX_SOURCE_BRANCH; then
-  if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "Invalid version \"$VERSION\": expected format X.X.X"
+  # Release/hotfix branches carry either a clean version (X.Y.Z) when
+  # promoting to stable, or an rc version (X.Y.Z-rcN) while iterating.
+  if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?$ ]]; then
+    echo "Invalid version \"$VERSION\": expected X.Y.Z or X.Y.Z-rcN on $GITHUB_HEAD_REF$GITHUB_REF_NAME"
     exit 1
   fi
 else
   if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-dev$ ]]; then
-    echo "Invalid version \"$VERSION\": expected format X.X.X-dev"
+    echo "Invalid version \"$VERSION\": expected format X.Y.Z-dev"
     exit 1
   fi
 
