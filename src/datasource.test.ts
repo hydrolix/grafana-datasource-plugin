@@ -683,7 +683,7 @@ describe("HdxDataSource", () => {
     } as any;
 
     function buildRequest(
-      targets: Partial<HdxQuery>[],
+      targets: Array<Partial<HdxQuery>>,
       overrides: Partial<DataQueryRequest<HdxQuery>> = {}
     ): DataQueryRequest<HdxQuery> {
       return {

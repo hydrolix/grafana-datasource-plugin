@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -32,13 +33,11 @@ func AST(rw http.ResponseWriter, req *http.Request) {
 
 	}
 
-	rw.WriteHeader(http.StatusOK)
-	marshal, err := json.Marshal(Response[[]parser.Expr]{
+	writeJSON(rw, Response[[]parser.Expr]{
 		false,
 		"",
 		body,
 	})
-	_, err = rw.Write(marshal)
 }
 func Interpolate(ds *sqlds.HydrolixDatasource, rw http.ResponseWriter, req *http.Request) {
 	defer func() {
@@ -76,13 +75,11 @@ func Interpolate(ds *sqlds.HydrolixDatasource, rw http.ResponseWriter, req *http
 
 	}
 
-	rw.WriteHeader(http.StatusOK)
-	marshal, err := json.Marshal(Response[string]{
+	writeJSON(rw, Response[string]{
 		false,
 		"",
 		body,
 	})
-	_, err = rw.Write(marshal)
 
 }
 
@@ -112,25 +109,40 @@ func MacroCTEs(rw http.ResponseWriter, req *http.Request) {
 
 	}
 
-	rw.WriteHeader(http.StatusOK)
-	marshal, err := json.Marshal(Response[[]sqlds.CTE]{
+	writeJSON(rw, Response[[]sqlds.CTE]{
 		false,
 		"",
 		slices.Collect(maps.Values(body)),
 	})
-	_, err = rw.Write(marshal)
 
 }
 
 func wrapError(rw http.ResponseWriter, err error) {
-	rw.WriteHeader(http.StatusOK)
-	marshal, _ := json.Marshal(Response[any]{
+	marshal, marshalErr := json.Marshal(Response[any]{
 		true,
 		err.Error(),
 		nil,
 	})
-	_, err = rw.Write(marshal)
-	return
+	if marshalErr != nil {
+		http.Error(rw, marshalErr.Error(), http.StatusInternalServerError)
+		return
+	}
+	rw.Header().Set("Content-Type", "application/json")
+	rw.Header().Set("Content-Length", strconv.Itoa(len(marshal)))
+	rw.WriteHeader(http.StatusOK)
+	_, _ = rw.Write(marshal)
+}
+
+func writeJSON(rw http.ResponseWriter, v any) {
+	marshal, err := json.Marshal(v)
+	if err != nil {
+		wrapError(rw, err)
+		return
+	}
+	rw.Header().Set("Content-Type", "application/json")
+	rw.Header().Set("Content-Length", strconv.Itoa(len(marshal)))
+	rw.WriteHeader(http.StatusOK)
+	_, _ = rw.Write(marshal)
 }
 
 func Routes(ds *sqlds.HydrolixDatasource) map[string]func(http.ResponseWriter, *http.Request) {

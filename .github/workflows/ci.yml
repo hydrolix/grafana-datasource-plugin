@@ -42,6 +42,10 @@ jobs:
     name: Package Plugin
     uses: ./.github/workflows/package.yml
     needs: [build-frontend, build-backend]
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     with:
       node_version: '22'
     secrets:

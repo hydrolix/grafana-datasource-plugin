@@ -29,8 +29,8 @@ jobs:
       - name: Set version
         run: ./.github/scripts/set-version.sh
 
-#      - name: Lint code
-#        run: npm run lint
+      - name: Lint code
+        run: npm run lint
 
       - name: Type check
         run: npm run typecheck
