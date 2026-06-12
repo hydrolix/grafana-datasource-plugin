@@ -1,0 +1,31 @@
+name: Plugin Validator
+
+# Runs @grafana/plugin-validator against the packaged zip. Surfaces catalog
+# rejection causes (manifest issues, missing files, signature problems) at
+# PR review time instead of at submission time.
+
+on:
+  workflow_call:
+
+jobs:
+  plugin-validator:
+    name: Plugin Validator
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download plugin package
+        uses: actions/download-artifact@v8
+        with:
+          name: plugin-package
+
+      - name: Run plugin-validator
+        run: |
+          ZIP=$(find . -maxdepth 1 -name '*.zip' | head -n 1)
+          if [[ -z "$ZIP" ]]; then
+            echo "No zip file found"
+            exit 1
+          fi
+          echo "Validating $ZIP"
+          npx --yes @grafana/plugin-validator@latest -sourceCodeUri file://. "$ZIP"

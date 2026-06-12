@@ -1,0 +1,157 @@
+name: Release Tag (Post-Merge)
+
+# Triggers when a PR is merged into main or maintenance/**.
+# Rebuilds from the merge commit (defense against pre-merge artifact drift),
+# packages with signing, runs e2e against the signed artifact, uploads to S3,
+# attests build provenance, pushes the tag, drafts the GitHub release.
+#
+# For main targets, follows up with a back-merge PR into develop carrying the
+# release-branch's CHANGELOG and rc fixes. Maintenance hotfixes don't auto
+# back-merge (forward-port is a human decision).
+
+on:
+  pull_request_target:
+    types: [closed]
+    branches:
+      - main
+      - 'maintenance/**'
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  pull-requests: write
+
+jobs:
+  prechecks:
+    name: Assert clean release
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      sha: ${{ steps.read.outputs.sha }}
+      base_ref: ${{ steps.read.outputs.base_ref }}
+    steps:
+      - name: Checkout merge commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+
+      - name: Read manifest version
+        id: read
+        run: |
+          VERSION=$(jq -r .version package.json)
+          if [[ "$VERSION" == *-rc* || "$VERSION" == *-dev* ]]; then
+            echo "Refusing to publish non-clean version: $VERSION"
+            echo "(post-merge release should only run when manifest is X.Y.Z)"
+            exit 1
+          fi
+          echo "Clean version detected: $VERSION"
+          {
+            echo "version=$VERSION"
+            echo "sha=${{ github.event.pull_request.merge_commit_sha }}"
+            echo "base_ref=${{ github.event.pull_request.base.ref }}"
+          } >> "$GITHUB_OUTPUT"
+
+  build-frontend:
+    name: Build Frontend (release)
+    needs: prechecks
+    uses: ./.github/workflows/build-frontend.yml
+    with:
+      node_version: '22'
+
+  build-backend:
+    name: Build Backend (release)
+    needs: prechecks
+    uses: ./.github/workflows/build-backend.yml
+    with:
+      go_version: '1.25.7'
+
+  package:
+    name: Package (signed)
+    uses: ./.github/workflows/package.yml
+    needs: [prechecks, build-frontend, build-backend]
+    with:
+      node_version: '22'
+      sign: true
+    secrets:
+      grafana_token: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+
+  e2e-signed:
+    name: E2E against signed artifact
+    uses: ./.github/workflows/e2e.yml
+    needs: package
+
+  publish-aws:
+    name: Publish to AWS S3
+    uses: ./.github/workflows/s3_publish.yml
+    needs: [package, e2e-signed]
+    secrets:
+      aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+  draft-release:
+    name: Tag and draft release
+    uses: ./.github/workflows/release.yml
+    needs: [prechecks, package, e2e-signed, publish-aws]
+    with:
+      version: ${{ needs.prechecks.outputs.version }}
+      sha: ${{ needs.prechecks.outputs.sha }}
+    permissions:
+      contents: write
+
+  back-merge:
+    name: Back-merge into develop
+    needs: [prechecks, draft-release]
+    if: needs.prechecks.outputs.base_ref == 'main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create back-merge branch from main
+        env:
+          VERSION: ${{ needs.prechecks.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          BRANCH="chore/back-merge-v$VERSION"
+          git fetch origin main
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Branch $BRANCH already exists on remote; not recreating"
+          else
+            git checkout -b "$BRANCH" origin/main
+            git push origin "$BRANCH"
+          fi
+
+      - name: Open back-merge PR
+        env:
+          VERSION: ${{ needs.prechecks.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="chore/back-merge-v$VERSION"
+          if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
+            echo "PR already exists for $BRANCH"
+            exit 0
+          fi
+          gh pr create \
+            --base develop \
+            --head "$BRANCH" \
+            --title "chore: back-merge v$VERSION into develop" \
+            --body "$(cat <<EOF
+          Auto-generated back-merge after releasing v$VERSION.
+
+          Brings CHANGELOG updates and any rc-iteration fixes from the release branch (via main) into develop. Does **not** bump develop's manifest version — that bump should already have happened when the release branch was cut.
+
+          Review for conflicts (typically \`package.json\` version, CHANGELOG sections) and merge when green.
+          EOF
+          )"

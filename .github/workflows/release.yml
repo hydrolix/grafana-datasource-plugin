@@ -1,67 +1,74 @@
-name: GitHub Release
+name: Draft GitHub Release
+
+# Push the release tag onto the supplied commit, then create a draft GitHub
+# release pointing at the tag, with body parsed out of CHANGELOG.md.
+#
+# Both steps are idempotent: re-running this workflow against the same
+# version + SHA either creates the resource or no-ops.
 
 on:
   workflow_call:
     inputs:
       version:
-        description: "plugin version to release"
+        description: "Clean release version, e.g. 1.2.3 (no leading v, no -rcN, no -dev)"
         required: true
         type: string
+      sha:
+        description: "Commit SHA to tag (defaults to GITHUB_SHA)"
+        required: false
+        type: string
+        default: ""
 
 jobs:
-  create-github-release:
-    name: Create GitHub Release
+  release:
+    name: Push tag and draft release
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Display all outputs as JSON
-        run: |
-          echo "${{ toJSON(github) }}"
-      - name: Checkout code
-        uses: actions/checkout@v7
+      - name: Checkout target commit
+        uses: actions/checkout@v4
         with:
-          persist-credentials: false
+          ref: ${{ inputs.sha || github.sha }}
+          fetch-depth: 0
 
-      - name: Download GitHub artifact
+      - name: Download signed plugin artifact
         uses: actions/download-artifact@v8
         with:
           name: plugin-package
           path: /tmp/plugin-package
+
       - name: Parse changelog
         id: parse
         run: |
-          changelog=`.github/scripts/parse-changelog.sh CHANGELOG.md`
-          echo 'changelog<<EOF' >> "$GITHUB_OUTPUT"
-          echo "$changelog" >> "$GITHUB_OUTPUT"
-          echo 'EOF' >> "$GITHUB_OUTPUT"
-        shell: bash
-      - name: Create tag
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
-        # Allow the tag creation to fail, in case it already exists
-        # (e.g.: created manually, or re-triggering a release).
-        continue-on-error: true
-        with:
-          script: |
-            const { PLUGIN_VERSION } = process.env
-            const sha = process.env.PR_HEAD_SHA || context.sha
-            github.rest.git.createRef({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: `refs/tags/v${PLUGIN_VERSION}`,
-              sha: sha
-            })
-        env:
-          PLUGIN_VERSION: ${{ inputs.version }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BODY=$(./.github/scripts/parse-changelog.sh CHANGELOG.md "${{ inputs.version }}")
+          {
+            echo "body<<EOF"
+            echo "$BODY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Create Github release
-        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
+      - name: Push tag
+        env:
+          VERSION: ${{ inputs.version }}
+          SHA: ${{ inputs.sha || github.sha }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+            echo "Tag v$VERSION already exists locally; not re-creating"
+          else
+            git tag "v$VERSION" "$SHA"
+            git push origin "v$VERSION"
+          fi
+
+      - name: Create draft GitHub release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
         with:
-          draft: ${{ contains(inputs.version, 'dev') }}
+          draft: true
           name: ${{ inputs.version }}
           tag_name: v${{ inputs.version }}
-          files: |
-            /tmp/plugin-package/*.zip
+          target_commitish: ${{ inputs.sha || github.sha }}
+          files: /tmp/plugin-package/*.zip
           fail_on_unmatched_files: true
-          body: ${{ steps.parse.outputs.changelog }}
+          body: ${{ steps.parse.outputs.body }}

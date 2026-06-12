@@ -1,0 +1,51 @@
+ All 14 tasks completed, all 13 workflows pass actionlint, all 7 scripts are executable and smoke-test cleanly. Here's the summary of what was implemented.
+
+  New / changed files
+
+  Scripts (.github/scripts/)
+  - set-version.sh — now accepts X.Y.Z and X.Y.Z-rcN on release/hotfix branches.
+  - check-branch-version.sh (new) — branch ⇔ manifest version + maintenance-line consistency.
+  - check-changelog.sh (new) — verifies a non-empty CHANGELOG section exists for the base version.
+  - check-up-to-date.sh (new) — workflow-side ancestry check, defense-in-depth alongside branch protection.
+  - check-monotonicity.sh (new) — manifest base > highest tag on the target line (main or maintenance/vX.Y.x).
+  - parse-changelog.sh — now accepts an optional version arg to extract a specific section.
+
+  Workflows (.github/workflows/)
+  - validate.yml (new) — runs the four validation checks. Conditional on PR target being main or maintenance/**.
+  - plugin-validator.yml (new) — runs @grafana/plugin-validator against the packaged zip on every PR.
+  - package.yml — added sign: bool input gating both sign and attest steps.
+  - compatibility-check.yml — fixed missing node_version input declaration.
+  - ci.yml — rewritten as the pre-merge pipeline with a single ci-required umbrella job. Removed unconditional release creation.
+  - release.yml — rewritten as a reusable workflow that pushes the tag and creates a draft GH release; idempotent.
+  - release-tag.yml (new) — post-merge orchestrator on pull_request_target: closed + merged==true. Sequences rebuild → package(sign=true) → e2e against signed → S3 → release.yml (which pushes tag + drafts release) → back-merge PR (main targets
+  only).
+
+  Behaviour summary
+
+  Pre-merge (ci.yml):
+  - For PRs to main / maintenance/**: full pipeline + validate + rc S3 upload (only when manifest has -rcN).
+  - For PRs to develop / feature branches: build + test + package + e2e (validate cascades-skipped, S3 upload cascades-skipped). Umbrella job's skippable list keeps these from failing the gate.
+  - Required ruleset check: ci-required.
+
+  Post-merge (release-tag.yml):
+  - Fires only on merged PRs to main / maintenance/**.
+  - Refuses to run if manifest still has -rcN or -dev.
+  - Tag-last + idempotent: re-running after a transient failure is safe.
+  - Back-merge PR opens automatically for main targets, not for maintenance hotfixes.
+
+  What's not changed
+
+  - s3_publish.yml, publish-aws.sh — already work for both rc and stable (no prefix; zip name carries the version).
+  - e2e.yml, build-frontend.yml, build-backend.yml, test-frontend.yml, test-backend.yml — reusable workflows preserved, called from both ci.yml (pre-merge) and release-tag.yml (post-merge).
+
+  Caveats worth knowing before this lands
+
+  1. pull_request_target security model: the post-merge workflow runs with elevated permissions and access to secrets. It only checks out the merge commit (which is already on the protected branch), so the attack surface is limited — but be aware
+   that any run: script in release-tag.yml reads from the merged code. The merged code is already PR-reviewed, so this matches the standard pull_request_target safety model.
+  2. Back-merge PR triggering CI: PRs created by GITHUB_TOKEN don't trigger workflows by default. The back-merge PR will be opened but its own CI won't run automatically until someone manually closes/reopens it, or until you swap GITHUB_TOKEN for
+   a PAT or GitHub App token. This is a well-known GitHub limitation, not a bug in the workflow.
+  3. Plugin-validator uses npx @grafana/plugin-validator@latest — the validator is heavy first-run (downloads via npx). Pinning a version or pre-installing in the runner would speed it up. Acceptable as-is for now.
+  4. set-version.sh is still called from build/test workflows that run for every PR. It now accepts -rcN, but it doesn't accept +sha8-stamped versions on release/hotfix branches. After it stamps a develop branch with +sha8, downstream callers
+  (test workflow, package workflow) see the stamped version — which is fine because they're not on release/hotfix branches. The flow is unchanged for develop CI.
+
+  Ready for review. Worth pushing this to a draft PR against develop to see the full pipeline run before rely Jump to bottom (ctrl+End) ↓ e.
