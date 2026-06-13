@@ -20,7 +20,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
 	hdxbuild "github.com/hydrolix/plugin/pkg/build"
 	"github.com/hydrolix/plugin/pkg/converters"
-	"github.com/hydrolix/sqlds/v5"
+	"github.com/grafana/sqlds/v5"
 	"github.com/hydrolix/plugin/pkg/plugin/models"
 	"github.com/pkg/errors"
 )
@@ -229,7 +229,10 @@ func (h *Hydrolix) Macros() sqlutil.Macros {
 	return sqlutil.Macros{}
 }
 
-// Settings reads Json Datasource Plugin's configuration
+// Settings reads Json Datasource Plugin's configuration. ForwardHeaders is
+// pinned false here: the OAuth-keying flow (C4) injects connectionArgs via
+// Driver.MutateQueryData, and ForwardHeaders=true would otherwise pollute
+// the cache key by writing the full HTTP header map into ConnectionArgs.
 func (h *Hydrolix) Settings(ctx context.Context, config backend.DataSourceInstanceSettings) sqlds.DriverSettings {
 	settings, err := models.NewPluginSettings(ctx, config)
 	if err != nil {
@@ -243,7 +246,7 @@ func (h *Hydrolix) Settings(ctx context.Context, config backend.DataSourceInstan
 		FillMode: &data.FillMissing{
 			Mode: data.FillModeNull,
 		},
-		ForwardHeaders: settings.CredentialsType == "forwardOAuth",
+		ForwardHeaders: false,
 	}
 }
 

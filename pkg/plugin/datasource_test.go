@@ -8,7 +8,6 @@ import (
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/hydrolix/plugin/pkg/plugin"
-	"github.com/hydrolix/sqlds/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 )
@@ -75,7 +74,7 @@ func (s *DatasourceTestSuite) TestDatasourceRunQuery() {
 		assert.NoError(t, err)
 
 		switch ds := db.(type) {
-		case *sqlds.HydrolixDatasource:
+		case *plugin.HdxSqlDatasource:
 			_, err := ds.QueryData(context.Background(), &backend.QueryDataRequest{
 				PluginContext: backend.PluginContext{DataSourceInstanceSettings: &settings},
 				Queries: []backend.DataQuery{
@@ -103,7 +102,7 @@ func (s *DatasourceTestSuite) TestDatasourceRunQuery() {
 		assert.NoError(t, err)
 
 		switch ds := db.(type) {
-		case *sqlds.HydrolixDatasource:
+		case *plugin.HdxSqlDatasource:
 			_, err := ds.QueryData(context.Background(), &backend.QueryDataRequest{
 				PluginContext: backend.PluginContext{DataSourceInstanceSettings: &settings},
 				Queries: []backend.DataQuery{

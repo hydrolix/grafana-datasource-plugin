@@ -24,17 +24,21 @@ Plugin call sites today reference `sqlds.HydrolixDatasource` (`pkg/plugin/dataso
 
 ## Decisions
 
-### D1. Pseudo-version pin for the fork's extension-points tip
+### D1. Pseudo-version pin via `replace` directive
 
-`go.mod` reads:
+The fork at `ef925e1` declares its module path as `github.com/grafana/sqlds/v5` (anticipating the upstream merge). So the plugin's `go.mod` requires the upstream path and uses a `replace` directive to source the code from the hydrolix fork:
 
 ```
-require github.com/hydrolix/sqlds/v5 v5.0.0-20260613133402-ef925e15e15e
+require github.com/grafana/sqlds/v5 v5.0.0-20260613103402-ef925e15e15e
+
+replace github.com/grafana/sqlds/v5 => github.com/hydrolix/sqlds/v5 v5.0.0-20260613103402-ef925e15e15e
 ```
 
-The pseudo-version encodes the commit's UTC timestamp (`2026-06-13T13:34:02Z` → `20260613133402`) and the 12-char prefix of the commit hash (`ef925e15e15e`), per Go module convention. Since `ef925e1` does not have a tag, Go's pseudo-version is the canonical reference.
+The pseudo-version encodes the commit's UTC timestamp (`2026-06-13T10:34:02Z` → `20260613103402`) and the 12-char prefix of the commit hash (`ef925e15e15e`), per Go module convention.
 
-**Why a pseudo-version, not a branch.** `go.mod` requires a versioned reference; branch names are not legal. Tagging the fork commit (e.g., `v5.2.0-extension-points`) would also work and would be slightly more readable, but tagging the fork adds maintenance overhead for a state that exists only during the migration window. The pseudo-version is self-describing and machine-generatable by `go get github.com/hydrolix/sqlds/v5@ef925e1`.
+**Why both `require` and `replace`.** Importing `github.com/hydrolix/sqlds/v5` directly fails — Go sees the fork's go.mod declares `module github.com/grafana/sqlds/v5` and rejects the path mismatch. The `replace` directive tells Go to fetch from the hydrolix repo but treat it as the grafana module. At C8 (when upstream releases), the `replace` is removed and the `require` version moves to the released tag.
+
+**Why pseudo-version, not branch.** `go.mod` requires a versioned reference; branch names are not legal. Tagging the fork commit would also work but adds maintenance overhead for a state that exists only during the migration window.
 
 ### D2. Wrapper type `HdxSqlDatasource` embeds `*sqlds.SQLDatasource`
 

@@ -3,15 +3,15 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"maps"
 	"net/http"
-	"slices"
 	"strconv"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
+	"github.com/grafana/sqlds/v5"
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
-	"github.com/hydrolix/sqlds/v5"
+	"github.com/hydrolix/plugin/pkg/plugin/models"
 )
 
 func AST(rw http.ResponseWriter, req *http.Request) {
@@ -39,7 +39,7 @@ func AST(rw http.ResponseWriter, req *http.Request) {
 		body,
 	})
 }
-func Interpolate(ds *sqlds.HydrolixDatasource, rw http.ResponseWriter, req *http.Request) {
+func Interpolate(ds *sqlds.SQLDatasource, rw http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if r := recover(); r != nil {
 			rawMessage, _ := json.Marshal(r)
@@ -59,15 +59,38 @@ func Interpolate(ds *sqlds.HydrolixDatasource, rw http.ResponseWriter, req *http
 		return
 	}
 
-	body, err := ds.Interpolator.Interpolate(req.Context(),
-		&sqlds.HDXQuery{
+	// The new sqlds.Interpolator interface takes (*sqlds.SQLDatasource,
+	// *sqlutil.Query, json.RawMessage). Hydrolix-specific fields (filters,
+	// round, etc.) travel via the rawJSON payload — shape preserved from
+	// the fork's HDXQuery so the plugin-local interpolator (C5) can decode
+	// it the same way. Until C5 lands, ds.Interpolator is nil and the call
+	// falls back to sqlds.DefaultInterpolator (no Hydrolix macro expansion).
+	hdxQuery := models.HdxQuery{
+		RawSQL:    request.Data.RawSql,
+		Filters:   request.Data.Filters,
+		Round:     request.Data.Round,
+		Interval:  interval,
+		TimeRange: timeRange,
+		Headers:   req.Header,
+	}
+	rawJSON, err := json.Marshal(hdxQuery)
+	if err != nil {
+		wrapError(rw, err)
+		return
+	}
+
+	interpolator := ds.Interpolator
+	if interpolator == nil {
+		interpolator = sqlds.DefaultInterpolator{}
+	}
+	body, err := interpolator.Interpolate(req.Context(), ds,
+		&sqlutil.Query{
 			RawSQL:    request.Data.RawSql,
-			Filters:   request.Data.Filters,
-			Round:     request.Data.Round,
-			Interval:  interval,
 			TimeRange: timeRange,
-			Headers:   req.Header,
-		})
+			Interval:  interval,
+		},
+		rawJSON,
+	)
 
 	if err != nil {
 		wrapError(rw, err)
@@ -83,6 +106,11 @@ func Interpolate(ds *sqlds.HydrolixDatasource, rw http.ResponseWriter, req *http
 
 }
 
+// MacroCTEs is temporarily stubbed during the sqlds-extraction migration.
+// At the pinned sqlds revision (ef925e1), GetMacroCTEs and CTE no longer
+// live in sqlds. The plugin-local replacements ship in C5
+// (plugin-hdx-interpolator). Until then, this handler returns an empty
+// CTE list — the dashboard's macro-CTE preview surface is unavailable.
 func MacroCTEs(rw http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -94,27 +122,11 @@ func MacroCTEs(rw http.ResponseWriter, req *http.Request) {
 		wrapError(rw, err)
 		return
 	}
-
-	expr, err := parser.NewParser(astRequest.Data.Query).ParseStmts()
-	if err != nil {
+	if _, err := parser.NewParser(astRequest.Data.Query).ParseStmts(); err != nil {
 		wrapError(rw, err)
 		return
-
 	}
-
-	body, err := sqlds.GetMacroCTEs(expr)
-	if err != nil {
-		wrapError(rw, err)
-		return
-
-	}
-
-	writeJSON(rw, Response[[]sqlds.CTE]{
-		false,
-		"",
-		slices.Collect(maps.Values(body)),
-	})
-
+	writeJSON(rw, Response[[]any]{false, "", []any{}})
 }
 
 func wrapError(rw http.ResponseWriter, err error) {
@@ -145,7 +157,7 @@ func writeJSON(rw http.ResponseWriter, v any) {
 	_, _ = rw.Write(marshal)
 }
 
-func Routes(ds *sqlds.HydrolixDatasource) map[string]func(http.ResponseWriter, *http.Request) {
+func Routes(ds *sqlds.SQLDatasource) map[string]func(http.ResponseWriter, *http.Request) {
 	return map[string]func(http.ResponseWriter, *http.Request){
 		"/ast": AST,
 		"/interpolate": func(writer http.ResponseWriter, request *http.Request) {
@@ -159,11 +171,11 @@ type Request[T any] struct {
 	Data T
 }
 type QueryData struct {
-	RawSql   string              `json:"rawSql"`
-	Round    string              `json:"round"`
-	Filters  []sqlds.AdHocFilter `json:"filters"`
-	Range    Range               `json:"range"`
-	Interval string              `json:"interval"`
+	RawSql   string               `json:"rawSql"`
+	Round    string               `json:"round"`
+	Filters  []models.AdHocFilter `json:"filters"`
+	Range    Range                `json:"range"`
+	Interval string               `json:"interval"`
 }
 
 type Range struct {

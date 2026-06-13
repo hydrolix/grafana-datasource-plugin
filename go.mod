@@ -6,13 +6,13 @@ require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.44.0
 	github.com/grafana/grafana-plugin-sdk-go v0.292.0
 	github.com/hydrolix/clickhouse-sql-parser v0.3.0
-	github.com/hydrolix/sqlds/v5 v5.0.1
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.42.0
 )
 
 require (
+	github.com/grafana/sqlds/v5 v5.0.0-00010101000000-000000000000
 	github.com/pierrec/lz4/v4 v4.1.25
 	github.com/testcontainers/testcontainers-go/modules/clickhouse v0.42.0
 )
@@ -67,7 +67,6 @@ require (
 	github.com/hashicorp/go-plugin v1.7.0 // indirect
 	github.com/hashicorp/yamux v0.1.2 // indirect
 	github.com/jaegertracing/jaeger-idl v0.6.0 // indirect
-	github.com/jellydator/ttlcache/v3 v3.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/jszwedko/go-datemath v0.1.1-0.20230526204004-640a500621d6 // indirect
 	github.com/klauspost/compress v1.18.5 // indirect
@@ -162,3 +161,9 @@ require (
 replace github.com/ClickHouse/clickhouse-go/v2 => github.com/hydrolix/clickhouse-go/v2 v2.0.0-20260429075001-7e43c7fdd551
 
 // replace github.com/ClickHouse/clickhouse-go/v2 => ../clickhouse-go
+
+// During the sqlds-extraction migration (C2-C8), source the upstream-
+// path module from the hydrolix/sqlds fork's extension-points branch
+// tip. Removed in C8 once upstream grafana/sqlds releases a version
+// containing both Interpolator and ConnectionCache extension surfaces.
+replace github.com/grafana/sqlds/v5 => github.com/hydrolix/sqlds/v5 v5.0.0-20260613103402-ef925e15e15e

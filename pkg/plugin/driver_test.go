@@ -202,15 +202,20 @@ func TestGetOrgId(t *testing.T) {
 }
 
 func TestSettings_ForwardHeaders(t *testing.T) {
+	// Post-C2 invariant: ForwardHeaders is always false regardless of
+	// credentials type. C4's OAuth-keying flow injects connectionArgs via
+	// MutateQueryData, and ForwardHeaders=true would otherwise pollute the
+	// connection cache key by writing the full HTTP header map into
+	// ConnectionArgs.
 	tests := []struct {
 		name            string
 		credentialsType string
 		wantForward     bool
 	}{
 		{
-			name:            "forwardOAuth enables ForwardHeaders",
+			name:            "forwardOAuth still disables ForwardHeaders (C2 invariant)",
 			credentialsType: "forwardOAuth",
-			wantForward:     true,
+			wantForward:     false,
 		},
 		{
 			name:            "userAccount disables ForwardHeaders",
