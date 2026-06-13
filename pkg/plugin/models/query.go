@@ -40,3 +40,21 @@ type AdHocFilter struct {
 	Value    string   `json:"value"`
 	Values   []string `json:"values,omitempty"`
 }
+
+// WithSQL returns a shallow copy of the query with RawSQL replaced.
+// Used by the interpolator's macro-expansion loop, which feeds each
+// successive macro the partially-rewritten SQL so positional reasoning
+// stays consistent. Ported from the fork's HDXQuery.WithSQL.
+func (q *HdxQuery) WithSQL(rawSQL string) *HdxQuery {
+	return &HdxQuery{
+		RawSQL:        rawSQL,
+		Format:        q.Format,
+		Round:         q.Round,
+		QuerySettings: q.QuerySettings,
+		Filters:       q.Filters,
+		Meta:          q.Meta,
+		TimeRange:     q.TimeRange,
+		Interval:      q.Interval,
+		Headers:       q.Headers,
+	}
+}

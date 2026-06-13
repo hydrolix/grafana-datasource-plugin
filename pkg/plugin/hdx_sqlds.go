@@ -24,12 +24,14 @@ type HdxSqlDatasource struct {
 	*sqlds.SQLDatasource
 }
 
-// NewHdxSqlDatasource constructs the wrapper. The Interpolator and
-// ConnectionCacheFactory slots are populated by subsequent changes (C5, C3)
-// that bring those extension implementations into the plugin.
+// NewHdxSqlDatasource constructs the wrapper. The ConnectionCacheFactory
+// slot is populated by C3 (plugin-ttl-connection-cache); the Interpolator
+// is populated here (C5) with the plugin-local HdxInterpolator backed by
+// the package-level Macros registry.
 func NewHdxSqlDatasource(driver sqlds.Driver) *HdxSqlDatasource {
 	ds := sqlds.NewDatasource(driver)
 	ds.EnableMultipleConnections = true
+	ds.Interpolator = NewHdxInterpolator(NewMetadataProvider(), Macros)
 	return &HdxSqlDatasource{SQLDatasource: ds}
 }
 

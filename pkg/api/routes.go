@@ -3,7 +3,9 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
 	"github.com/grafana/sqlds/v5"
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
+	"github.com/hydrolix/plugin/pkg/plugin/cte"
 	"github.com/hydrolix/plugin/pkg/plugin/models"
 )
 
@@ -106,11 +109,9 @@ func Interpolate(ds *sqlds.SQLDatasource, rw http.ResponseWriter, req *http.Requ
 
 }
 
-// MacroCTEs is temporarily stubbed during the sqlds-extraction migration.
-// At the pinned sqlds revision (ef925e1), GetMacroCTEs and CTE no longer
-// live in sqlds. The plugin-local replacements ship in C5
-// (plugin-hdx-interpolator). Until then, this handler returns an empty
-// CTE list — the dashboard's macro-CTE preview surface is unavailable.
+// MacroCTEs returns the map of macro-to-CTE associations the dashboard's
+// macro-expansion preview consumes. Restored in C5 with plugin-local
+// GetMacroCTEs / CTE types.
 func MacroCTEs(rw http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -122,11 +123,24 @@ func MacroCTEs(rw http.ResponseWriter, req *http.Request) {
 		wrapError(rw, err)
 		return
 	}
-	if _, err := parser.NewParser(astRequest.Data.Query).ParseStmts(); err != nil {
+
+	expr, err := parser.NewParser(astRequest.Data.Query).ParseStmts()
+	if err != nil {
 		wrapError(rw, err)
 		return
 	}
-	writeJSON(rw, Response[[]any]{false, "", []any{}})
+
+	body, err := cte.GetMacroCTEs(expr)
+	if err != nil {
+		wrapError(rw, err)
+		return
+	}
+
+	writeJSON(rw, Response[[]cte.CTE]{
+		false,
+		"",
+		slices.Collect(maps.Values(body)),
+	})
 }
 
 func wrapError(rw http.ResponseWriter, err error) {
