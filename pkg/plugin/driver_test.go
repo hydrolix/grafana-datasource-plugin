@@ -11,7 +11,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/hydrolix/sqlds/v5/models"
+	"github.com/hydrolix/plugin/pkg/plugin/models"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -8,7 +8,7 @@ import (
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/hydrolix/sqlds/v5"
-	"github.com/hydrolix/sqlds/v5/models"
+	"github.com/hydrolix/plugin/pkg/plugin/models"
 	"github.com/testcontainers/testcontainers-go"
 )
 

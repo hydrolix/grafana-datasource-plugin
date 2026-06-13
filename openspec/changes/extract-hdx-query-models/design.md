@@ -13,9 +13,10 @@ The fork's tip at the extension-points revision (`ef925e1`) no longer carries Hy
 ## Goals / Non-Goals
 
 **Goals:**
-- Move `PluginSettings`, `QuerySetting`, `NewPluginSettings`, `HdxQuery`, and their validation helpers into `pkg/plugin/models/` with byte-for-byte JSON parity.
-- Drop the plugin's import of `github.com/hydrolix/sqlds/v5/models` and the `sqlds.HDXQuery` reference in `pkg/api/routes.go`.
+- Define `PluginSettings`, `QuerySetting`, `NewPluginSettings`, `HdxQuery`, `AdHocFilter`, and the validation helpers in `pkg/plugin/models/` with byte-for-byte JSON parity.
+- Drop the plugin's import of `github.com/hydrolix/sqlds/v5/models` in `pkg/plugin/driver.go` and the two test files.
 - Land independently of every other change in the sqlds-retirement sequence — no `go.mod` swap, no extension-point wiring.
+- `pkg/api/routes.go`'s `sqlds.HDXQuery` / `sqlds.AdHocFilter` references are not swapped in this change. The `ds.Interpolator.Interpolate(ctx, *sqlds.HDXQuery)` call signature is fixed until C5 lifts the interpolator into the plugin; the swap is deferred to C5 then.
 
 **Non-Goals:**
 - Renaming JSON tags. Wire format is frozen by deployed dashboards.
@@ -72,10 +73,10 @@ The fork's `models/settings_test.go` test surface (207 LOC at the fork's current
 ## Migration Plan
 
 - **Forward**: single PR. Sequence inside the PR:
-  1. Create `pkg/plugin/models/query.go`, `pkg/plugin/models/settings.go`, paired `_test.go` files. Content copied from the fork at the plugin's current pin (`v5.0.1`), with `HDXQuery` → `HdxQuery` rename applied.
-  2. Update imports in `pkg/api/routes.go`, `pkg/plugin/driver.go`, `pkg/plugin/driver_test.go`, `pkg/plugin/dssuit_test.go`.
-  3. Run `npm run typecheck`, `npm run lint`, `npm test -- --ci`, `go vet ./...`, `golangci-lint run`, `go test -race ./...`. All must pass.
-  4. Playwright e2e via the `grafana-plugin-e2e` skill — should be a no-op since wire formats are unchanged, but run as a guard.
+  1. Create `pkg/plugin/models/query.go`, `pkg/plugin/models/settings.go`, paired `_test.go` files. Content copied from the fork at the plugin's current pin (`v5.0.1`), with `HDXQuery` → `HdxQuery` rename and lowercase-first-word error strings applied.
+  2. Update imports in `pkg/plugin/driver.go`, `pkg/plugin/driver_test.go`, `pkg/plugin/dssuit_test.go`. `pkg/api/routes.go` stays on the fork's `sqlds.HDXQuery` / `sqlds.AdHocFilter` until C5.
+  3. Run `npm run typecheck`, `npm run lint`, `npm test -- --ci`, `go vet ./...`, `golangci-lint run ./pkg/plugin/models/...`, `go test -race ./...`. All must pass.
+  4. Playwright e2e via the `grafana-plugin-e2e` skill — deferred to the end of the C2-C7 coordinated set; in isolation, wire formats are unchanged so e2e is not informative.
 - **Rollback**: revert the PR. No data, dashboard, or downstream consumer is affected. The fork's `models` package still exists at the pinned version; the import paths just go back to where they were.
 - **Sequencing**: independent. Can ship before `pin-sqlds-extension-revision` (the next change in the migration sequence) so that change's diff is smaller and easier to review.
 

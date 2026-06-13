@@ -11,8 +11,9 @@ This is the first ship-now step in the multi-change retirement of `github.com/hy
 ## What Changes
 
 - Add `pkg/plugin/models/` package containing `HdxQuery` (renamed from `HDXQuery` for naming parity with the plugin's TypeScript `HdxQuery`), `AdHocFilter`, `PluginSettings`, `QuerySetting`, `NewPluginSettings`, and the validation helpers (`IsValid`, `SetDefaults`, error sentinels).
-- Update `pkg/api/routes.go` to consume `models.HdxQuery` and `models.AdHocFilter` from the plugin-local package.
 - Update `pkg/plugin/driver.go` (3 sites), `pkg/plugin/driver_test.go`, `pkg/plugin/dssuit_test.go` to consume `PluginSettings`, `QuerySetting`, `NewPluginSettings` from the plugin-local package.
+- **Deferred to C5**: switching `pkg/api/routes.go`'s `sqlds.HDXQuery` / `sqlds.AdHocFilter` references to the plugin-local types. Until C5 lifts the interpolator into the plugin, the `ds.Interpolator.Interpolate(ctx, *sqlds.HDXQuery)` call site requires the sqlds-defined types. C1 defines the plugin-local types for C5 to use; the actual `routes.go` swap happens with C5.
+- Lowercase the first word of `ErrorMessageInvalidHost` / `Port` / `Protocol` / `QueryTimeout` / `DialTimeout` error strings to satisfy staticcheck `ST1005`. User-visible message text changes slightly (no test relies on the exact string).
 - Go unit-test parity with the fork's existing `models/settings_test.go` coverage of `IsValid` and `SetDefaults`.
 - Playwright e2e coverage unchanged.
 - `go.mod` unchanged. `github.com/hydrolix/sqlds/v5` stays pinned at its current version; only the unused `models` sub-package import is dropped.

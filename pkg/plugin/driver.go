@@ -21,7 +21,7 @@ import (
 	hdxbuild "github.com/hydrolix/plugin/pkg/build"
 	"github.com/hydrolix/plugin/pkg/converters"
 	"github.com/hydrolix/sqlds/v5"
-	"github.com/hydrolix/sqlds/v5/models"
+	"github.com/hydrolix/plugin/pkg/plugin/models"
 	"github.com/pkg/errors"
 )
 
