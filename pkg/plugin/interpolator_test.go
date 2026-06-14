@@ -60,7 +60,7 @@ func TestRoundTimeRange(t *testing.T) {
 }
 
 func TestInterpolate_NoMacros_PassesThrough(t *testing.T) {
-	i := NewHdxInterpolator(NewMetadataProvider(), map[string]MacroFunc{})
+	i := NewHdxInterpolator(NewMetadataProvider(nopMetadataDS{}), map[string]MacroFunc{})
 	out, err := i.interpolate(context.Background(), &models.HdxQuery{RawSQL: "SELECT 1"})
 	assert.NoError(t, err)
 	assert.Equal(t, "SELECT 1", out)
@@ -69,7 +69,7 @@ func TestInterpolate_NoMacros_PassesThrough(t *testing.T) {
 func TestInterpolate_UnknownMacroLeftInPlace(t *testing.T) {
 	// Macro identifier appears in the AST but is not registered — interpolator
 	// leaves the call site intact and downstream parsing surfaces it as a SQL error.
-	i := NewHdxInterpolator(NewMetadataProvider(), map[string]MacroFunc{})
+	i := NewHdxInterpolator(NewMetadataProvider(nopMetadataDS{}), map[string]MacroFunc{})
 	in := "SELECT $__unknownMacro() FROM t"
 	out, err := i.interpolate(context.Background(), &models.HdxQuery{RawSQL: in})
 	assert.NoError(t, err)
@@ -82,7 +82,7 @@ func TestInterpolate_RegisteredMacroIsDispatched(t *testing.T) {
 			return "UPPER(" + args[0] + ")", nil
 		},
 	}
-	i := NewHdxInterpolator(NewMetadataProvider(), macros)
+	i := NewHdxInterpolator(NewMetadataProvider(nopMetadataDS{}), macros)
 	out, err := i.interpolate(context.Background(), &models.HdxQuery{RawSQL: "SELECT $__upper(name) FROM t"})
 	assert.NoError(t, err)
 	assert.Contains(t, out, "UPPER(name)")
@@ -90,14 +90,14 @@ func TestInterpolate_RegisteredMacroIsDispatched(t *testing.T) {
 }
 
 func TestInterpolate_EscapedMacroStripsOneDollar(t *testing.T) {
-	i := NewHdxInterpolator(NewMetadataProvider(), Macros)
+	i := NewHdxInterpolator(NewMetadataProvider(nopMetadataDS{}), Macros)
 	out, err := i.interpolate(context.Background(), &models.HdxQuery{RawSQL: "SELECT $$__conditionalAll() FROM t"})
 	assert.NoError(t, err)
 	assert.True(t, strings.HasPrefix(out, "SELECT $__conditionalAll()"), "got: %s", out)
 }
 
 func TestInterpolate_StubConditionalAll(t *testing.T) {
-	i := NewHdxInterpolator(NewMetadataProvider(), Macros)
+	i := NewHdxInterpolator(NewMetadataProvider(nopMetadataDS{}), Macros)
 	out, err := i.interpolate(context.Background(), &models.HdxQuery{RawSQL: "SELECT $__conditionalAll() FROM t"})
 	assert.NoError(t, err)
 	// Stub returns empty string — macro call site collapses to nothing.
@@ -111,7 +111,7 @@ func TestInterpolate_RoundAppliesBeforeMacros(t *testing.T) {
 			return q.TimeRange.From.Format(time.RFC3339), nil
 		},
 	}
-	i := NewHdxInterpolator(NewMetadataProvider(), macros)
+	i := NewHdxInterpolator(NewMetadataProvider(nopMetadataDS{}), macros)
 	out, err := i.interpolate(context.Background(), &models.HdxQuery{
 		RawSQL:    "SELECT $__fromUnix() FROM t",
 		Round:     "1m",
@@ -129,7 +129,7 @@ func TestInterpolate_LongerMacroNamesMatchFirst(t *testing.T) {
 		"timeFilter":    func(context.Context, *models.HdxQuery, []string, parser.Pos, *MetadataProvider) (string, error) { return "SHORT", nil },
 		"timeFilter_ms": func(context.Context, *models.HdxQuery, []string, parser.Pos, *MetadataProvider) (string, error) { return "LONG", nil },
 	}
-	i := NewHdxInterpolator(NewMetadataProvider(), macros)
+	i := NewHdxInterpolator(NewMetadataProvider(nopMetadataDS{}), macros)
 	out, err := i.interpolate(context.Background(), &models.HdxQuery{RawSQL: "SELECT $__timeFilter_ms() FROM t"})
 	assert.NoError(t, err)
 	assert.Contains(t, out, "LONG")
@@ -144,7 +144,7 @@ func TestInterpolatorImplementsSqldsInterface(t *testing.T) {
 			return "UPPER(" + args[0] + ")", nil
 		},
 	}
-	i := NewHdxInterpolator(NewMetadataProvider(), macros)
+	i := NewHdxInterpolator(NewMetadataProvider(nopMetadataDS{}), macros)
 
 	hdx := models.HdxQuery{
 		Round: "1m",
@@ -166,7 +166,7 @@ func TestInterpolatorImplementsSqldsInterface(t *testing.T) {
 
 func TestErrParseMacroArgs(t *testing.T) {
 	// Macro identifier appears with unbalanced parens.
-	i := NewHdxInterpolator(NewMetadataProvider(), map[string]MacroFunc{
+	i := NewHdxInterpolator(NewMetadataProvider(nopMetadataDS{}), map[string]MacroFunc{
 		"foo": func(context.Context, *models.HdxQuery, []string, parser.Pos, *MetadataProvider) (string, error) {
 			return "FOO", nil
 		},
