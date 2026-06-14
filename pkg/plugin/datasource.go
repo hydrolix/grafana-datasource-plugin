@@ -2,31 +2,24 @@ package plugin
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
-	"github.com/grafana/grafana-plugin-sdk-go/backend/resource/httpadapter"
 	"github.com/hydrolix/plugin/pkg/api"
 )
 
 // NewDatasource is the instance-factory the Grafana SDK calls per
 // DataSourceInstanceSettings. It constructs the HdxSqlDatasource wrapper,
-// wires HTTP routes onto the upstream CallResourceHandler, and delegates
+// hands the plugin's HTTP routes to sqlds via CustomRoutes, and delegates
 // the per-instance bootstrap to the embedded *sqlds.SQLDatasource.
+//
+// CustomRoutes must be set BEFORE ds.NewDatasource: sqlds's NewDatasource
+// builds its own mux (with /tables, /schemas, /columns + everything in
+// CustomRoutes) and overwrites CallResourceHandler. Setting routes via
+// CustomRoutes is the only way the plugin's /interpolate + /macroCTE
+// handlers survive that overwrite.
 func NewDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
 	ds := NewHdxSqlDatasource(NewHydrolix(), settings)
-	registerRoutes(ds, api.Routes(ds.SQLDatasource))
+	ds.SQLDatasource.CustomRoutes = api.Routes(ds.SQLDatasource)
 	return ds.NewDatasource(ctx, settings)
-}
-
-// registerRoutes installs the plugin's HTTP routes onto the embedded
-// SQLDatasource's CallResourceHandler. Upstream sqlds no longer provides
-// the RegisterRoutes method the fork carried; routes attach directly.
-func registerRoutes(ds *HdxSqlDatasource, routes map[string]func(http.ResponseWriter, *http.Request)) {
-	mux := http.NewServeMux()
-	for route, handler := range routes {
-		mux.HandleFunc(route, handler)
-	}
-	ds.CallResourceHandler = httpadapter.New(mux)
 }
