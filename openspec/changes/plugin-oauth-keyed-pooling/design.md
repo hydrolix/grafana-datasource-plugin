@@ -13,15 +13,15 @@ The plugin's existing `Driver.Connect` (`driver.go:68`) is OAuth-aware on the pe
 ## Goals / Non-Goals
 
 **Goals:**
-- Inject `connectionArgs = {"oauthToken": "<token>"}` into per-query JSON via `Driver.MutateQueryData` so sqlds keys the connection cache per user.
+- Inject `connectionArgs = {"oauthToken": "<token>", "orgId": "<id>"}` into per-query JSON via `Driver.MutateQueryData` so sqlds keys the connection cache per user *and* per org.
+- Rewrite `getOAuthToken` / `getOrgId` to read the flat connectionArgs shape (the legacy `sqlds.HeaderKey` nesting was populated by `ForwardHeaders=true`, which C2 turned off — those reads always miss now).
 - Make `Driver.Connect(_, settings, nil)` return a usable lazy `*sql.DB` so `sqlds.NewConnector`'s bootstrap call succeeds in every deployment mode.
 - Preserve `querySettings` merging — `MutateQueryData` already does it and continues to.
 
 **Non-Goals:**
 - Per-user health checks. `CheckHealth` continues to use the bootstrap entry. Different upstream hook required (`HealthKeyer` or similar); not in scope.
-- Connection-args shape beyond `oauthToken`. The fork's `getOAuthConnectionArgs` only sets `oauthToken`. This change matches.
+- Connection-args shape beyond `oauthToken` / `orgId`. Any additional dimension (e.g. role, ID-token) lands in its own future change.
 - Validating the OAuth token content (JWT structure, expiry, signature). The plugin forwards what Grafana provides; auth validation is upstream Hydrolix's job.
-- Reworking `getOAuthToken` / `getOrgId` / `getHeader` (`driver.go:339+`). Those helpers stay — they're correct.
 
 ## Decisions
 
@@ -41,16 +41,22 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
         pluginSettings.QuerySettings = []models.QuerySetting{}
     }
 
-    token := ""
+    headers := req.GetHTTPHeaders()
+    connArgs := map[string]string{}
     if pluginSettings.CredentialsType == "forwardOAuth" {
-        token = strings.TrimPrefix(req.GetHTTPHeaders().Get(backend.OAuthIdentityTokenHeaderName), "Bearer ")
+        if token := strings.TrimPrefix(headers.Get(backend.OAuthIdentityTokenHeaderName), "Bearer "); token != "" {
+            connArgs["oauthToken"] = token
+        }
+    }
+    if org := headers.Get(OrgIdHeaderKey); org != "" {
+        connArgs["orgId"] = org
     }
 
     for i, q := range req.Queries {
-        // … existing querySettings merge (unchanged) …
+        // … existing querySettings merge (unchanged) → mergedSettingsArray …
         patches := map[string]any{"querySettings": mergedSettingsArray}
-        if token != "" {
-            patches["connectionArgs"] = map[string]string{"oauthToken": token}
+        if len(connArgs) > 0 {
+            patches["connectionArgs"] = connArgs
         }
         if jmsg, err := jsonSet(q.JSON, patches); err == nil {
             req.Queries[i].JSON = jmsg
@@ -63,11 +69,13 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 }
 ```
 
-**Why a single mutator.** `MutateQueryData` runs at the right scope (per-request, before `handleQuery` iterates), already parses plugin settings once for the request, already iterates queries. Adding a separate mutator would parse settings twice and iterate queries twice. The two writes are semantically a single "rewrite this query JSON for sqlds consumption" pass.
+**Why a single mutator.** `MutateQueryData` runs at the right scope (per-request, before `handleQuery` iterates), already parses plugin settings once for the request, already iterates queries. Adding a separate mutator would parse settings twice and iterate queries twice. All three writes (querySettings, oauthToken, orgId) are semantically a single "rewrite this query JSON for sqlds consumption" pass.
 
-**Why use `req.GetHTTPHeaders()` rather than the existing `getOAuthToken(q.JSON)` helper.** `getOAuthToken` reads from a JSON field that contains the entire HTTP header map (populated upstream when `ForwardHeaders=true`). C2's substrate sets `ForwardHeaders=false`, so that JSON field is empty and `getOAuthToken(q.JSON)` would always miss. The token lives on the request, reached via `req.GetHTTPHeaders()`.
+**Why use `req.GetHTTPHeaders()` rather than the legacy `getOAuthToken(q.JSON)` reader.** The legacy reader pulled from `q.JSON.grafana-http-headers` — the nested map sqlds populated when `ForwardHeaders=true`. C2's substrate sets `ForwardHeaders=false`, so that JSON nesting is empty and the legacy reader always misses. The token + org id live on the request, reached via `req.GetHTTPHeaders()`. The reader rewrite (`getOAuthToken` / `getOrgId`) in D7 reads from the *flat* shape this function writes.
 
-**Why only inject when `CredentialsType == "forwardOAuth"`.** Service-account and basic-auth deployments use static credentials baked into `*sql.DB` instances; per-request keying would just thrash the cache (each Grafana request might carry different non-auth headers that could otherwise change the key — but `ForwardHeaders=false` blocks that). Conditioning on credentials type makes the intent explicit and matches the fork's `forwardOAuth`-only behaviour.
+**Why scope `oauthToken` to `forwardOAuth` but not `orgId`.** OAuth tokens are only meaningful when the plugin is in OAuth mode — every other credentials type uses static, baked-in auth and per-request token keying would be meaningless. `X-Grafana-Org-Id`, by contrast, is set by Grafana on every authenticated request regardless of auth mode, and a multi-tenant Hydrolix cluster cares about it for *every* connection. Conditioning each key on its own predicate matches the wire contract: each key reflects a real per-request signal, never a fabricated one.
+
+**Why only write `connectionArgs` when at least one key is set.** An empty `connectionArgs` would still serialise to `{}` and contribute to the cache-key SHA-256, gratuitously splitting the bootstrap entry. Skipping the write when the map is empty preserves the legacy `<uid>-default` routing for anonymous / non-OAuth / no-org requests.
 
 ### D2. `injectConnectionArgs` helper
 
@@ -101,9 +109,9 @@ func injectConnectionArgs(body json.RawMessage, args map[string]string) (json.Ra
 
 **Why a helper rather than always going through `jsonSet`.** `jsonSet` is the plugin's generic shallow-merge utility. `injectConnectionArgs` is the specific OAuth-keying contract — its test surface is what assertions the migration's correctness depends on (round-trip preservation, overwrite-not-merge, byte-for-byte equality of unchanged fields). Pulling it out gives the test file a clean target.
 
-**Why overwrite-not-merge.** If `q.JSON` already carried `connectionArgs` (e.g., a stale field from a prior request, or set by a frontend that pre-populates it), per-request OAuth keying must win. Merging would let a stale `oauthToken` override the live one. Overwrite is the only correct behaviour.
+**Why overwrite-not-merge.** If `q.JSON` already carried `connectionArgs` (e.g., a stale field from a prior request, or set by a frontend that pre-populates it), per-request keying must win. Merging would let a stale `oauthToken` or `orgId` override the live one. Overwrite is the only correct behaviour.
 
-**Why `map[string]string` as the args type.** The only field today is `oauthToken`. A wider type (`map[string]any`) invites callers to stuff non-string values in, which downstream `keyWithConnectionArgs` then has to handle. Restricting to strings keeps the keying surface deterministic.
+**Why `map[string]string` as the args type.** The fields today are `oauthToken` and `orgId` — both bare strings. A wider type (`map[string]any`) invites callers to stuff non-string values in, which downstream `keyWithConnectionArgs` then has to handle. Restricting to strings keeps the keying surface deterministic.
 
 ### D3. `Driver.Connect(_, settings, nil)` returns a lazy `*sql.DB` in all credentials modes
 
@@ -176,6 +184,44 @@ The function reassigns `req.Queries[i].JSON` per query, not the `req` pointer or
 **Cross-request safety.** Each `QueryDataRequest` is constructed afresh by the Grafana SDK per HTTP request. There is no shared state between requests through `req`. The plugin's mutation cannot leak across requests.
 
 Verify with a unit test: construct two `req`s sharing no fields, run `MutateQueryData` on the first with one token and on the second with a different token, assert the second `req.Queries[0].JSON.connectionArgs.oauthToken` matches the second token (not the first). Catches accidental cross-request state if any is introduced.
+
+### D7. Rewrite `getOAuthToken` / `getOrgId` to read the flat shape; drop `getHeader`
+
+The pre-C4 readers look at `q.JSON.grafana-http-headers[HeaderKey][headerName][0]` — the nested map sqlds populated when `ForwardHeaders=true`. With C2's substrate setting `ForwardHeaders=false`, that nesting is always empty: the readers return `("", false)` for every query and the `forwardOAuth` branch in `Driver.Connect` always errors with `"cannot get auth header"`. The readers and the `MutateQueryData` writes have to converge on the same shape.
+
+```go
+// pkg/plugin/driver.go (after C4)
+func getOAuthToken(args json.RawMessage) (string, bool) {
+    return readConnArg(args, "oauthToken")
+}
+
+func getOrgId(args json.RawMessage) (string, bool) {
+    return readConnArg(args, "orgId")
+}
+
+func readConnArg(args json.RawMessage, key string) (string, bool) {
+    if args == nil {
+        return "", false
+    }
+    var m map[string]string
+    if err := json.Unmarshal(args, &m); err != nil {
+        return "", false
+    }
+    v, ok := m[key]
+    if !ok || v == "" {
+        return "", false
+    }
+    return v, true
+}
+```
+
+The `getHeader` helper (and its dependence on `sqlds.HeaderKey`) is deleted in the same change — no other reader depends on it (grep across `pkg/` shows only the deleted callers).
+
+**Why a single tiny helper.** The two readers are byte-identical modulo the key name. A single `readConnArg` is two lines shorter than duplicating and gives the test suite one focal point for the input-shape behaviour (nil, malformed JSON, missing key, empty value).
+
+**Why no Bearer-prefix handling on the read side.** D5 strips the prefix at write time. After C4 the on-wire value in `connectionArgs.oauthToken` is always the bare token. Reading-side prefix logic would only become noise; if a future writer accidentally re-introduces the prefix, the downstream HTTP-header build (`opts.HttpHeaders["Authorization"] = "Bearer " + token`) would produce `"Bearer Bearer abc..."`, which Hydrolix would reject — loud, not silent.
+
+**Why `args` arg shape is `json.RawMessage`, not `map[string]string`.** sqlds passes `q.ConnectionArgs json.RawMessage` directly to `Driver.Connect`. Decoding inside the reader keeps the type at the boundary; the driver doesn't have to know whether the field was set by `MutateQueryData`, a test, or a future hand-crafted caller.
 
 ## Risks / Trade-offs
 

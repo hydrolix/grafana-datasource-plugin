@@ -41,76 +41,81 @@ func testContextHandler(ctx context.Context, settings map[string]any) context.Co
 	return &testValueCtx{Context: ctx, Key: "querySettings", Val: settings}
 }
 
-// TestMutateDataQuery verify allowed query options are properly merged and set into context
-func TestGetHeader(t *testing.T) {
+// TestReadConnArg / TestGetOAuthToken / TestGetOrgId cover the flat
+// connectionArgs shape that MutateQueryData writes in C4. The legacy
+// HeaderKey-nested shape (populated by ForwardHeaders=true) is no longer
+// the source of truth; C2 set ForwardHeaders=false and C4 inverts the
+// keying flow so the plugin writes connectionArgs itself.
+
+func TestReadConnArg(t *testing.T) {
 	tests := []struct {
-		name       string
-		headerName string
-		jmsg       json.RawMessage
-		wantVal    string
-		wantOK     bool
+		name    string
+		args    json.RawMessage
+		key     string
+		wantVal string
+		wantOK  bool
 	}{
 		{
-			name:       "nil message returns empty",
-			headerName: "Authorization",
-			jmsg:       nil,
-			wantVal:    "",
-			wantOK:     false,
+			name:    "nil args",
+			args:    nil,
+			key:     "oauthToken",
+			wantVal: "",
+			wantOK:  false,
 		},
 		{
-			name:       "empty JSON object returns empty",
-			headerName: "Authorization",
-			jmsg:       json.RawMessage(`{}`),
-			wantVal:    "",
-			wantOK:     false,
+			name:    "empty args",
+			args:    json.RawMessage(``),
+			key:     "oauthToken",
+			wantVal: "",
+			wantOK:  false,
 		},
 		{
-			name:       "missing header key in message",
-			headerName: "Authorization",
-			jmsg:       json.RawMessage(`{"other-key": {"Authorization": ["Bearer token"]}}`),
-			wantVal:    "",
-			wantOK:     false,
+			name:    "empty JSON object",
+			args:    json.RawMessage(`{}`),
+			key:     "oauthToken",
+			wantVal: "",
+			wantOK:  false,
 		},
 		{
-			name:       "header present with value",
-			headerName: "Authorization",
-			jmsg:       json.RawMessage(`{"grafana-http-headers": {"Authorization": ["Bearer my-token"]}}`),
-			wantVal:    "Bearer my-token",
-			wantOK:     true,
+			name:    "key present",
+			args:    json.RawMessage(`{"oauthToken":"abc"}`),
+			key:     "oauthToken",
+			wantVal: "abc",
+			wantOK:  true,
 		},
 		{
-			name:       "header present with multiple values returns first",
-			headerName: "Authorization",
-			jmsg:       json.RawMessage(`{"grafana-http-headers": {"Authorization": ["Bearer first", "Bearer second"]}}`),
-			wantVal:    "Bearer first",
-			wantOK:     true,
+			name:    "key empty value",
+			args:    json.RawMessage(`{"oauthToken":""}`),
+			key:     "oauthToken",
+			wantVal: "",
+			wantOK:  false,
 		},
 		{
-			name:       "header present with empty array",
-			headerName: "Authorization",
-			jmsg:       json.RawMessage(`{"grafana-http-headers": {"Authorization": []}}`),
-			wantVal:    "",
-			wantOK:     false,
+			name:    "different key returned independently",
+			args:    json.RawMessage(`{"oauthToken":"t","orgId":"5"}`),
+			key:     "orgId",
+			wantVal: "5",
+			wantOK:  true,
 		},
 		{
-			name:       "different header name",
-			headerName: OrgIdHeaderKey,
-			jmsg:       json.RawMessage(fmt.Sprintf(`{"grafana-http-headers": {"%s": ["42"]}}`, OrgIdHeaderKey)),
-			wantVal:    "42",
-			wantOK:     true,
+			name:    "malformed JSON",
+			args:    json.RawMessage(`not-json`),
+			key:     "oauthToken",
+			wantVal: "",
+			wantOK:  false,
 		},
 		{
-			name:       "invalid JSON returns empty",
-			headerName: "Authorization",
-			jmsg:       json.RawMessage(`not-json`),
-			wantVal:    "",
-			wantOK:     false,
+			name:    "wrong shape (legacy nested HeaderKey)",
+			args:    json.RawMessage(`{"grafana-http-headers":{"Authorization":["Bearer abc"]}}`),
+			key:     "oauthToken",
+			wantVal: "",
+			wantOK:  false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			val, ok := getHeader(tt.headerName, tt.jmsg)
+			val, ok := readConnArg(tt.args, tt.key)
 			assert.Equal(t, tt.wantOK, ok)
 			assert.Equal(t, tt.wantVal, val)
 		})
@@ -120,45 +125,45 @@ func TestGetHeader(t *testing.T) {
 func TestGetOAuthToken(t *testing.T) {
 	tests := []struct {
 		name      string
-		jmsg      json.RawMessage
+		args      json.RawMessage
 		wantToken string
 		wantOK    bool
 	}{
 		{
-			name:      "nil message",
-			jmsg:      nil,
+			name:      "nil args",
+			args:      nil,
 			wantToken: "",
 			wantOK:    false,
 		},
 		{
-			name:      "valid Bearer token",
-			jmsg:      json.RawMessage(`{"grafana-http-headers": {"Authorization": ["Bearer abc123"]}}`),
+			name:      "bare token (no Bearer prefix is the contract)",
+			args:      json.RawMessage(`{"oauthToken":"abc123"}`),
 			wantToken: "abc123",
 			wantOK:    true,
 		},
 		{
-			name:      "missing Bearer prefix",
-			jmsg:      json.RawMessage(`{"grafana-http-headers": {"Authorization": ["abc123"]}}`),
+			name:      "empty token",
+			args:      json.RawMessage(`{"oauthToken":""}`),
 			wantToken: "",
 			wantOK:    false,
 		},
 		{
-			name:      "empty token value",
-			jmsg:      json.RawMessage(`{"grafana-http-headers": {"Authorization": [""]}}`),
-			wantToken: "",
-			wantOK:    false,
-		},
-		{
-			name:      "Bearer with complex JWT token",
-			jmsg:      json.RawMessage(`{"grafana-http-headers": {"Authorization": ["Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.sig"]}}`),
-			wantToken: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.sig",
+			name:      "complex JWT bare value",
+			args:      json.RawMessage(`{"oauthToken":"eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1In0.sig"}`),
+			wantToken: "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1In0.sig",
 			wantOK:    true,
+		},
+		{
+			name:      "token absent when only orgId set",
+			args:      json.RawMessage(`{"orgId":"5"}`),
+			wantToken: "",
+			wantOK:    false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			token, ok := getOAuthToken(tt.jmsg)
+			token, ok := getOAuthToken(tt.args)
 			assert.Equal(t, tt.wantOK, ok)
 			assert.Equal(t, tt.wantToken, token)
 		})
@@ -168,25 +173,31 @@ func TestGetOAuthToken(t *testing.T) {
 func TestGetOrgId(t *testing.T) {
 	tests := []struct {
 		name    string
-		jmsg    json.RawMessage
+		args    json.RawMessage
 		wantVal string
 		wantOK  bool
 	}{
 		{
-			name:    "nil message",
-			jmsg:    nil,
+			name:    "nil args",
+			args:    nil,
 			wantVal: "",
 			wantOK:  false,
 		},
 		{
-			name:    "org id present",
-			jmsg:    json.RawMessage(fmt.Sprintf(`{"grafana-http-headers": {"%s": ["1"]}}`, OrgIdHeaderKey)),
+			name:    "orgId present",
+			args:    json.RawMessage(`{"orgId":"1"}`),
 			wantVal: "1",
 			wantOK:  true,
 		},
 		{
-			name:    "org id missing",
-			jmsg:    json.RawMessage(`{"grafana-http-headers": {"Authorization": ["Bearer token"]}}`),
+			name:    "orgId absent when only oauthToken set",
+			args:    json.RawMessage(`{"oauthToken":"t"}`),
+			wantVal: "",
+			wantOK:  false,
+		},
+		{
+			name:    "orgId empty string",
+			args:    json.RawMessage(`{"orgId":""}`),
 			wantVal: "",
 			wantOK:  false,
 		},
@@ -194,7 +205,7 @@ func TestGetOrgId(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			val, ok := getOrgId(tt.jmsg)
+			val, ok := getOrgId(tt.args)
 			assert.Equal(t, tt.wantOK, ok)
 			assert.Equal(t, tt.wantVal, val)
 		})
@@ -396,4 +407,196 @@ func TestQueryCustomSettingsPropagation(t *testing.T) {
 
 		})
 	}
+}
+
+// makeQueryDataReq builds a *backend.QueryDataRequest, using the SDK's
+// SetHTTPHeader API so headers go through the same prefix-handling as in
+// production. Writing directly to req.Headers would mostly work for
+// Authorization but silently drop X-Grafana-Org-Id (the SDK only passes
+// arbitrary headers through when stored under the `http_` prefix).
+func makeQueryDataReq(t *testing.T, credentialsType string, headers map[string]string, rawJSON string) *backend.QueryDataRequest {
+	t.Helper()
+	settings := models.PluginSettings{
+		Host:            "localhost",
+		Port:            80,
+		Protocol:        "http",
+		CredentialsType: credentialsType,
+		DialTimeout:     "10",
+		QueryTimeout:    "20",
+	}
+	jsonData, err := json.Marshal(settings)
+	assert.NoError(t, err)
+
+	req := &backend.QueryDataRequest{
+		PluginContext: backend.PluginContext{
+			DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{
+				JSONData:                jsonData,
+				DecryptedSecureJSONData: map[string]string{},
+			},
+		},
+		Queries: []backend.DataQuery{
+			{RefID: "A", JSON: []byte(rawJSON)},
+		},
+	}
+	for k, v := range headers {
+		req.SetHTTPHeader(k, v)
+	}
+	return req
+}
+
+func TestMutateQueryData_InjectsConnectionArgs(t *testing.T) {
+	tests := []struct {
+		name            string
+		credentialsType string
+		oauthHeader     string
+		orgHeader       string
+		wantArgs        map[string]string // nil = no connectionArgs key written
+	}{
+		{
+			name:            "forwardOAuth + Bearer token + org id → both keys",
+			credentialsType: "forwardOAuth",
+			oauthHeader:     "Bearer abc",
+			orgHeader:       "5",
+			wantArgs:        map[string]string{"oauthToken": "abc", "orgId": "5"},
+		},
+		{
+			name:            "forwardOAuth + bare token (no Bearer prefix) → token stored as-is",
+			credentialsType: "forwardOAuth",
+			oauthHeader:     "abc",
+			orgHeader:       "",
+			wantArgs:        map[string]string{"oauthToken": "abc"},
+		},
+		{
+			name:            "forwardOAuth + empty oauth header + no org → no connectionArgs",
+			credentialsType: "forwardOAuth",
+			oauthHeader:     "",
+			orgHeader:       "",
+			wantArgs:        nil,
+		},
+		{
+			name:            "userAccount + oauth header is IGNORED (only orgId injected)",
+			credentialsType: "userAccount",
+			oauthHeader:     "Bearer abc",
+			orgHeader:       "7",
+			wantArgs:        map[string]string{"orgId": "7"},
+		},
+		{
+			name:            "userAccount + no headers → no connectionArgs",
+			credentialsType: "userAccount",
+			oauthHeader:     "",
+			orgHeader:       "",
+			wantArgs:        nil,
+		},
+		{
+			name:            "serviceAccount + only orgId → orgId only",
+			credentialsType: "serviceAccount",
+			oauthHeader:     "",
+			orgHeader:       "9",
+			wantArgs:        map[string]string{"orgId": "9"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewHydrolix()
+			headers := map[string]string{}
+			if tt.oauthHeader != "" {
+				headers[backend.OAuthIdentityTokenHeaderName] = tt.oauthHeader
+			}
+			if tt.orgHeader != "" {
+				headers[OrgIdHeaderKey] = tt.orgHeader
+			}
+			req := makeQueryDataReq(t, tt.credentialsType, headers, `{"rawSql":"SELECT 1"}`)
+
+			_, out := h.MutateQueryData(context.Background(), req)
+
+			var parsed struct {
+				RawSql         string            `json:"rawSql"`
+				ConnectionArgs map[string]string `json:"connectionArgs,omitempty"`
+				QuerySettings  []models.QuerySetting `json:"querySettings"`
+			}
+			assert.NoError(t, json.Unmarshal(out.Queries[0].JSON, &parsed))
+			assert.Equal(t, "SELECT 1", parsed.RawSql, "rawSql preserved")
+			assert.NotNil(t, parsed.QuerySettings, "querySettings field still written (existing behaviour)")
+			assert.Equal(t, tt.wantArgs, parsed.ConnectionArgs)
+		})
+	}
+}
+
+func TestMutateQueryData_NoCrossRequestLeak(t *testing.T) {
+	h := NewHydrolix()
+	reqA := makeQueryDataReq(t, "forwardOAuth", map[string]string{
+		backend.OAuthIdentityTokenHeaderName: "Bearer tokenA",
+	}, `{"rawSql":"A"}`)
+	reqB := makeQueryDataReq(t, "forwardOAuth", map[string]string{
+		backend.OAuthIdentityTokenHeaderName: "Bearer tokenB",
+	}, `{"rawSql":"B"}`)
+
+	_, outA := h.MutateQueryData(context.Background(), reqA)
+	_, outB := h.MutateQueryData(context.Background(), reqB)
+
+	var parsedA, parsedB struct {
+		RawSql         string            `json:"rawSql"`
+		ConnectionArgs map[string]string `json:"connectionArgs"`
+	}
+	assert.NoError(t, json.Unmarshal(outA.Queries[0].JSON, &parsedA))
+	assert.NoError(t, json.Unmarshal(outB.Queries[0].JSON, &parsedB))
+
+	assert.Equal(t, "tokenA", parsedA.ConnectionArgs["oauthToken"])
+	assert.Equal(t, "tokenB", parsedB.ConnectionArgs["oauthToken"])
+}
+
+func TestConnect_LazyBootstrapForwardOAuth(t *testing.T) {
+	// The sqlds.NewConnector bootstrap call always passes args == nil. Under
+	// forwardOAuth there is no token at that point. C4 makes Connect return
+	// a lazy *sql.DB (sql.OpenDB does not contact the server) so per-user
+	// pools can land later via per-query Connect calls.
+	h := NewHydrolix()
+	settings := models.PluginSettings{
+		Host:            "localhost",
+		Port:            80,
+		Protocol:        "http",
+		CredentialsType: "forwardOAuth",
+		DialTimeout:     "10",
+		QueryTimeout:    "20",
+	}
+	jsonData, err := json.Marshal(settings)
+	assert.NoError(t, err)
+
+	db, err := h.Connect(context.Background(), backend.DataSourceInstanceSettings{
+		JSONData:                jsonData,
+		DecryptedSecureJSONData: map[string]string{},
+	}, nil)
+
+	assert.NoError(t, err, "bootstrap call must not error under forwardOAuth")
+	assert.NotNil(t, db, "must return a usable *sql.DB")
+	if db != nil {
+		_ = db.Close()
+	}
+}
+
+func TestConnect_MissingOAuthTokenWhenArgsPresent(t *testing.T) {
+	// The real per-query path: args != nil but oauthToken is absent. This is
+	// a real error (the request reached Connect without MutateQueryData
+	// having written the token; should never happen but must surface clearly).
+	h := NewHydrolix()
+	settings := models.PluginSettings{
+		Host:            "localhost",
+		Port:            80,
+		Protocol:        "http",
+		CredentialsType: "forwardOAuth",
+		DialTimeout:     "10",
+		QueryTimeout:    "20",
+	}
+	jsonData, err := json.Marshal(settings)
+	assert.NoError(t, err)
+
+	db, err := h.Connect(context.Background(), backend.DataSourceInstanceSettings{
+		JSONData:                jsonData,
+		DecryptedSecureJSONData: map[string]string{},
+	}, json.RawMessage(`{"orgId":"5"}`))
+
+	assert.Error(t, err)
+	assert.Nil(t, db)
+	assert.Contains(t, err.Error(), "missing OAuth token")
 }

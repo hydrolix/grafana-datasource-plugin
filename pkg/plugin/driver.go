@@ -140,11 +140,21 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 	} else {
 		token := ""
 		if settings.CredentialsType == "forwardOAuth" {
-			oAuthToken, ok := getOAuthToken(args)
-			if ok {
+			// Two callers reach here:
+			//   1) sqlds.NewConnector's bootstrap call with args == nil. No
+			//      token yet; build a no-auth *sql.DB. sql.OpenDB does not
+			//      contact the server, and the forwardOAuth branch below
+			//      skips PingContext, so this entry is safe to sit idle in
+			//      the cache. Per-user DBs land on first per-query call once
+			//      MutateQueryData has populated connectionArgs.oauthToken.
+			//   2) Per-query call with args != nil. The token must be
+			//      present; missing is a real error.
+			if args == nil {
+				token = ""
+			} else if oAuthToken, ok := getOAuthToken(args); ok {
 				token = oAuthToken
 			} else {
-				return nil, fmt.Errorf("cannot get auth header")
+				return nil, backend.DownstreamError(fmt.Errorf("forwardOAuth: missing OAuth token in connection args"))
 			}
 		} else {
 			token = settings.Token
@@ -250,7 +260,10 @@ func (h *Hydrolix) Settings(ctx context.Context, config backend.DataSourceInstan
 	}
 }
 
-// MutateQueryData merges datasource's query options with the target query's query options.
+// MutateQueryData merges datasource's query options with the target query's
+// query options, and injects per-request connectionArgs (oauthToken, orgId)
+// derived from inbound HTTP headers so sqlds keys the connection cache per
+// user / per org. See openspec/changes/plugin-oauth-keyed-pooling.
 func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRequest) (context.Context, *backend.QueryDataRequest) {
 	pluginSettings, err := models.NewPluginSettings(ctx, *req.PluginContext.DataSourceInstanceSettings)
 
@@ -260,6 +273,17 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 	}
 	if pluginSettings.QuerySettings == nil {
 		pluginSettings.QuerySettings = []models.QuerySetting{}
+	}
+
+	headers := req.GetHTTPHeaders()
+	connArgs := map[string]string{}
+	if pluginSettings.CredentialsType == "forwardOAuth" {
+		if token := strings.TrimPrefix(headers.Get(backend.OAuthIdentityTokenHeaderName), "Bearer "); token != "" {
+			connArgs["oauthToken"] = token
+		}
+	}
+	if org := headers.Get(OrgIdHeaderKey); org != "" {
+		connArgs["orgId"] = org
 	}
 
 	for i, q := range req.Queries {
@@ -289,10 +313,14 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 			n++
 		}
 
-		if jmsg, err := jsonSet(q.JSON, map[string]any{"querySettings": mergedSettingsArray}); err == nil {
+		patches := map[string]any{"querySettings": mergedSettingsArray}
+		if len(connArgs) > 0 {
+			patches["connectionArgs"] = connArgs
+		}
+		if jmsg, err := jsonSet(q.JSON, patches); err == nil {
 			req.Queries[i].JSON = jmsg
 		} else {
-			log.DefaultLogger.Error("failed to serialize querySettings", "err", err, "refId", q.RefID)
+			log.DefaultLogger.Error("failed to serialize query JSON", "err", err, "refId", q.RefID)
 			continue
 		}
 	}
@@ -338,30 +366,35 @@ func (h *Hydrolix) MutateQuery(ctx context.Context, req backend.DataQuery) (cont
 	return ctx, req
 }
 
-func getOAuthToken(jmsg json.RawMessage) (string, bool) {
-	header, ok := getHeader(backend.OAuthIdentityTokenHeaderName, jmsg)
-	if ok && header != "" && strings.HasPrefix(header, "Bearer ") {
-		return strings.TrimPrefix(header, "Bearer "), true
-	} else {
+// getOAuthToken returns the OAuth bearer token written into connectionArgs
+// by MutateQueryData. The value is the bare token (Bearer-prefix stripped at
+// write time); callers that need the wire form prepend "Bearer " themselves.
+func getOAuthToken(args json.RawMessage) (string, bool) {
+	return readConnArg(args, "oauthToken")
+}
+
+// getOrgId returns the X-Grafana-Org-Id value written into connectionArgs by
+// MutateQueryData.
+func getOrgId(args json.RawMessage) (string, bool) {
+	return readConnArg(args, "orgId")
+}
+
+// readConnArg decodes connectionArgs as a flat map[string]string and returns
+// the requested key. Nil input, malformed JSON, missing keys, and empty
+// values all yield ("", false).
+func readConnArg(args json.RawMessage, key string) (string, bool) {
+	if len(args) == 0 {
 		return "", false
 	}
-}
-
-func getOrgId(jmsg json.RawMessage) (string, bool) {
-	return getHeader(OrgIdHeaderKey, jmsg)
-}
-
-func getHeader(headerName string, jmsg json.RawMessage) (string, bool) {
-
-	var m map[string]map[string][]string
-	if jmsg != nil {
-		err := json.Unmarshal(jmsg, &m)
-		if err == nil && m != nil && m[sqlds.HeaderKey] != nil && m[sqlds.HeaderKey][headerName] != nil && len(m[sqlds.HeaderKey][headerName]) > 0 {
-			header := m[sqlds.HeaderKey][headerName][0]
-			return header, true
-		}
+	var m map[string]string
+	if err := json.Unmarshal(args, &m); err != nil {
+		return "", false
 	}
-	return "", false
+	v, ok := m[key]
+	if !ok || v == "" {
+		return "", false
+	}
+	return v, true
 }
 
 // jsonSet update raw message's root object by applying a value to a key property
