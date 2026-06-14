@@ -29,12 +29,13 @@ type MacroFunc func(
 // dispatches are safe without synchronization.
 var Macros = map[string]MacroFunc{}
 
-// Stub is a no-op macro that returns the empty string. Useful as a
-// placeholder for "conditionalAll"-style passthrough macros that exist
-// only so other tools (e.g. Grafana's variable-substitution preview)
-// recognise the name.
+// Stub is a placeholder macro that expands to the SQL identity `1=1`. The
+// `conditionalAll` macro is the only consumer today — until a real
+// implementation lands (matching Grafana's "if All is selected, expand to
+// truth") the stub keeps queries parseable rather than emitting empty
+// strings that would render `SELECT  FROM t`. Matches the fork at 0f83082.
 func Stub(_ context.Context, _ *models.HdxQuery, _ []string, _ parser.Pos, _ *MetadataProvider) (string, error) {
-	return "", nil
+	return "1=1", nil
 }
 
 func init() {

@@ -1,10 +1,12 @@
 ## Why
 
-The fork's `macros.go` at `0f83082` defines eleven ClickHouse-specific time/date/interval macros that the plugin's dashboards expand at query time: `$__fromTimeFilter`, `$__toTimeFilter`, `$__fromTimeFilterMs`, `$__toTimeFilterMs`, `$__timeFilter`, `$__timeFilterMs`, `$__dateFilter`, `$__dateTimeFilter`, `$__timeInterval`, `$__timeIntervalMs`, `$__intervalSeconds`. They emit ClickHouse SQL fragments (`fromUnixTimestamp64Milli(...)`, `toStartOfInterval(toDateTime(...), INTERVAL N second)`, column-range comparisons like `col >= X AND col <= Y`, etc.).
+The fork's `macros.go` at `0f83082` defines eleven ClickHouse-specific time/date/interval macros that the plugin's dashboards expand at query time, registered under twelve names (one alias): `$__fromTime`, `$__toTime`, `$__fromTime_ms`, `$__toTime_ms`, `$__timeFilter`, `$__timeFilter_ms`, `$__dateFilter`, `$__dateTimeFilter`, `$__dt` (alias of `$__dateTimeFilter`), `$__timeInterval`, `$__timeInterval_ms`, `$__interval_s`. They emit ClickHouse SQL fragments (`fromUnixTimestamp64Milli(...)`, `toStartOfInterval(toDateTime(...), INTERVAL N second)`, column-range comparisons like `col >= X AND col <= Y`, etc.).
 
 After C2 pins the plugin to sqlds at `ef925e1`, those macros no longer ship inside sqlds. C5 establishes the `MacroFunc` signature and the `Macros` registry; this change populates the registry with the time/date/interval macros. Until C6 lands alongside C5, panel queries that use any time macro fail expansion.
 
-Five of the macros (`TimeFilter`, `TimeFilterMs`, `TimeInterval`, `TimeIntervalMs`, and `AdHocFilter`) need primary-key lookup when the user omits the column argument — they call into `MetadataProvider` (defined in C7) via the `getPK` helper. That coupling makes C6 depend on C7 at the file level: both ship in the same merge unit. The remaining six macros (`FromTimeFilter`, `ToTimeFilter`, `FromTimeFilterMs`, `ToTimeFilterMs`, `DateFilter`, `DateTimeFilter`, `IntervalSeconds`) are stateless and use neither `MetadataProvider` nor `getPK`; they ship as part of this change unconditionally.
+Four of these macros (`TimeFilter`, `TimeFilterMs`, `TimeInterval`, `TimeIntervalMs`) need primary-key lookup when the user omits the column argument — they call into `MetadataProvider` (defined in C7) via the `getPK` helper. That coupling makes C6 depend on C7 at the file level. The remaining seven macros (`FromTimeFilter`, `ToTimeFilter`, `FromTimeFilterMs`, `ToTimeFilterMs`, `DateFilter`, `DateTimeFilter`, `IntervalSeconds`) are stateless and use neither `MetadataProvider` nor `getPK`.
+
+This change also aligns `Stub` (the placeholder for `$__conditionalAll`) with the fork's behaviour — return `"1=1"` rather than the empty string the C5 stub temporarily used. An empty replacement leaves `SELECT  FROM t` in the rewritten SQL, which fails ClickHouse's parser; `"1=1"` keeps the query valid until a real implementation of `conditionalAll` lands.
 
 ## What Changes
 

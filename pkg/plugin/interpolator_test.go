@@ -100,8 +100,9 @@ func TestInterpolate_StubConditionalAll(t *testing.T) {
 	i := NewHdxInterpolator(NewMetadataProvider(nopMetadataDS{}), Macros)
 	out, err := i.interpolate(context.Background(), &models.HdxQuery{RawSQL: "SELECT $__conditionalAll() FROM t"})
 	assert.NoError(t, err)
-	// Stub returns empty string — macro call site collapses to nothing.
-	assert.Equal(t, "SELECT  FROM t", out)
+	// Stub expands to "1=1" — matches the fork at 0f83082 so the rewritten
+	// query stays parseable until a real conditionalAll lands.
+	assert.Equal(t, "SELECT 1=1 FROM t", out)
 }
 
 func TestInterpolate_RoundAppliesBeforeMacros(t *testing.T) {

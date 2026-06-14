@@ -233,10 +233,7 @@ func GetStringSafe(v any) (string, error) {
 // getPK is the macro-facing helper. It parses rawSQL, finds the CTE entry
 // at pos, and delegates to MetadataProvider.GetPK. Used by C6's PK-lookup
 // macros (`TimeFilter`, `TimeFilterMs`, `TimeInterval`, `TimeIntervalMs`)
-// that ship in the same package; the unused-warning suppression is
-// intentional until C6 lands.
-//
-//nolint:unused // exists for C6's PK-lookup macros to call; live as of C6.
+// when their column argument is omitted.
 func getPK(ctx context.Context, rawSQL string, pos parser.Pos, mdProvider *MetadataProvider, headers http.Header) (string, error) {
 	exprs, err := parser.NewParser(rawSQL).ParseStmts()
 	if err != nil {

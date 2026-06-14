@@ -29,28 +29,29 @@ The macros' `MacroFunc` signature (C5's `func(ctx, *models.HdxQuery, []string, p
 
 ```go
 // pkg/plugin/macros_time.go
-func timeToDate(t time.Time) string     { … }
-func timeToDateTime(t time.Time) string { return fmt.Sprintf("fromUnixTimestamp(%d)", t.Unix()) }
+func timeToDate(t time.Time) string       { return fmt.Sprintf("toDate('%s')", t.Format("2006-01-02")) }
+func timeToDateTime(t time.Time) string   { return fmt.Sprintf("toDateTime(%d)", t.Unix()) }
 func timeToDateTime64(t time.Time) string { return fmt.Sprintf("fromUnixTimestamp64Milli(%d)", t.UnixMilli()) }
 
 // pkg/plugin/macros_clickhouse.go
 func FromTimeFilter(_ context.Context, query *models.HdxQuery, _ []string, _ parser.Pos, _ *MetadataProvider) (string, error) {
     return timeToDateTime(query.TimeRange.From), nil
 }
-// … nine more macros …
+// … ten more macros …
 
 func init() {
-    Macros["fromTimeFilter"]   = FromTimeFilter
-    Macros["toTimeFilter"]     = ToTimeFilter
-    Macros["fromTimeFilterMs"] = FromTimeFilterMs
-    Macros["toTimeFilterMs"]   = ToTimeFilterMs
-    Macros["timeFilter"]       = TimeFilter
-    Macros["timeFilterMs"]     = TimeFilterMs
-    Macros["dateFilter"]       = DateFilter
-    Macros["dateTimeFilter"]   = DateTimeFilter
-    Macros["timeInterval"]     = TimeInterval
-    Macros["timeIntervalMs"]   = TimeIntervalMs
-    Macros["intervalSeconds"]  = IntervalSeconds
+    Macros["fromTime"]        = FromTimeFilter
+    Macros["toTime"]          = ToTimeFilter
+    Macros["fromTime_ms"]     = FromTimeFilterMs
+    Macros["toTime_ms"]       = ToTimeFilterMs
+    Macros["timeFilter"]      = TimeFilter
+    Macros["timeFilter_ms"]   = TimeFilterMs
+    Macros["dateFilter"]      = DateFilter
+    Macros["dateTimeFilter"]  = DateTimeFilter
+    Macros["dt"]              = DateTimeFilter // alias dashboards rely on
+    Macros["timeInterval"]    = TimeInterval
+    Macros["timeInterval_ms"] = TimeIntervalMs
+    Macros["interval_s"]      = IntervalSeconds
 }
 ```
 
@@ -58,7 +59,9 @@ func init() {
 
 **Why one `init()` rather than per-macro `init()`s.** A single `init()` reads like a registration manifest — every macro and its registered name visible in one place. Per-macro `init()`s would scatter the registry population.
 
-**Why register by camelCase string names.** The dashboard's `RawSQL` contains `$__fromTimeFilter(...)`. The interpolator's `getMacroMatches` strips the `$__` prefix and looks up by the remaining name. The fork uses camelCase; this change matches verbatim.
+**Why these exact registry keys.** The dashboard's `RawSQL` contains `$__fromTime(...)`, `$__timeFilter_ms(...)`, `$__dt(...)`, etc. The interpolator's `getMacroMatches` strips the `$__` prefix and looks up the remainder against `Macros`. **The keys are dashboard contract** — renaming any of them breaks every dashboard in production that uses the renamed name. The list above matches the fork's `macros.go` at `0f83082` byte-for-byte (eleven distinct functions, twelve registry entries — `dt` is an alias for `DateTimeFilter`).
+
+**Why `timeFilter` and `timeFilter_ms` both being registered is safe.** C5's interpolator sorts macro keys by length descending before matching, so `$__timeFilter_ms` resolves to `timeFilter_ms` and never matches the shorter `timeFilter` first. Same for `timeInterval`/`timeInterval_ms` and `fromTime`/`fromTime_ms` and `toTime`/`toTime_ms`. The existing `TestInterpolate_LongerMacroNamesMatchFirst` (from C5) is the regression net for this property.
 
 ### D2. PK-lookup macros call `getPK` from C7
 
