@@ -15,7 +15,7 @@ import (
 // wires HTTP routes onto the upstream CallResourceHandler, and delegates
 // the per-instance bootstrap to the embedded *sqlds.SQLDatasource.
 func NewDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-	ds := NewHdxSqlDatasource(NewHydrolix())
+	ds := NewHdxSqlDatasource(NewHydrolix(), settings)
 	registerRoutes(ds, api.Routes(ds.SQLDatasource))
 	return ds.NewDatasource(ctx, settings)
 }

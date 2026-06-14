@@ -108,8 +108,11 @@ func (c *TTLConnectionCache) Range(f func(key string, v sqlds.CachedConnection) 
 
 ```go
 func (c *TTLConnectionCache) Dispose() {
-    c.inner.Stop() // halts the sweep goroutine
-    c.inner.OnEviction(nil) // detach to avoid double-close from DeleteAll
+    c.inner.Stop()           // halts the sweep goroutine
+    if c.unsubscribe != nil {
+        c.unsubscribe()      // detach OnEviction so DeleteAll can't double-close
+        c.unsubscribe = nil
+    }
     for _, item := range c.inner.Items() {
         _ = item.Value().Close()
     }
@@ -117,11 +120,13 @@ func (c *TTLConnectionCache) Dispose() {
 }
 ```
 
-The order matters: stop the sweep first so it doesn't race with the close loop; detach the eviction callback so `DeleteAll` doesn't re-close already-closed connections; close every entry; then clear the map.
+`ttlcache.Cache.OnEviction(fn)` returns an unsubscribe function — passing `nil` to `OnEviction` panics. The implementation captures the returned unsubscribe at construction and invokes it during `Dispose`. The returned function blocks until any in-flight async callback invocations complete, so by the time the explicit close loop runs, no eviction-driven `Close` is racing the explicit `Close`.
 
-**Why explicit close in `Dispose` rather than relying on `DeleteAll` triggering eviction callbacks.** Two reasons. First, `ttlcache.Stop()` doesn't drain the eviction queue, so closes could be missed if the sweep goroutine had pending evictions. Second, the eviction-callback path is the *background* close path; `Dispose` is a *foreground* close path where the caller wants every connection closed before the call returns. Explicit close loop guarantees the latter.
+The order matters: stop the sweep first so it doesn't race with the close loop; detach the eviction callback so `DeleteAll`'s `EvictionReasonDeleted` callback doesn't double-close; close every entry synchronously; then clear the map.
 
-**Why not just close-and-clear without `Stop`/`detach`.** The sweep goroutine continues running after the loop and would interact with already-closed connections on subsequent ticks. `Stop` ensures the goroutine exits cleanly.
+**Why explicit close in `Dispose` rather than relying on `DeleteAll` triggering eviction callbacks.** Two reasons. First, `ttlcache.Stop()` doesn't drain the eviction queue, so closes could be missed if the sweep goroutine had pending evictions. Second, the eviction-callback path is the *background* close path (each callback runs in its own goroutine spawned by `ttlcache`); `Dispose` is a *foreground* close path where the caller wants every connection closed before the call returns. Explicit close loop guarantees the latter.
+
+**Why not just close-and-clear without `Stop`/`unsubscribe`.** The sweep goroutine continues running after the loop and would interact with already-closed connections on subsequent ticks. `Stop` ensures the goroutine exits cleanly; `unsubscribe` ensures `DeleteAll` doesn't spawn async closes on already-closed entries.
 
 ### D6. Constructor takes `settings.UID`, not `*HdxSqlDatasource`
 
@@ -157,7 +162,7 @@ The fork hardcodes `time.Hour`. This change matches. Adding a plugin setting (e.
 - **[`ttlcache`'s sweep goroutine leaks if `Dispose` is not called]** → Mitigation: sqlds's `Connector.Dispose` is invoked from `SQLDatasource.Dispose`, which the Grafana SDK invokes on instance teardown. The plugin's wrapper's `Dispose` promotes through embedding. Test: `Dispose()` invocation closes every live entry and halts the goroutine (assertable via `runtime.NumGoroutine` before/after).
 - **[No-wrapping contract violated by future code change]** → Mitigation: unit test stores a custom `sqlds.CachedConnection` mock and asserts `Load` returns the same Go pointer via `==` reference equality. Any wrapping introduced later fails this test.
 - **[Concurrent `Store`+`Range` race]** → Mitigation: `ttlcache.Cache` is documented as concurrent-safe; the plugin doesn't add cross-method state. Run unit tests with `-race`.
-- **[1-hour TTL evicts an actively-used connection mid-query]** → Mitigation: `ttlcache` evicts based on insert time, not last-access. A query that started 59m59s after insert and runs for 5m is not interrupted (the `*sql.DB` is held by the query; eviction-callback close happens *after* the query returns the connection to the pool). Verified by the fork's production behaviour; no test required beyond the existing eviction-callback test.
+- **[1-hour TTL evicts an actively-used connection mid-query]** → Mitigation: `ttlcache.Cache.Get` defaults to touch-on-hit (`item.touch()` resets the expiration timestamp), so a hot user's connection stays warm as long as queries keep arriving. Idle entries expire only after a full TTL of no `Load` activity. The underlying `*sql.DB` is held by any in-flight query during eviction-callback close, so close happens *after* the query returns the connection to the pool. Matches the fork's production behaviour (the fork inherited the same touch-on-hit default).
 - **[`*sql.DB.Close()` on eviction blocks while in-flight queries drain]** → Acceptable: the close is on the sweep goroutine, doesn't block any query path, and the drain happens once per evicted DB instance. The "1-hour cache" effectively functions as a 1-hour-plus-drain-time cache, which matches the fork.
 
 ## Migration Plan

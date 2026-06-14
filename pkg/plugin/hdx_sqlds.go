@@ -2,11 +2,16 @@ package plugin
 
 import (
 	"context"
+	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/grafana/sqlds/v5"
 )
+
+// connectionCacheTTL is the per-entry TTL for the per-user *sql.DB cache.
+// Matches the fork's hardcoded one-hour choice; see C3's design D7.
+const connectionCacheTTL = time.Hour
 
 // HdxSqlDatasource is the Hydrolix plugin's wrapper around sqlds.SQLDatasource.
 // It centralises extension-point wiring (Interpolator, ConnectionCacheFactory)
@@ -24,14 +29,18 @@ type HdxSqlDatasource struct {
 	*sqlds.SQLDatasource
 }
 
-// NewHdxSqlDatasource constructs the wrapper. The ConnectionCacheFactory
-// slot is populated by C3 (plugin-ttl-connection-cache); the Interpolator
-// is populated here (C5) with the plugin-local HdxInterpolator backed by
-// the package-level Macros registry.
-func NewHdxSqlDatasource(driver sqlds.Driver) *HdxSqlDatasource {
+// NewHdxSqlDatasource constructs the wrapper. settings.UID is captured by the
+// ConnectionCacheFactory closure so the cache can recognise the bootstrap
+// key (`<uid>-default`) and exempt it from TTL eviction. The factory runs
+// per call to sqlds.NewDatasource, so each (re)configuration of the
+// instance gets a fresh per-instance cache.
+func NewHdxSqlDatasource(driver sqlds.Driver, settings backend.DataSourceInstanceSettings) *HdxSqlDatasource {
 	ds := sqlds.NewDatasource(driver)
 	ds.EnableMultipleConnections = true
 	ds.Interpolator = NewHdxInterpolator(NewMetadataProvider(), Macros)
+	ds.ConnectionCacheFactory = func() sqlds.ConnectionCache {
+		return NewTTLConnectionCache(settings.UID, connectionCacheTTL)
+	}
 	return &HdxSqlDatasource{SQLDatasource: ds}
 }
 
