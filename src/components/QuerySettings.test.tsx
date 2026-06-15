@@ -144,4 +144,16 @@ describe("QuerySettings", () => {
       .filter((el) => (el as HTMLInputElement).disabled);
     expect(separators.length).toBeGreaterThan(0);
   });
+
+  // Pre-fill behaviour (`defaultValueFor`) is unit-tested directly in
+  // `src/queryCommentDefault.test.ts`. The end-to-end "pick from dropdown →
+  // input filled" flow is exercised in Playwright (`tests/queryComment.spec.ts`)
+  // because driving react-select through jsdom is brittle (see preamble).
+  it("round-trip: a saved custom value is not overwritten with the default on mount", async () => {
+    setup([{ setting: "hdx_query_admin_comment", value: "custom note" }]);
+    await expand();
+
+    const input = screen.getByLabelText("hdx_query_admin_comment");
+    expect(input).toHaveValue("custom note");
+  });
 });

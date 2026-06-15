@@ -1,3 +1,5 @@
+import { HDX_QUERY_COMMENT_DEFAULT } from "./queryCommentDefault";
+
 export default {
   components: {
     config: {
@@ -311,10 +313,20 @@ export default {
         {
           setting: "hdx_query_admin_comment",
           type: "textarea",
+          default: HDX_QUERY_COMMENT_DEFAULT,
           description:
-            "Add an admin comment to the query which is stored in Active Queries. This field can be filled automatically by Superset or Grafana to include username information in order to track user activity.\n" +
+            "Add an admin comment to the query which is stored in your Hydrolix Cluster's Active Queries.\n" +
             "\n" +
-            "Default is empty string.",
+            "Picking this setting pre-fills the canonical attribution template; edit it freely or leave it as-is.",
+        },
+        {
+          setting: "hdx_query_comment",
+          type: "textarea",
+          default: HDX_QUERY_COMMENT_DEFAULT,
+          description:
+            "Per-query free-form comment forwarded to your Hydrolix Cluster alongside the query. Distinct from hdx_query_admin_comment on the cluster side.\n" +
+            "\n" +
+            "Picking this setting pre-fills the canonical attribution template; edit it freely or leave it as-is.",
         },
         {
           setting: "hdx_query_streaming_result",

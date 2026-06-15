@@ -594,6 +594,119 @@ describe("HdxDataSource", () => {
       );
       expect(comment.value).toBe("templatedFoo");
     });
+
+    describe("hydrolix-namespaced synthetic variables", () => {
+      it("expands ${__hydrolix.panel.id}, .panel.name, .app, .ref_id in a dashboard context", async () => {
+        const { datasource, queryMock } = setupDataSourceMock({});
+        queryMock.mockReturnValue(of({ data: [] }));
+        const req = {
+          app: "dashboard",
+          panelId: 12,
+          panelName: "Throughput",
+          targets: [
+            {
+              rawSql: "select 1",
+              refId: "A",
+              querySettings: [
+                {
+                  setting: "hdx_query_admin_comment",
+                  value:
+                    "p=${__hydrolix.panel.id};n=${__hydrolix.panel.name};a=${__hydrolix.app};r=${__hydrolix.ref_id}",
+                },
+              ],
+            },
+          ],
+        } as unknown as DataQueryRequest<HdxQuery>;
+        await firstValueFrom(datasource.query(req));
+        const sentTarget = queryMock.mock.calls[0][0].targets[0];
+        const comment = sentTarget.querySettings.find(
+          (s: any) => s.setting === "hdx_query_admin_comment"
+        );
+        expect(comment.value).toBe("p=12;n=Throughput;a=dashboard;r=A");
+      });
+
+      it("expands missing panelId / panelName to empty strings (Explore-like context)", async () => {
+        const { datasource, queryMock } = setupDataSourceMock({});
+        queryMock.mockReturnValue(of({ data: [] }));
+        const req = {
+          app: "explore",
+          // panelId and panelName intentionally undefined
+          targets: [
+            {
+              rawSql: "select 1",
+              refId: "A",
+              querySettings: [
+                {
+                  setting: "hdx_query_admin_comment",
+                  value:
+                    "p=${__hydrolix.panel.id};n=${__hydrolix.panel.name};a=${__hydrolix.app}",
+                },
+              ],
+            },
+          ],
+        } as unknown as DataQueryRequest<HdxQuery>;
+        await firstValueFrom(datasource.query(req));
+        const sentTarget = queryMock.mock.calls[0][0].targets[0];
+        const comment = sentTarget.querySettings.find(
+          (s: any) => s.setting === "hdx_query_admin_comment"
+        );
+        expect(comment.value).toBe("p=;n=;a=explore");
+      });
+
+      it("reflects annotation context via __hydrolix.app and __hydrolix.ref_id", async () => {
+        const { datasource, queryMock } = setupDataSourceMock({});
+        queryMock.mockReturnValue(of({ data: [] }));
+        const req = {
+          app: "annotation",
+          targets: [
+            {
+              rawSql: "select 1",
+              refId: "Anno",
+              querySettings: [
+                {
+                  setting: "hdx_query_admin_comment",
+                  value: "a=${__hydrolix.app};r=${__hydrolix.ref_id}",
+                },
+              ],
+            },
+          ],
+        } as unknown as DataQueryRequest<HdxQuery>;
+        await firstValueFrom(datasource.query(req));
+        const sentTarget = queryMock.mock.calls[0][0].targets[0];
+        const comment = sentTarget.querySettings.find(
+          (s: any) => s.setting === "hdx_query_admin_comment"
+        );
+        expect(comment.value).toBe("a=annotation;r=Anno");
+      });
+
+      it("treats panelId=0 as a present id (not as the empty-fallback)", async () => {
+        const { datasource, queryMock } = setupDataSourceMock({});
+        queryMock.mockReturnValue(of({ data: [] }));
+        const req = {
+          app: "dashboard",
+          panelId: 0,
+          panelName: "",
+          targets: [
+            {
+              rawSql: "select 1",
+              refId: "A",
+              querySettings: [
+                {
+                  setting: "hdx_query_admin_comment",
+                  value: "p=${__hydrolix.panel.id};n=${__hydrolix.panel.name}",
+                },
+              ],
+            },
+          ],
+        } as unknown as DataQueryRequest<HdxQuery>;
+        await firstValueFrom(datasource.query(req));
+        const sentTarget = queryMock.mock.calls[0][0].targets[0];
+        const comment = sentTarget.querySettings.find(
+          (s: any) => s.setting === "hdx_query_admin_comment"
+        );
+        expect(comment.value).toBe("p=0;n=");
+      });
+    });
   });
 
   describe("annotation request retag", () => {
