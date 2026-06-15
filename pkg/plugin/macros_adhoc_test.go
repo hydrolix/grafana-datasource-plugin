@@ -65,7 +65,7 @@ func TestEscape_QuotedRoundTrip(t *testing.T) {
 		corpus = append(corpus, string(rune(b)))
 	}
 	corpus = append(corpus, "\x00")
-	corpus = append(corpus, "héllo", "Привет", "🦀", "O'Reilly", `a\b`, "$$", "$$$$end", "a\nb\tc\rd")
+	corpus = append(corpus, "héllo", "Привіт", "🦀", "O'Reilly", `a\b`, "$$", "$$$$end", "a\nb\tc\rd")
 
 	for _, v := range corpus {
 		quoted := "'" + escape(v) + "'"
