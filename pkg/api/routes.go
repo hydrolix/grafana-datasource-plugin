@@ -62,12 +62,13 @@ func Interpolate(ds *sqlds.SQLDatasource, rw http.ResponseWriter, req *http.Requ
 		return
 	}
 
-	// The new sqlds.Interpolator interface takes (*sqlds.SQLDatasource,
-	// *sqlutil.Query, json.RawMessage). Hydrolix-specific fields (filters,
-	// round, etc.) travel via the rawJSON payload — shape preserved from
-	// the fork's HDXQuery so the plugin-local interpolator (C5) can decode
-	// it the same way. Until C5 lands, ds.Interpolator is nil and the call
-	// falls back to sqlds.DefaultInterpolator (no Hydrolix macro expansion).
+	// sqlds.Interpolator is a func field taking (*sqlutil.Query,
+	// json.RawMessage). Hydrolix-specific fields (filters, round, etc.)
+	// travel via the rawJSON payload — shape preserved from the fork's
+	// HDXQuery so the plugin-local interpolator (C5) decodes it the same
+	// way. NewHdxSqlDatasource always installs the Hydrolix interpolator,
+	// so a nil field here means the datasource was not constructed through
+	// that path — surface it as an error rather than silently degrading.
 	hdxQuery := models.HdxQuery{
 		RawSQL:    request.Data.RawSql,
 		Filters:   request.Data.Filters,
@@ -82,11 +83,11 @@ func Interpolate(ds *sqlds.SQLDatasource, rw http.ResponseWriter, req *http.Requ
 		return
 	}
 
-	interpolator := ds.Interpolator
-	if interpolator == nil {
-		interpolator = sqlds.DefaultInterpolator{}
+	if ds.Interpolator == nil {
+		wrapError(rw, errors.New("interpolator not configured"))
+		return
 	}
-	body, err := interpolator.Interpolate(req.Context(), ds,
+	body, err := ds.Interpolator(req.Context(),
 		&sqlutil.Query{
 			RawSQL:    request.Data.RawSql,
 			TimeRange: timeRange,

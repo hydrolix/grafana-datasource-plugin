@@ -154,7 +154,6 @@ func TestInterpolatorImplementsSqldsInterface(t *testing.T) {
 
 	out, err := i.Interpolate(
 		context.Background(),
-		nil, // *sqlds.SQLDatasource not used by this implementation
 		&sqlutil.Query{
 			RawSQL:    "SELECT $__upper(name) FROM t",
 			TimeRange: backend.TimeRange{From: time.Unix(0, 0), To: time.Unix(60, 0)},

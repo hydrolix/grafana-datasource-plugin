@@ -35,7 +35,7 @@ type stubInterpolator struct {
 	err      error
 }
 
-func (s *stubInterpolator) Interpolate(_ context.Context, _ *sqlds.SQLDatasource, q *sqlutil.Query, raw json.RawMessage) (string, error) {
+func (s *stubInterpolator) Interpolate(_ context.Context, q *sqlutil.Query, raw json.RawMessage) (string, error) {
 	s.calls++
 	s.gotJSON = raw
 	s.gotQuery = q
@@ -96,7 +96,7 @@ func TestAST_InvalidSQLIsReportedAsError(t *testing.T) {
 
 func TestInterpolate_HappyPath(t *testing.T) {
 	stub := &stubInterpolator{out: "SELECT 1 AND col >= toDateTime(0) AND col <= toDateTime(60)"}
-	ds := &sqlds.SQLDatasource{Interpolator: stub}
+	ds := &sqlds.SQLDatasource{Interpolator: stub.Interpolate}
 
 	body := Request[QueryData]{
 		Data: QueryData{
@@ -129,15 +129,12 @@ func TestInterpolate_HappyPath(t *testing.T) {
 	assert.Equal(t, body.Data.Filters, forwarded.Filters)
 }
 
-func TestInterpolate_NilInterpolatorFallsBackToDefault(t *testing.T) {
-	// ds.Interpolator == nil → the handler should resolve the field to
-	// sqlds.DefaultInterpolator{} rather than nil-derefing on the call.
-	// A bare &sqlds.SQLDatasource{} can't actually interpolate (the default
-	// reaches for ds.driver().Macros() which isn't wired without
-	// NewDatasource), so the call returns an error via the handler's
-	// recover. The point of this test is the branch — not the rewrite —
-	// so we assert the handler returns a well-formed JSON response
-	// instead of escaping the panic.
+func TestInterpolate_NilInterpolatorIsReportedAsError(t *testing.T) {
+	// ds.Interpolator is now a func field. A bare &sqlds.SQLDatasource{}
+	// (not built through NewHdxSqlDatasource) has a nil field; the handler
+	// detects this and returns a well-formed error rather than calling a
+	// nil func. In production the field is always installed, so nil here
+	// signals a construction bug, not a degraded-but-valid path.
 	ds := &sqlds.SQLDatasource{}
 
 	body := Request[QueryData]{
@@ -151,10 +148,9 @@ func TestInterpolate_NilInterpolatorFallsBackToDefault(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rr.Code)
 	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
-	// Response decodes — recover() caught the nil-driver panic and wrapped
-	// it via wrapError, which produces Response[any]{Error: true, ...}.
 	resp := decodeResponse[any](t, rr)
 	assert.True(t, resp.Error)
+	assert.Contains(t, resp.ErrorMessage, "interpolator not configured")
 }
 
 func TestInterpolate_InvalidJSONIsReportedAsError(t *testing.T) {
@@ -182,7 +178,7 @@ func TestInterpolate_BadIntervalIsReportedAsError(t *testing.T) {
 
 func TestInterpolate_InterpolatorErrorIsReported(t *testing.T) {
 	stub := &stubInterpolator{err: errors.New("boom")}
-	ds := &sqlds.SQLDatasource{Interpolator: stub}
+	ds := &sqlds.SQLDatasource{Interpolator: stub.Interpolate}
 
 	rr := postJSON(t, func(w http.ResponseWriter, r *http.Request) { Interpolate(ds, w, r) },
 		Request[QueryData]{Data: QueryData{
@@ -237,7 +233,7 @@ func TestMacroCTEs_InvalidSQLIsReportedAsError(t *testing.T) {
 
 func TestRoutes_ExposesExpectedKeysAndWiresInterpolate(t *testing.T) {
 	stub := &stubInterpolator{out: "rewritten"}
-	ds := &sqlds.SQLDatasource{Interpolator: stub}
+	ds := &sqlds.SQLDatasource{Interpolator: stub.Interpolate}
 
 	routes := Routes(ds)
 	assert.ElementsMatch(t, []string{"/ast", "/interpolate", "/macroCTE"}, keysOf(routes))

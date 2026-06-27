@@ -26,8 +26,9 @@ import (
 var ErrParseMacroArgs = errors.New("failed to parse macro arguments (missing close bracket?)")
 
 // HdxInterpolator owns the SQL-rewrite pipeline for the Hydrolix plugin.
-// It implements sqlds.Interpolator (the extension surface added in
-// grafana/sqlds at commit ef925e1).
+// Its Interpolate method satisfies sqlds.Interpolator — the func-typed
+// extension surface on sqlds.SQLDatasource. It is installed as a method
+// value in NewHdxSqlDatasource.
 //
 // The interpolator is safe for concurrent use across queries: it carries
 // no mutable state. The `macros` map is populated at init() time by C6 /
@@ -38,6 +39,11 @@ type HdxInterpolator struct {
 	macros map[string]MacroFunc
 }
 
+// Compile-time assertion that the Interpolate method value conforms to the
+// sqlds.Interpolator func type. If sqlds changes the signature, this breaks
+// here rather than at the wiring site in NewHdxSqlDatasource.
+var _ sqlds.Interpolator = (&HdxInterpolator{}).Interpolate
+
 // NewHdxInterpolator constructs the interpolator with the provided
 // MetadataProvider and macro registry. The caller (NewHdxSqlDatasource)
 // passes the package-level Macros map; tests can pass a fixture map to
@@ -46,10 +52,11 @@ func NewHdxInterpolator(md *MetadataProvider, macros map[string]MacroFunc) *HdxI
 	return &HdxInterpolator{md: md, macros: macros}
 }
 
-// Interpolate implements sqlds.Interpolator. The new sqlds interface
-// passes (*SQLDatasource, *sqlutil.Query, json.RawMessage); the plugin
-// reconstitutes the Hydrolix-specific HdxQuery by unmarshalling rawJSON
-// and overlaying the runtime fields from query (TimeRange, Interval).
+// Interpolate implements sqlds.Interpolator. The func type passes
+// (*sqlutil.Query, json.RawMessage); the plugin reconstitutes the
+// Hydrolix-specific HdxQuery by unmarshalling rawJSON and overlaying the
+// runtime fields from query (TimeRange, Interval). The datasource itself
+// is not a parameter — it is captured via md/macros at construction.
 //
 // Headers are not part of the sqlds Interpolator signature. The macros
 // that need them (C7's adHocFilter) pull headers from context; the
@@ -57,7 +64,6 @@ func NewHdxInterpolator(md *MetadataProvider, macros map[string]MacroFunc) *HdxI
 // putting them there.
 func (i *HdxInterpolator) Interpolate(
 	ctx context.Context,
-	_ *sqlds.SQLDatasource,
 	query *sqlutil.Query,
 	rawJSON json.RawMessage,
 ) (string, error) {

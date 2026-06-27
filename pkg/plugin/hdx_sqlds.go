@@ -73,7 +73,9 @@ func NewHdxSqlDatasource(driver sqlds.Driver, settings backend.DataSourceInstanc
 	// MetadataProvider closes over the wrapper (for QueryData routing and
 	// DefaultDatabase access); the interpolator references the provider.
 	// Order matters: the wrapper must exist before NewMetadataProvider.
-	ds.Interpolator = NewHdxInterpolator(NewMetadataProvider(wrapper), Macros)
+	// ds.Interpolator is a func field; we install the method value, which
+	// overrides the default sqlds.NewDatasource wires in.
+	ds.Interpolator = NewHdxInterpolator(NewMetadataProvider(wrapper), Macros).Interpolate
 	return wrapper
 }
 
