@@ -1,7 +1,8 @@
-# hdx-adhoc-filter-macro-secure
+# hdx-adhoc-filter-macro-secure Specification
 
-## ADDED Requirements
-
+## Purpose
+TBD - created by archiving change plugin-adhoc-filter-macro-secure. Update Purpose after archive.
+## Requirements
 ### Requirement: User-supplied filter values are emitted as single-quoted escaped literals
 
 The plugin's `$__adHocFilter` macro SHALL emit every user-supplied value as a ClickHouse single-quoted literal (`'<escape(value)>'`), never as a dollar-quoted literal (`$$<value>$$`). The `escape` helper SHALL replace `'`, `\`, `\n`, `\r`, `\t`, and NUL with their backslash-escaped equivalents.
@@ -104,8 +105,6 @@ The plugin SHALL build the synthetic `*backend.QueryDataRequest` for schema quer
 - **WHEN** `executeQuery` builds the synthetic request and the fake `metadataDS.QueryData` reads `req.GetHTTPHeaders()`
 - **THEN** the read SHALL return both `Authorization: Bearer t` and `X-Grafana-Org-Id: 5`
 
-## MODIFIED Requirements
-
 ### Requirement: `Macros` registry populates `adHocFilter`
 
 The `Macros` map defined by C5 SHALL include `"adHocFilter" → AdHocFilterMacro` after C7. The registry remains read-only post-init.
@@ -133,3 +132,4 @@ The wrapper constructor SHALL parse `settings.JSONData` via `models.NewPluginSet
 - **THEN** the constructor SHALL still return a non-nil wrapper
 - **AND** `wrapper.Settings` SHALL be `nil`
 - **AND** `wrapper.DefaultDatabase()` SHALL return `""`
+

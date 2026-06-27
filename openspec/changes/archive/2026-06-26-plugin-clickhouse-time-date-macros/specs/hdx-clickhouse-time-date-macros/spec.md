@@ -151,8 +151,6 @@ The package SHALL run an `init()` block in `pkg/plugin/macros_clickhouse.go` tha
 - **THEN** every name in the table above SHALL be present in `Macros`
 - **AND** every name SHALL map to the function listed alongside it
 
-## MODIFIED Requirements
-
 ### Requirement: `Stub` returns `1=1` matching the fork's behaviour
 
 The `Stub` function in `pkg/plugin/macros_registry.go` SHALL return `("1=1", nil)`. The earlier C5 stub returned `""`, which left invalid SQL (`SELECT  FROM t`) when expanded; the fork returns `"1=1"` so the rewritten query stays parseable until a real `conditionalAll` lands.

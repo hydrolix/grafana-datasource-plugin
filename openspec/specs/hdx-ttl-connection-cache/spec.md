@@ -1,7 +1,8 @@
-# hdx-ttl-connection-cache
+# hdx-ttl-connection-cache Specification
 
-## ADDED Requirements
-
+## Purpose
+TBD - created by archiving change plugin-ttl-connection-cache. Update Purpose after archive.
+## Requirements
 ### Requirement: `TTLConnectionCache` satisfies `sqlds.ConnectionCache`
 
 The plugin SHALL define `TTLConnectionCache` in `pkg/plugin/connection_cache.go` that satisfies the `sqlds.ConnectionCache` interface (`Load`, `Store`, `Range`, `Dispose`). The implementation SHALL be safe for concurrent use from any number of goroutines.
@@ -94,8 +95,6 @@ The plugin SHALL define `NewTTLConnectionCache(uid string, ttl time.Duration) sq
 - **WHEN** `Dispose()` is invoked
 - **THEN** the cache's internal sweep goroutine SHALL be terminated (no goroutine leak detectable via `runtime.NumGoroutine` ±tolerance)
 
-## MODIFIED Requirements
-
 ### Requirement: `NewHdxSqlDatasource` wires per-instance `ConnectionCacheFactory`
 
 The wrapper constructor `NewHdxSqlDatasource` SHALL take a `settings backend.DataSourceInstanceSettings` parameter and SHALL set `ds.ConnectionCacheFactory` to a closure that returns `NewTTLConnectionCache(settings.UID, time.Hour)` per invocation. The factory closure SHALL produce a fresh cache on each call so reconfiguration paths (e.g. settings updates) get an isolated cache.
@@ -106,3 +105,4 @@ The wrapper constructor `NewHdxSqlDatasource` SHALL take a `settings backend.Dat
 - **WHEN** `ds.ConnectionCacheFactory()` is invoked twice
 - **THEN** the two returned values SHALL be distinct Go references
 - **AND** each SHALL be a `*TTLConnectionCache` keyed off `"u1-default"`
+
