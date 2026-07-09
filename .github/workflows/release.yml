@@ -19,7 +19,7 @@ jobs:
         run: |
           echo "${{ toJSON(github) }}"
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Download GitHub artifact
         uses: actions/download-artifact@v8
         with:
