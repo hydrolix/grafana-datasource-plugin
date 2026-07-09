@@ -16,7 +16,7 @@ Effective ordering:
 - **C1** ships first; independent of the sqlds revision swap.
 - **C2** ships second; the substrate. Subsequent changes plug into the wrapper C2 creates.
 - **C3, C4, C5, C6, C7** ship as a coordinated set. C2 alone leaves the plugin non-functional; C3-C7 collectively restore it. Within the set, file-level dependencies are: C6 depends on C7 (`getPK`); C7 depends on C5 (`Macros` registry); C5 depends on C2 (wrapper). The merge unit is "C2 through C7 together".
-- **C8** ships last; calendar-gated on `grafana/sqlds` releasing a version with both extension surfaces (interpolator + connection cache).
+- **C8** ships last; calendar gate now **satisfied** — upstream released `grafana/sqlds@v5.2.0` with both extension surfaces (interpolator + connection cache). The swap is not a pure no-op: upstream's `CachedConnection` is a concrete value struct (the fork's was an interface), so C8 carries a connection-cache adaptation. C8 also subsumes the follow-on `adopt-sqlds-func-interpolator` (func-typed interpolator already in-tree, identical upstream). See C8's `design.md` D2-D7.
 
 `/opsx:apply` and `/opsx:verify` are the OpenSpec invocations that drive a single change. The migration-plan's `tasks.md` is the script that invokes them in order against the eight child changes.
 

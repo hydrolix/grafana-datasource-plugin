@@ -32,8 +32,11 @@ degraded-but-valid path.
 - `pkg/plugin/interpolator_test.go`, `pkg/api/routes_test.go`: updated to the
   func signature; the stub becomes a method value; the nil-fallback test
   becomes a nil-error test.
-- `go.mod`: the fork `replace` pin must advance to a revision carrying
-  `interpolator-func-field` (sequenced with the fork landing).
+- `go.mod`: ~~the fork `replace` pin must advance to a revision carrying
+  `interpolator-func-field`~~ — **superseded**. The migration resolves straight
+  to upstream `grafana/sqlds@v5.2.0` (whose `Interpolator` surface is identical
+  to this func-typed shape) via `retire-hydrolix-sqlds-fork`; no intermediate
+  fork-pin advance is taken.
 - **BREAKING** at the fork-API boundary only; no Grafana-facing behavior change.
 
 ## Capabilities

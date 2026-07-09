@@ -1,106 +1,105 @@
 package plugin
 
 import (
-	"database/sql"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/sqlds/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// stubCachedConn is a minimal sqlds.CachedConnection used by cache tests
-// that don't need a real *sql.DB. It records Close calls so tests can
-// assert the cache's eviction/dispose semantics.
-type stubCachedConn struct {
-	closes atomic.Int32
-}
+// closeCounter is a test double for the cache's closeConn seam. Upstream's
+// sqlds.CachedConnection is an opaque value struct whose Close() is a no-op for
+// the zero value (nil db), so the cache's close behaviour is observed through
+// this counter rather than through the stored value.
+type closeCounter struct{ n atomic.Int32 }
 
-func (s *stubCachedConn) DB() *sql.DB                                   { return nil }
-func (s *stubCachedConn) Settings() backend.DataSourceInstanceSettings  { return backend.DataSourceInstanceSettings{} }
-func (s *stubCachedConn) Close() error                                  { s.closes.Add(1); return nil }
-func (s *stubCachedConn) Closes() int                                   { return int(s.closes.Load()) }
+func (c *closeCounter) close(sqlds.CachedConnection) error { c.n.Add(1); return nil }
+func (c *closeCounter) count() int                         { return int(c.n.Load()) }
 
+// newCache builds a cache with the production closer and registers Dispose for
+// cleanup. Tests that assert close behaviour use newCountingCache instead.
 func newCache(t *testing.T, uid string, ttl time.Duration) *TTLConnectionCache {
 	t.Helper()
-	cache, ok := NewTTLConnectionCache(uid, ttl).(*TTLConnectionCache)
-	require.True(t, ok, "constructor must return *TTLConnectionCache")
-	t.Cleanup(cache.Dispose)
-	return cache
+	c := newTTLConnectionCache(uid, ttl, sqlds.CachedConnection.Close)
+	t.Cleanup(c.Dispose)
+	return c
+}
+
+// newCountingCache injects a counting closer at construction so the async
+// OnEviction callback observes it with a happens-before edge (race-free under
+// `go test -race`). Dispose is NOT auto-registered — the close-behaviour tests
+// drive it explicitly.
+func newCountingCache(uid string, ttl time.Duration) (*TTLConnectionCache, *closeCounter) {
+	cc := &closeCounter{}
+	return newTTLConnectionCache(uid, ttl, cc.close), cc
 }
 
 func TestTTLCache_StoreLoadRoundTrip(t *testing.T) {
 	c := newCache(t, "uid1", time.Hour)
-	conn := &stubCachedConn{}
-	c.Store("uid1-foo", conn)
+	c.Store("uid1-foo", sqlds.CachedConnection{})
 
-	got, ok := c.Load("uid1-foo")
-	assert.True(t, ok)
-	// Reference equality — the cache must not wrap or decorate.
-	assert.Same(t, conn, got)
+	_, ok := c.Load("uid1-foo")
+	assert.True(t, ok, "stored key must be present")
 }
 
-func TestTTLCache_LoadMissReturnsNilFalse(t *testing.T) {
+func TestTTLCache_LoadMissReturnsZeroValueFalse(t *testing.T) {
 	c := newCache(t, "uid1", time.Hour)
 	got, ok := c.Load("absent")
 	assert.False(t, ok)
-	assert.Nil(t, got)
+	assert.Equal(t, sqlds.CachedConnection{}, got, "miss must return the zero CachedConnection")
 }
 
-func TestTTLCache_NoWrappingContract(t *testing.T) {
-	// Custom interface value to catch any decoration in the impl.
-	c := newCache(t, "uid1", time.Hour)
-	var stored sqlds.CachedConnection = &stubCachedConn{}
-	c.Store("k", stored)
+func TestTTLCache_ConstructorReturnsUsableCache(t *testing.T) {
+	c, ok := NewTTLConnectionCache("uid1", time.Hour).(*TTLConnectionCache)
+	require.True(t, ok, "constructor must return *TTLConnectionCache")
+	t.Cleanup(c.Dispose)
 
-	got, ok := c.Load("k")
-	require.True(t, ok)
-	assert.True(t, stored == got, "Load must return the exact interface value passed to Store")
+	c.Store("uid1-k", sqlds.CachedConnection{})
+	_, present := c.Load("uid1-k")
+	assert.True(t, present)
 }
 
 func TestTTLCache_BootstrapKeySurvivesPastTTL(t *testing.T) {
-	c := newCache(t, "uid1", 50*time.Millisecond)
-	conn := &stubCachedConn{}
-	c.Store("uid1-default", conn)
+	c, cc := newCountingCache("uid1", 50*time.Millisecond)
+	t.Cleanup(c.Dispose)
+	c.Store("uid1-default", sqlds.CachedConnection{})
 
 	time.Sleep(200 * time.Millisecond)
 
-	got, ok := c.Load("uid1-default")
+	_, ok := c.Load("uid1-default")
 	assert.True(t, ok, "bootstrap key must survive past TTL")
-	assert.Same(t, conn, got)
-	assert.Equal(t, 0, conn.Closes(), "bootstrap Close must not be invoked while live")
+	assert.Equal(t, 0, cc.count(), "bootstrap entry must not be closed while live")
 }
 
 func TestTTLCache_PerUserKeyEvictsAndCloses(t *testing.T) {
-	c := newCache(t, "uid1", 50*time.Millisecond)
-	conn := &stubCachedConn{}
-	c.Store("uid1-userkey", conn)
+	c, cc := newCountingCache("uid1", 50*time.Millisecond)
+	t.Cleanup(c.Dispose)
+	c.Store("uid1-userkey", sqlds.CachedConnection{})
 
 	// ttlcache defaults to touch-on-hit, so calling Load during the wait
 	// would extend the TTL. A single Sleep past 5× the TTL is safe.
 	time.Sleep(300 * time.Millisecond)
 
-	got, ok := c.Load("uid1-userkey")
+	_, ok := c.Load("uid1-userkey")
 	assert.False(t, ok, "per-user key must expire after TTL")
-	assert.Nil(t, got)
 
-	// OnEviction is dispatched asynchronously by ttlcache. Give the
-	// callback goroutine a beat to land before asserting close count.
-	assert.Eventually(t, func() bool { return conn.Closes() == 1 },
+	// OnEviction is dispatched asynchronously by ttlcache. Give the callback
+	// goroutine a beat to land before asserting the close count.
+	assert.Eventually(t, func() bool { return cc.count() == 1 },
 		500*time.Millisecond, 20*time.Millisecond,
-		"OnEviction must close exactly once")
+		"OnEviction must invoke closeConn exactly once")
 }
 
 func TestTTLCache_Range_VisitsAllAndShortCircuits(t *testing.T) {
 	c := newCache(t, "uid1", time.Hour)
-	c.Store("uid1-a", &stubCachedConn{})
-	c.Store("uid1-b", &stubCachedConn{})
-	c.Store("uid1-c", &stubCachedConn{})
+	c.Store("uid1-a", sqlds.CachedConnection{})
+	c.Store("uid1-b", sqlds.CachedConnection{})
+	c.Store("uid1-c", sqlds.CachedConnection{})
 
 	t.Run("visits all when f always true", func(t *testing.T) {
 		seen := 0
@@ -122,24 +121,22 @@ func TestTTLCache_Range_VisitsAllAndShortCircuits(t *testing.T) {
 }
 
 func TestTTLCache_Dispose_ClosesEverythingExactlyOnce(t *testing.T) {
-	// Drop the t.Cleanup default by constructing without it; Dispose is
-	// the system-under-test here.
-	cache, ok := NewTTLConnectionCache("uid1", time.Hour).(*TTLConnectionCache)
-	require.True(t, ok)
+	// Dispose is the system-under-test; drive it explicitly (no t.Cleanup).
+	c, cc := newCountingCache("uid1", time.Hour)
+	c.Store("uid1-default", sqlds.CachedConnection{})
+	c.Store("uid1-a", sqlds.CachedConnection{})
+	c.Store("uid1-b", sqlds.CachedConnection{})
 
-	conns := []*stubCachedConn{{}, {}, {}}
-	cache.Store("uid1-default", conns[0])
-	cache.Store("uid1-a", conns[1])
-	cache.Store("uid1-b", conns[2])
+	c.Dispose()
 
-	cache.Dispose()
+	assert.Equal(t, 3, cc.count(), "Dispose must close every live entry exactly once")
 
-	for i, conn := range conns {
-		assert.Equal(t, 1, conn.Closes(), "conn[%d] must be closed exactly once on Dispose", i)
-	}
-	got, ok := cache.Load("uid1-a")
-	assert.False(t, ok)
-	assert.Nil(t, got)
+	// No async eviction callback double-closes after Dispose detaches it.
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, 3, cc.count(), "no entry may be closed a second time after Dispose")
+
+	_, ok := c.Load("uid1-a")
+	assert.False(t, ok, "cache must be empty after Dispose")
 }
 
 func TestTTLCache_Dispose_StopsSweepGoroutine(t *testing.T) {
@@ -148,9 +145,7 @@ func TestTTLCache_Dispose_StopsSweepGoroutine(t *testing.T) {
 	// Constructor starts the sweep goroutine via `go cache.Start()`.
 	caches := make([]*TTLConnectionCache, 10)
 	for i := range caches {
-		c, ok := NewTTLConnectionCache("uid", time.Hour).(*TTLConnectionCache)
-		require.True(t, ok)
-		caches[i] = c
+		caches[i] = newTTLConnectionCache("uid", time.Hour, sqlds.CachedConnection.Close)
 	}
 
 	// Give the goroutines time to spin up before measuring growth.
@@ -171,9 +166,9 @@ func TestTTLCache_Dispose_StopsSweepGoroutine(t *testing.T) {
 }
 
 func TestTTLCache_ConcurrentLoadStoreRangeIsRaceFree(t *testing.T) {
-	// Exercise the cache from many goroutines so `go test -race` can
-	// surface any shared-state bug. Correctness assertions are minimal —
-	// this is a smoke test for races, not for behaviour.
+	// Exercise the cache from many goroutines so `go test -race` can surface
+	// any shared-state bug. Correctness assertions are minimal — this is a
+	// smoke test for races, not for behaviour.
 	c := newCache(t, "uid1", time.Hour)
 
 	const goroutines = 16
@@ -182,14 +177,14 @@ func TestTTLCache_ConcurrentLoadStoreRangeIsRaceFree(t *testing.T) {
 	wg.Add(goroutines)
 
 	for g := 0; g < goroutines; g++ {
-		go func(id int) {
+		go func() {
 			defer wg.Done()
 			for i := 0; i < opsPer; i++ {
-				c.Store("k", &stubCachedConn{})
+				c.Store("k", sqlds.CachedConnection{})
 				_, _ = c.Load("k")
 				c.Range(func(string, sqlds.CachedConnection) bool { return true })
 			}
-		}(g)
+		}()
 	}
 	wg.Wait()
 }

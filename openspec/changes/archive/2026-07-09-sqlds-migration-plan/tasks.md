@@ -2,6 +2,21 @@
 
 This `tasks.md` drives the sqlds retirement end-to-end. Run `/opsx:apply` on this change to walk the sequence.
 
+> **Execution outcome (2026-07-09).** The migration is complete. C1–C7 were
+> built and archived (`archive/2026-06-26-*`); C8 (`retire-hydrolix-sqlds-fork`)
+> and the follow-on `adopt-sqlds-func-interpolator` were built, verified
+> (go build/vet/`test -race` + golangci-lint + `npm run build` + 32/32
+> Playwright e2e against a v5.2.0-linked backend), and archived
+> (`archive/2026-07-09-*`); their spec deltas are synced into
+> `openspec/specs/`. **The fork is retired**: `go.mod` no longer carries the
+> `replace` directive and `github.com/hydrolix/sqlds` is absent from
+> `go.mod`/`go.sum` (only attribution comments remain in `pkg/`). The
+> checkboxes below were not maintained during execution and are left as-authored
+> for historical reference. Remaining items are ordinary git/ops steps tracked
+> outside OpenSpec: commit + merge to `develop`, deploy + soak, and the optional
+> archival of the fork's GitHub repo (§11.3) — none gate the plugin-side
+> retirement, which is done.
+
 Each `## N. ...` section corresponds to one child change (or a setup/cleanup step). Inside each section, sub-tasks run in order. Move to the next section only when every box in the current section is checked.
 
 Notation:
@@ -105,17 +120,27 @@ At this point C2-C7 are all applied. The plugin compiles and tests pass for the 
 - [ ] 9.3 If a regression surfaces, follow the rollback playbook in `design.md` D3 (post-C7, pre-C8 phase). Revert C2-C7 as a single unit; the plugin returns to running on the fork at `v5.0.1`.
 - [ ] 9.4 If no regression, proceed to C8 when upstream is ready.
 
-## 10. C8 — retire-hydrolix-sqlds-fork (calendar-gated)
+## 10. C8 — retire-hydrolix-sqlds-fork (calendar gate SATISFIED)
 
-- [ ] 10.1 Confirm `grafana/sqlds` has released a version containing both `Interpolator` interface + `SQLDatasource.Interpolator` field, and `ConnectionCache` interface + `SQLDatasource.ConnectionCacheFactory` field. Run `go list -m -versions github.com/grafana/sqlds/v5` and identify the target tag.
-- [ ] 10.2 Verify symbol parity per C8 design D2: `go doc github.com/grafana/sqlds/v5.Interpolator`, `go doc github.com/grafana/sqlds/v5.ConnectionCache`, `go doc github.com/grafana/sqlds/v5.SQLDatasource`. All must match the fork at `ef925e1`.
-- [ ] 10.3 Re-read `openspec/changes/retire-hydrolix-sqlds-fork/proposal.md` and `design.md`.
-- [ ] 10.4 Generate this change's `specs/` deltas (none — process-only).
-- [ ] 10.5 Generate this change's `tasks.md`. Tasks: edit `go.mod`; sed-based import rewrite; `goimports -w pkg/`; `go mod tidy`; update internal docs/runbooks to reference `grafana/sqlds`.
+> **Calendar gate satisfied.** Upstream `grafana/sqlds` released **`v5.2.0`**
+> carrying both extension surfaces. C8 is no longer calendar-blocked. Note: the
+> swap is **not** the pure no-op the plan originally assumed — upstream reshaped
+> `sqlds.CachedConnection` from the fork's interface into a concrete value
+> struct, so C8 now carries a connection-cache adaptation (a `hdx-ttl-connection-cache`
+> spec delta + code/test changes). C8's `specs/`, `design.md`, and `tasks.md`
+> have been regenerated accordingly; the interpolator surface is verified
+> identical (no delta there). Also folds in `adopt-sqlds-func-interpolator`,
+> whose remaining "advance the fork pin" verification is subsumed by C8's gates.
+
+- [ ] 10.1 ~~Confirm `grafana/sqlds` has released a version with both extension surfaces~~ — **done**: `v5.2.0` contains the func-typed `Interpolator` field, the `ConnectionCache` interface, and `SQLDatasource.ConnectionCacheFactory`. Target tag: `v5.2.0` (not `v5.3.0`, which requires Go ≥ 1.26.4 — see C8 design D6).
+- [ ] 10.2 Verify surface parity per C8 design D2 (build against `v5.2.0` in a throwaway worktree). Expected result: `Interpolator` / `ConnectionCacheFactory` / `ConnectionCache` identical to the fork; `CachedConnection` diverged (interface → concrete struct). The divergence is the scope of C8's connection-cache adaptation, not a blocker.
+- [ ] 10.3 Re-read `openspec/changes/retire-hydrolix-sqlds-fork/proposal.md`, `design.md`, `tasks.md`, and `specs/hdx-ttl-connection-cache/spec.md`.
+- [ ] 10.4 C8 `specs/` deltas: `hdx-ttl-connection-cache` (MODIFIED for the value-type `CachedConnection` + ADDED close-observation seam). No `hdx-interpolator` delta (surface unchanged upstream).
+- [ ] 10.5 C8 `tasks.md` (already generated): drop the fork `replace` + pin `v5.2.0` + `go mod tidy` (no import rewrite — the path is already `grafana/sqlds/v5`); adapt `connection_cache.go` + rewrite its test; update docs.
 - [ ] 10.6 Run `/opsx:apply` on `retire-hydrolix-sqlds-fork`.
 - [ ] 10.7 Run `/opsx:verify` on `retire-hydrolix-sqlds-fork`.
 - [ ] 10.8 Run full quality gates + Playwright e2e (as in 8.1, 8.2).
-- [ ] 10.9 Open PR. Confirm the diff is import-only (+N -N for the same N per file).
+- [ ] 10.9 Open PR. The diff is `go.mod`/`go.sum` + `connection_cache.go` + its test + docs — **not** import-only (the connection-cache adaptation is real code).
 - [ ] 10.10 Merge. Deploy to production.
 
 ## 11. Post-migration cleanup

@@ -14,10 +14,11 @@ import (
 // (sqlds.defaultKey(uid) == "<uid>-default") is stored with ttlcache.NoTTL
 // so the bootstrap entry survives for the cache's lifetime.
 //
-// The contract on Load requires that the returned CachedConnection be the
-// exact reference passed to Store (sqlds-internal code type-asserts it back
-// to a concrete struct). This implementation satisfies that contract by
-// passing values straight through the underlying ttlcache.
+// sqlds.CachedConnection is a concrete value type (grafana/sqlds@v5.2.0): the
+// cache stores and returns it by value, and Load returns the zero value on a
+// miss. Its fields are unexported, so a stored entry's Close() cannot be
+// instrumented from package plugin — closes are routed through the closeConn
+// seam (default sqlds.CachedConnection.Close) so tests can observe them.
 type TTLConnectionCache struct {
 	inner        *ttlcache.Cache[string, sqlds.CachedConnection]
 	bootstrapKey string
@@ -26,6 +27,9 @@ type TTLConnectionCache struct {
 	// sole closer (otherwise DeleteAll would fire async OnEviction
 	// callbacks that double-close).
 	unsubscribe func()
+	// closeConn closes an evicted/disposed entry. Defaults to
+	// sqlds.CachedConnection.Close; tests override it to count invocations.
+	closeConn func(sqlds.CachedConnection) error
 }
 
 var _ sqlds.ConnectionCache = (*TTLConnectionCache)(nil)
@@ -35,24 +39,33 @@ var _ sqlds.ConnectionCache = (*TTLConnectionCache)(nil)
 // is the per-entry default (the fork's choice is one hour). The cache's
 // sweep goroutine is started before return.
 func NewTTLConnectionCache(uid string, ttl time.Duration) sqlds.ConnectionCache {
+	return newTTLConnectionCache(uid, ttl, sqlds.CachedConnection.Close)
+}
+
+// newTTLConnectionCache is the injectable constructor. closeConn is captured
+// before the sweep goroutine starts (via the `go` statement's happens-before
+// edge), so tests can supply a counting closer without racing the async
+// OnEviction callback under `go test -race`.
+func newTTLConnectionCache(uid string, ttl time.Duration, closeConn func(sqlds.CachedConnection) error) *TTLConnectionCache {
 	cache := ttlcache.New[string, sqlds.CachedConnection](
 		ttlcache.WithTTL[string, sqlds.CachedConnection](ttl),
 	)
-	unsubscribe := cache.OnEviction(func(_ context.Context, _ ttlcache.EvictionReason, item *ttlcache.Item[string, sqlds.CachedConnection]) {
-		_ = item.Value().Close()
-	})
-	go cache.Start()
-	return &TTLConnectionCache{
+	c := &TTLConnectionCache{
 		inner:        cache,
 		bootstrapKey: uid + "-default",
-		unsubscribe:  unsubscribe,
+		closeConn:    closeConn,
 	}
+	c.unsubscribe = cache.OnEviction(func(_ context.Context, _ ttlcache.EvictionReason, item *ttlcache.Item[string, sqlds.CachedConnection]) {
+		_ = c.closeConn(item.Value())
+	})
+	go cache.Start()
+	return c
 }
 
 func (c *TTLConnectionCache) Load(key string) (sqlds.CachedConnection, bool) {
 	item := c.inner.Get(key)
 	if item == nil {
-		return nil, false
+		return sqlds.CachedConnection{}, false
 	}
 	return item.Value(), true
 }
@@ -85,7 +98,7 @@ func (c *TTLConnectionCache) Dispose() {
 		c.unsubscribe = nil
 	}
 	for _, item := range c.inner.Items() {
-		_ = item.Value().Close()
+		_ = c.closeConn(item.Value())
 	}
 	c.inner.DeleteAll()
 }

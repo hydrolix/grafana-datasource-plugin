@@ -79,13 +79,28 @@ The `pkg/api/routes.go` `MacroCTEs` handler SHALL be temporarily stubbed during 
 - **WHEN** the handler at C2's revision is invoked
 - **THEN** the response SHALL be `{"error": false, "errorMessage": "", "data": []}`
 
-### Requirement: `Interpolate` handler uses the new sqlds Interpolator interface
+### Requirement: `Interpolate` handler calls the sqlds Interpolator func
 
-The `pkg/api/routes.go` `Interpolate` handler SHALL call `ds.Interpolator.Interpolate(ctx, ds, *sqlutil.Query, json.RawMessage)` using the upstream-extension `Interpolator` interface signature, falling back to `sqlds.DefaultInterpolator{}` when `ds.Interpolator` is nil. The Hydrolix-specific query fields (`Filters`, `Round`, `TimeRange`, `Interval`, `Headers`) SHALL travel via the `rawJSON` payload, marshalled from `models.HdxQuery`.
+The `pkg/api/routes.go` `Interpolate` handler SHALL call
+`ds.Interpolator(ctx, *sqlutil.Query, json.RawMessage)` using the func-typed
+extension surface. When `ds.Interpolator` is nil, the handler SHALL return an
+error rather than falling back to a default — `NewHdxSqlDatasource` always
+installs the Hydrolix interpolator, so a nil field signals a construction bug.
+The Hydrolix-specific query fields (`Filters`, `Round`, `TimeRange`,
+`Interval`, `Headers`) SHALL travel via the `rawJSON` payload, marshalled from
+`models.HdxQuery`.
 
-#### Scenario: Handler falls back to DefaultInterpolator when no plugin-side interpolator is wired
+#### Scenario: Handler reports an error when no interpolator is wired
 
 - **GIVEN** an `*sqlds.SQLDatasource` with `ds.Interpolator == nil`
 - **WHEN** the `/interpolate` handler is invoked
-- **THEN** the handler SHALL pass through `sqlds.DefaultInterpolator{}.Interpolate(...)` and return the result without error
+- **THEN** the response SHALL have `error: true`
+- **AND** the `errorMessage` SHALL contain `"interpolator not configured"`
+
+#### Scenario: Handler dispatches to the wired interpolator
+
+- **GIVEN** an `*sqlds.SQLDatasource` whose `Interpolator` func returns a canned rewrite
+- **WHEN** the `/interpolate` handler is invoked with a query body
+- **THEN** the handler SHALL return that rewrite with `error: false`
+- **AND** the interpolator SHALL receive the `rawJSON` marshalled from `models.HdxQuery` (carrying `Round` and `Filters`)
 
