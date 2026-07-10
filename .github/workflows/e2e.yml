@@ -16,7 +16,9 @@ jobs:
       GRAFANA_VERSION: ${{ matrix.grafana_version }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Download GitHub artifact
         uses: actions/download-artifact@v8
@@ -29,7 +31,7 @@ jobs:
           chmod +x hydrolix-hydrolix-datasource/gpx*
 
       - name: Install and run Docker Compose
-        uses: hoverkraft-tech/compose-action@d2bee4f07e8ca410d6b196d00f90c12e7d48c33a
+        uses: hoverkraft-tech/compose-action@11beaa1c2dae4e8ed7b1665aa074723b6cecb0e4
         with:
           compose-file: '.github/e2e-docker-compose.yml'
 
