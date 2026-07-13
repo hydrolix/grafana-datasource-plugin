@@ -28,6 +28,11 @@ const (
 // SQL identifier in the schema, the bracketed `key` is the map key.
 var mapTypeFilterKey = regexp.MustCompile(`^(.*)\['.*']$`)
 
+// explicitCTEArg constrains the explicit `$__adHocFilter(<arg>)` argument to a
+// strict identifier, optionally `database.table`. This source never passes
+// through the AST, so it needs its own gate before reaching the metadata path.
+var explicitCTEArg = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
+
 func init() {
 	Macros["adHocFilter"] = AdHocFilterMacro
 }
@@ -64,6 +69,22 @@ func escape(s string) string {
 	return b.String()
 }
 
+// quoteIdentifier wraps s in backticks for safe use where ClickHouse expects
+// an identifier (a table/database name or a map subscript column). Unlike
+// escape (which handles single-quoted literals), identifiers are a distinct
+// grammar. The ClickHouse SQL parser's lexer does not unescape characters
+// inside backtick-quoted identifiers — it reads bytes until the first
+// backtick — so an embedded backtick cannot be represented unambiguously and
+// is rejected rather than emitted as something that could re-parse into
+// injected SQL. NUL is rejected for the same reason. Every other byte is
+// literal inside the backticks and needs no escaping.
+func quoteIdentifier(s string) (string, error) {
+	if strings.IndexByte(s, '`') >= 0 || strings.IndexByte(s, 0) >= 0 {
+		return "", fmt.Errorf("invalid identifier %q", s)
+	}
+	return "`" + s + "`", nil
+}
+
 // AdHocFilterMacro implements the $__adHocFilter() macro. It accepts zero
 // or one argument (an explicit CTE / table name); when omitted, the CTE
 // is resolved by AST position. Returns the AND-joined per-filter
@@ -79,6 +100,12 @@ func AdHocFilterMacro(ctx context.Context, query *models.HdxQuery, params []stri
 	cteName := ""
 	if len(params) == 1 {
 		cteName = params[0]
+		// The explicit argument bypasses the AST, so it must be a strict
+		// identifier (optionally database.table) before it can drive a
+		// metadata query. An empty argument falls through to AST resolution.
+		if cteName != "" && !explicitCTEArg.MatchString(cteName) {
+			return "", backend.DownstreamError(fmt.Errorf("invalid $__adHocFilter argument: %q", cteName))
+		}
 	}
 
 	if cteName == "" {

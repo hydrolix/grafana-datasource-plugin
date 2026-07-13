@@ -17,13 +17,9 @@ import (
 	"github.com/jellydator/ttlcache/v3"
 )
 
-const (
-	// PrimaryKeyQuery looks up the primary key for a (database, table) pair.
-	PrimaryKeyQuery = "SELECT primary_key FROM system.tables WHERE database='%s' AND table ='%s'"
-	// AdHocKeyQuery describes the column types of a CTE / table reference
-	// used by the ad-hoc filter macro to dispatch on column type.
-	AdHocKeyQuery = "DESCRIBE %s"
-)
+// PrimaryKeyQuery looks up the primary key for a (database, table) pair.
+// database and table are single-quoted literals — callers MUST escape them.
+const PrimaryKeyQuery = "SELECT primary_key FROM system.tables WHERE database='%s' AND table ='%s'"
 
 var (
 	// ErrPrimaryKeyNotFound is returned by QueryPK when the schema query
@@ -120,7 +116,10 @@ func (p *MetadataProvider) GetKeys(ctx context.Context, headers http.Header, cte
 // QueryPK issues the primary-key lookup SQL and returns the first cell of
 // the first column. Empty result → ErrPrimaryKeyNotFound.
 func (p *MetadataProvider) QueryPK(ctx context.Context, headers http.Header, database, table string) (string, error) {
-	sql := fmt.Sprintf(PrimaryKeyQuery, database, table)
+	// database and table are string literals in PrimaryKeyQuery, so escape
+	// them — a quote in an identifier name would otherwise break out of the
+	// literal and rewrite the WHERE clause.
+	sql := fmt.Sprintf(PrimaryKeyQuery, escape(database), escape(table))
 	frame, err := p.executeQuery(ctx, headers, sql, "pk_query")
 	if err != nil {
 		return "", err
@@ -131,14 +130,15 @@ func (p *MetadataProvider) QueryPK(ctx context.Context, headers http.Header, dat
 	return GetStringSafe(frame.Fields[0].At(0))
 }
 
-// QueryKeys issues DESCRIBE <cte> and assembles the column-name → column-type
-// map. Sub-SELECTs in the CTE source are wrapped in parentheses to satisfy
-// ClickHouse's DESCRIBE grammar.
+// QueryKeys issues a DESCRIBE for the given table reference or subquery and
+// assembles the column-name → column-type map. The DESCRIBE target is built
+// by buildDescribeSQL from validated, quoted AST shapes — never by string
+// formatting the caller's text.
 func (p *MetadataProvider) QueryKeys(ctx context.Context, headers http.Header, cte string) (map[string]string, error) {
-	if strings.Contains(strings.ToUpper(cte), "SELECT") {
-		cte = "(" + cte + ")"
+	sql, err := buildDescribeSQL(cte)
+	if err != nil {
+		return nil, err
 	}
-	sql := fmt.Sprintf(AdHocKeyQuery, cte)
 	frame, err := p.executeQuery(ctx, headers, sql, "key_query")
 	if err != nil {
 		return nil, err
@@ -161,6 +161,110 @@ func (p *MetadataProvider) QueryKeys(ctx context.Context, headers http.Header, c
 		keys[name] = t
 	}
 	return keys, nil
+}
+
+// buildDescribeSQL turns a FROM-expression string (a table reference or a
+// subquery, as produced by cte extraction or an explicit macro argument)
+// into a safe DESCRIBE statement. It parses the expression, then:
+//   - a table reference is rebuilt from validated, backtick-quoted identifiers;
+//   - a subquery is wrapped and the assembled statement is re-parsed to
+//     confirm it is exactly one DESCRIBE over a subquery;
+//   - a table function or any other expression is rejected.
+//
+// Parentheses are a grammar convenience, not a security boundary: a
+// parenthesised table function (url/remote/s3/file) is still SSRF /
+// exfiltration, so the shape is validated rather than trusted.
+func buildDescribeSQL(tableExpr string) (string, error) {
+	trimmed := strings.TrimSpace(tableExpr)
+	if trimmed == "" {
+		return "", backend.PluginError(errors.New("empty table expression for DESCRIBE"))
+	}
+	stmts, err := parser.NewParser("SELECT 1 FROM " + trimmed).ParseStmts()
+	if err != nil {
+		return "", backend.DownstreamError(fmt.Errorf("invalid table expression for DESCRIBE: %w", err))
+	}
+	if len(stmts) != 1 {
+		return "", backend.PluginError(errors.New("expected a single table expression for DESCRIBE"))
+	}
+	sel, ok := stmts[0].(*parser.SelectQuery)
+	if !ok || sel.From == nil {
+		return "", backend.PluginError(errors.New("could not resolve table expression for DESCRIBE"))
+	}
+	// A single-table FROM parses to a JoinTableExpr wrapping one TableExpr;
+	// an actual JOIN parses to a JoinExpr and is rejected here (the metadata
+	// path only describes one table/subquery).
+	jte, ok := sel.From.Expr.(*parser.JoinTableExpr)
+	if !ok || jte.Table == nil {
+		return "", backend.PluginError(errors.New("unsupported FROM expression for DESCRIBE"))
+	}
+	source := jte.Table.Expr
+	if alias, ok := source.(*parser.AliasExpr); ok {
+		source = alias.Expr
+	}
+	switch s := source.(type) {
+	case *parser.TableIdentifier:
+		return describeTableIdentifier(s)
+	case *parser.SubQuery:
+		return describeSubquery(s.Select)
+	case *parser.SelectQuery:
+		return describeSubquery(s)
+	default:
+		return "", backend.DownstreamError(fmt.Errorf("unsupported table expression for DESCRIBE: %s", parser.Format(source)))
+	}
+}
+
+// describeTableIdentifier emits DESCRIBE TABLE for a plain table reference,
+// rebuilding the identifier from the parsed name(s) via quoteIdentifier so
+// the original quoting/spacing cannot smuggle anything.
+func describeTableIdentifier(t *parser.TableIdentifier) (string, error) {
+	if t.Table == nil {
+		return "", backend.PluginError(errors.New("missing table name for DESCRIBE"))
+	}
+	tbl, err := quoteIdentifier(t.Table.Name)
+	if err != nil {
+		return "", err
+	}
+	if t.Database != nil {
+		db, err := quoteIdentifier(t.Database.Name)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("DESCRIBE TABLE %s.%s", db, tbl), nil
+	}
+	return fmt.Sprintf("DESCRIBE TABLE %s", tbl), nil
+}
+
+// describeSubquery wraps a parsed subquery in DESCRIBE (...) and re-parses the
+// assembled statement, confirming it is exactly one DESCRIBE whose target is a
+// subquery. Verification, not string trust, is what makes the parenthesised
+// path safe. Relies on the broadened DESCRIBE grammar in
+// clickhouse-sql-parser >= v0.5.2.
+func describeSubquery(sq *parser.SelectQuery) (string, error) {
+	if sq == nil {
+		return "", backend.PluginError(errors.New("empty subquery for DESCRIBE"))
+	}
+	sql := "DESCRIBE (" + parser.Format(sq) + ")"
+	stmts, err := parser.NewParser(sql).ParseStmts()
+	if err != nil {
+		return "", backend.DownstreamError(fmt.Errorf("could not validate DESCRIBE subquery: %w", err))
+	}
+	if len(stmts) != 1 {
+		return "", backend.PluginError(errors.New("DESCRIBE subquery did not reparse to a single statement"))
+	}
+	d, ok := stmts[0].(*parser.DescribeStmt)
+	if !ok || d.Target == nil {
+		return "", backend.PluginError(errors.New("assembled statement is not a DESCRIBE over a subquery"))
+	}
+	inner := d.Target.Expr
+	if alias, ok := inner.(*parser.AliasExpr); ok {
+		inner = alias.Expr
+	}
+	switch inner.(type) {
+	case *parser.SubQuery, *parser.SelectQuery:
+		return sql, nil
+	default:
+		return "", backend.PluginError(errors.New("assembled statement is not a DESCRIBE over a subquery"))
+	}
 }
 
 // executeQuery synthesises a *backend.QueryDataRequest carrying the schema
