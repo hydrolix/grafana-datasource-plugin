@@ -5,7 +5,7 @@ go 1.26.5
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.44.0
 	github.com/grafana/grafana-plugin-sdk-go v0.292.1
-	github.com/hydrolix/clickhouse-sql-parser v0.3.0
+	github.com/hydrolix/clickhouse-sql-parser v0.5.2
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.42.0

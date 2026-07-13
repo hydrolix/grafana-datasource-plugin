@@ -93,10 +93,10 @@ type tableVisitor struct {
 func (v *tableVisitor) VisitTableIdentifier(expr *parser.TableIdentifier) error {
 	if v.pos == expr.Pos() {
 		if expr.Table != nil {
-			v.table = expr.Table.String()
+			v.table = parser.Format(expr.Table)
 		}
 		if expr.Database != nil {
-			v.database = expr.Database.String()
+			v.database = parser.Format(expr.Database)
 		} else {
 			v.database = ""
 		}
@@ -117,7 +117,7 @@ func (v *queryVisitor) VisitSelectQuery(expr *parser.SelectQuery) error {
 		return nil
 	}
 	pos := expr.Pos()
-	scope := expr.From.Expr.String()
+	scope := parser.Format(expr.From.Expr)
 	tPos := expr.From.Expr.Pos()
 	tVisitor := tableVisitor{pos: tPos}
 	_ = expr.Accept(&tVisitor)
