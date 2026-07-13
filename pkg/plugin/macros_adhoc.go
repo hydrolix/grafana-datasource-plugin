@@ -33,6 +33,15 @@ var mapTypeFilterKey = regexp.MustCompile(`^(.*)\['.*']$`)
 // through the AST, so it needs its own gate before reaching the metadata path.
 var explicitCTEArg = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
 
+// scalarComparisonOperators is the allowlist for the scalar/map default branch
+// of buildFilterCondition. The multi-value ("=|", "!=|") and regex ("=~",
+// "!~") operators are handled by their own switch cases before the default;
+// any operator reaching the default that is not one of these comparisons is
+// rejected rather than interpolated verbatim (mirrors buildArrayCondition).
+var scalarComparisonOperators = map[string]bool{
+	"=": true, "!=": true, "<": true, "<=": true, ">": true, ">=": true,
+}
+
 func init() {
 	Macros["adHocFilter"] = AdHocFilterMacro
 }
@@ -137,13 +146,25 @@ func AdHocFilterMacro(ctx context.Context, query *models.HdxQuery, params []stri
 	var conditions []string
 	for _, filter := range query.Filters {
 		column := filter.Key
-		if mapTypeFilterKey.MatchString(filter.Key) {
+		isMapKey := mapTypeFilterKey.MatchString(filter.Key)
+		if isMapKey {
 			column = mapTypeFilterKey.FindStringSubmatch(filter.Key)[1]
 		}
 		if !slices.Contains(keyNames, column) {
 			continue
 		}
-		condition, err := buildFilterCondition(filter, keys[column])
+		// Build the SQL key from trusted pieces. The base column is
+		// schema-validated above; for a map key the subscript is rebuilt as a
+		// backtick-quoted column + single-quoted escaped literal so the raw
+		// filter.Key never reaches SQL.
+		sqlKey := column
+		if isMapKey {
+			sqlKey, err = adHocMapKey(column, filter.Key)
+			if err != nil {
+				return "", fmt.Errorf("error building filter key for '%s': %w", filter.Key, err)
+			}
+		}
+		condition, err := buildFilterCondition(filter, keys[column], sqlKey)
 		if err != nil {
 			return "", fmt.Errorf("error building filter condition for key '%s': %w", filter.Key, err)
 		}
@@ -158,20 +179,37 @@ func AdHocFilterMacro(ctx context.Context, query *models.HdxQuery, params []stri
 	return strings.Join(conditions, " AND "), nil
 }
 
+// adHocMapKey rebuilds a Map-column filter key `column['subscript']` from
+// trusted pieces: the schema-validated column as a backtick-quoted identifier
+// and the subscript as a single-quoted escaped literal. The raw filter.Key —
+// whose subscript is attacker-controlled — is never used directly. column MUST
+// be the base column extracted via mapTypeFilterKey, and fullKey the original
+// key it was extracted from.
+func adHocMapKey(column, fullKey string) (string, error) {
+	quoted, err := quoteIdentifier(column)
+	if err != nil {
+		return "", err
+	}
+	// fullKey starts with column and has the form column['<subscript>'].
+	rest := fullKey[len(column):] // ['<subscript>']
+	subscript := rest[2 : len(rest)-2]
+	return fmt.Sprintf("%s['%s']", quoted, escape(subscript)), nil
+}
+
 // buildFilterCondition emits a single condition for one filter, dispatching
 // on the column's ClickHouse type. Array columns route to
-// buildArrayCondition; scalar/map columns are handled inline. Every
-// user-supplied value reaches the wire as `'<escape(value)>'`.
-func buildFilterCondition(filter models.AdHocFilter, keyType string) (string, error) {
+// buildArrayCondition; scalar/map columns are handled inline. key is the
+// pre-validated/quoted SQL key from AdHocFilterMacro. Every user-supplied
+// value reaches the wire as `'<escape(value)>'`.
+func buildFilterCondition(filter models.AdHocFilter, keyType, key string) (string, error) {
 	lower := strings.ToLower(keyType)
 	isString := strings.Contains(lower, "string)") || lower == "string"
 	isArray := strings.Contains(lower, "array")
 	isMap := strings.Contains(lower, "map")
 	if isArray {
-		return buildArrayCondition(filter)
+		return buildArrayCondition(filter, key)
 	}
 
-	key := filter.Key
 	value := filter.Value
 	operator := filter.Operator
 
@@ -244,14 +282,16 @@ func buildFilterCondition(filter models.AdHocFilter, keyType string) (string, er
 		}
 		return fmt.Sprintf("toString(%s) NOT LIKE '%s'", key, escape(escapeWildcard(value))), nil
 	default:
+		if !scalarComparisonOperators[operator] {
+			return "", fmt.Errorf("operator %q unsupported for scalar value", operator)
+		}
 		return fmt.Sprintf("%s %s '%s'", key, operator, escape(value)), nil
 	}
 }
 
 // buildArrayCondition emits has(col, '<val>') / not has(...) clauses for
 // Array columns, joined with OR for multi-value filters.
-func buildArrayCondition(filter models.AdHocFilter) (string, error) {
-	key := filter.Key
+func buildArrayCondition(filter models.AdHocFilter, key string) (string, error) {
 	value := filter.Value
 	operator := filter.Operator
 	switch operator {

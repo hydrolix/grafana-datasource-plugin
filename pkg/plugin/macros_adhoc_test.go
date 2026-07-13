@@ -315,12 +315,12 @@ func TestAdHocFilterMacro_Matrix(t *testing.T) {
 		{
 			name:    "map column with key syntax",
 			filters: []models.AdHocFilter{{Key: "mapColumn['key1']", Operator: "=", Value: "value1"}},
-			want:    "mapColumn['key1'] = 'value1'",
+			want:    "`mapColumn`['key1'] = 'value1'",
 		},
 		{
 			name:    "map column with multi-value IN",
 			filters: []models.AdHocFilter{{Key: "mapColumn['status']", Operator: "=|", Values: []string{"active", "pending"}}},
-			want:    "mapColumn['status'] IN ('active', 'pending')",
+			want:    "`mapColumn`['status'] IN ('active', 'pending')",
 		},
 		{
 			name: "mixed string and map columns",
@@ -328,7 +328,7 @@ func TestAdHocFilterMacro_Matrix(t *testing.T) {
 				{Key: "column", Operator: "=", Value: "test"},
 				{Key: "mapColumn['env']", Operator: "=", Value: "prod"},
 			},
-			want: "column = 'test' AND mapColumn['env'] = 'prod'",
+			want: "column = 'test' AND `mapColumn`['env'] = 'prod'",
 		},
 	}
 	for i, tc := range tests {
@@ -393,7 +393,7 @@ func TestBuildFilterCondition(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := buildFilterCondition(tc.filter, tc.keyType)
+			got, err := buildFilterCondition(tc.filter, tc.keyType, tc.filter.Key)
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -419,7 +419,7 @@ func TestBuildArrayCondition(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := buildArrayCondition(tc.filter)
+			got, err := buildArrayCondition(tc.filter, tc.filter.Key)
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -432,13 +432,13 @@ func TestBuildArrayCondition(t *testing.T) {
 
 func TestBuildFilterConditionWithMaps(t *testing.T) {
 	// =| / !=| over non-string Map should error
-	_, err := buildFilterCondition(models.AdHocFilter{Key: "m['k']", Operator: "=|", Values: []string{"v"}}, "Map(String, UInt64)")
+	_, err := buildFilterCondition(models.AdHocFilter{Key: "m['k']", Operator: "=|", Values: []string{"v"}}, "Map(String, UInt64)", "m['k']")
 	assert.Error(t, err)
-	_, err = buildFilterCondition(models.AdHocFilter{Key: "m['k']", Operator: "!=|", Values: []string{"v"}}, "Map(String, UInt64)")
+	_, err = buildFilterCondition(models.AdHocFilter{Key: "m['k']", Operator: "!=|", Values: []string{"v"}}, "Map(String, UInt64)", "m['k']")
 	assert.Error(t, err)
 
 	// =| over Map(String, String) succeeds
-	got, err := buildFilterCondition(models.AdHocFilter{Key: "m['k']", Operator: "=|", Values: []string{"a", "b"}}, "Map(String, String)")
+	got, err := buildFilterCondition(models.AdHocFilter{Key: "m['k']", Operator: "=|", Values: []string{"a", "b"}}, "Map(String, String)", "m['k']")
 	require.NoError(t, err)
 	assert.Equal(t, "m['k'] IN ('a', 'b')", got)
 }
