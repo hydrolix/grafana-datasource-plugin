@@ -17,9 +17,10 @@ import LiveReloadPlugin from 'webpack-livereload-plugin';
 import VirtualModulesPlugin from 'webpack-virtual-modules';
 
 import { BuildModeWebpackPlugin } from './BuildModeWebpackPlugin.ts';
-import { DIST_DIR, SOURCE_DIR } from './constants.ts';
-import { getCPConfigVersion, getEntries, getPackageJson, getPluginJson, hasReadme, isWSL } from './utils.ts';
+import { DIST_DIR, SOURCE_DIR } from '../bundler/constants.ts';
+import { getCPConfigVersion, getEntries, getPackageJson, getPluginJson, isWSL } from '../bundler/utils.ts';
 import { externals } from '../bundler/externals.ts';
+import { copyFilePatterns } from '../bundler/copyFiles.ts';
 
 const pluginJson = getPluginJson();
 const cpVersion = getCPConfigVersion();
@@ -171,22 +172,7 @@ const config = async (env: Env): Promise<Configuration> => {
         entryOnly: true,
       }),
       new CopyWebpackPlugin({
-        patterns: [
-          // If src/README.md exists use it; otherwise the root README
-          // To `compiler.options.output`
-          { from: hasReadme() ? 'README.md' : '../README.md', to: '.', force: true },
-          { from: 'plugin.json', to: '.' },
-          { from: '../LICENSE', to: '.' },
-          { from: '../CHANGELOG.md', to: '.', force: true },
-          { from: '**/*.json', to: '.' },
-          { from: '**/*.svg', to: '.', noErrorOnMissing: true },
-          { from: '**/*.png', to: '.', noErrorOnMissing: true },
-          { from: '**/*.html', to: '.', noErrorOnMissing: true },
-          { from: 'img/**/*', to: '.', noErrorOnMissing: true },
-          { from: 'libs/**/*', to: '.', noErrorOnMissing: true },
-          { from: 'static/**/*', to: '.', noErrorOnMissing: true },
-          { from: '**/query_help.md', to: '.', noErrorOnMissing: true },
-        ],
+        patterns: copyFilePatterns,
       }),
       // Replace certain template-variables in the README and plugin.json
       new ReplaceInFileWebpackPlugin([
