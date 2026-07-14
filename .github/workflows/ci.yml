@@ -32,18 +32,22 @@ jobs:
     name: Build Backend
     uses: ./.github/workflows/build-backend.yml
     with:
-      go_version: '1.25.7'
+      go_version: '1.26.5'
 
   test-backend:
     name: Test Backend
     uses: ./.github/workflows/test-backend.yml
     with:
-      go_version: '1.25.7'
+      go_version: '1.26.5'
 
   package:
     name: Package Plugin
     uses: ./.github/workflows/package.yml
     needs: [build-frontend, build-backend]
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     with:
       node_version: '22'
     secrets:

@@ -168,6 +168,11 @@ export class DataSource extends DataSourceWithBackend<
     const builder = this.querySettingsBuilder({
       raw_query: () => t.rawSql,
       query_source: () => request.app,
+      "panel.id": () =>
+        request.panelId !== undefined ? String(request.panelId) : "",
+      "panel.name": () => request.panelName ?? "",
+      app: () => request.app,
+      ref_id: () => t.refId,
     });
     builder.addSettings(this.instanceSettings.jsonData.querySettings ?? []);
     builder.addSettings(t.querySettings ?? []);
@@ -177,15 +182,6 @@ export class DataSource extends DataSourceWithBackend<
       querySettings: builder.build(),
       meta: {
         timezone: this.resolveTimezone(request),
-        grafana: {
-          panelId: request.panelId,
-          panelName: request.panelName,
-          panelPluginId: request.panelPluginId,
-          dashboardUID: request.dashboardUID,
-          dashboardTitle: request.dashboardTitle,
-          app: request.app,
-          requestId: request.requestId,
-        },
       },
     };
   }

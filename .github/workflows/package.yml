@@ -20,6 +20,10 @@ jobs:
   package:
     name: Package Plugin
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     outputs:
       version: ${{ steps.create.outputs.version }}
     steps:
@@ -64,6 +68,11 @@ jobs:
           chmod 0775 dist/gpx_*
           mv dist/ $PLUGIN_NAME/
           zip $ZIP_NAME $PLUGIN_NAME -r
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "*.zip"
 
       - name: Upload package
         uses: actions/upload-artifact@v7

@@ -19,6 +19,7 @@ export default defineConfig([
       "**/.nvmrc",
       "**/junit.xml",
       "**/error_panel/",
+      "**/openspec/",
     ],
   },
   ...baseConfig,

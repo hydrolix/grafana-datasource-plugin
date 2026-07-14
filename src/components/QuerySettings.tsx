@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from "react";
 import labels from "../labels";
+import { defaultValueFor } from "../queryCommentDefault";
 import { AccessoryButton, InputGroup } from "@grafana/plugin-ui";
 import { Box, Collapse, Input, Select, Stack, useStyles2 } from "@grafana/ui";
 import { useToggle } from "react-use";
@@ -63,7 +64,7 @@ export function QuerySettings({ settings, onSettingsChange }: Props) {
       let copy = [...settingsArray];
       copy[index] = {
         setting: setting,
-        value: "",
+        value: defaultValueFor(setting),
         type: settingTypes[setting],
       };
       updateSettings(copy);

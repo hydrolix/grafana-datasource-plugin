@@ -29,6 +29,27 @@ describe("Synthetic Variables", () => {
       "some string with variables syntheticVar and syntheticVar"
     );
   });
+  test("should replace dotted-key synthetic variables", () => {
+    // Locks in the contract relied on by the new
+    // ${__hydrolix.panel.id} / ${__hydrolix.panel.name} resolvers
+    // (the literal replaceAll already handles dots in keys with no
+    // regex escaping required).
+    const input = "a=${__hydrolix.panel.id};b=1";
+    const result = replace(input, {
+      "panel.id": () => "42",
+    });
+    expect(result).toBe("a=42;b=1");
+  });
+  test("should replace multiple dotted-key synthetic variables", () => {
+    const input =
+      "p=${__hydrolix.panel.id} n=${__hydrolix.panel.name} a=${__hydrolix.app}";
+    const result = replace(input, {
+      "panel.id": () => "12",
+      "panel.name": () => "Throughput",
+      app: () => "dashboard",
+    });
+    expect(result).toBe("p=12 n=Throughput a=dashboard");
+  });
   // test("should remove not-replaced variables", () => {
   //   const input =
   //     "dashboard_id=${__dashboard.uid}, dashboard_name=${__dashboard.name}, raw_query=${__hydrolix.raw_query}, user_email=${__user.email}, to_time=$__to, from_time=${__from}, query_source=${__hydrolix.query_source}, url_params=${__url.params}";
