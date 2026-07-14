@@ -69,7 +69,7 @@ func (s *ConvertersTestSuite) TestConverters() {
 				require.NoError(t, err)
 				_, err = batch.ExecContext(s.Ctx, val, nil)
 				require.NoError(t, err)
-				batch.Close()
+				require.NoError(t, batch.Close())
 				require.NoError(t, tx.Commit())
 
 				res, err := db.Query("select * from conv_test")

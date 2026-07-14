@@ -20,6 +20,6 @@ import (
 // handlers survive that overwrite.
 func NewDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
 	ds := NewHdxSqlDatasource(NewHydrolix(), settings)
-	ds.SQLDatasource.CustomRoutes = api.Routes(ds.SQLDatasource)
+	ds.CustomRoutes = api.Routes(ds.SQLDatasource)
 	return ds.NewDatasource(ctx, settings)
 }
