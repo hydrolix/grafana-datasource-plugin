@@ -171,13 +171,26 @@ The Go backend SHALL provide a `quoteIdentifier` helper that wraps an identifier
 
 `QueryKeys` SHALL determine its `DESCRIBE` target from the parsed query shape rather than a substring heuristic. For a real table reference it SHALL emit a quoted identifier via `quoteIdentifier`; for a genuine subquery it SHALL wrap the expression and verify the assembled statement re-parses to exactly one `DESCRIBE` over a subquery. Table functions (e.g. `url`, `remote`, `s3`, `file`), JOINs, and other arbitrary FROM expressions SHALL be rejected with a typed error. The `strings.Contains(..., "SELECT")` heuristic SHALL be removed.
 
-A bare WITH-alias reference in the FROM position is treated as a table reference (its alias is not expanded to the CTE's subquery — that resolution requires the full query AST in the metadata layer and is tracked as separate follow-up work). This is not a source of injection: the alias is emitted only as a validated, backtick-quoted identifier.
+When a FROM reference is a bare identifier that matches a WITH-clause alias in scope, CTE extraction SHALL resolve it to the alias's defining subquery (parenthesized) before it reaches `QueryKeys`, so the lookup describes the subquery via the validated subquery path. A bare identifier that matches no in-scope WITH alias SHALL continue to be treated and validated as a table reference. Resolution introduces no new trust: the resolved subquery flows through the same re-parse/shape check as any inline subquery.
 
 #### Scenario: Real table becomes a quoted DESCRIBE target
 
 - **GIVEN** a resolved table reference `events` in database `logs`
 - **WHEN** `QueryKeys` builds its SQL
 - **THEN** the `DESCRIBE` target SHALL be the backtick-quoted identifier form
+
+#### Scenario: WITH-alias FROM resolves to the CTE subquery
+
+- **GIVEN** the SQL `WITH x AS (SELECT a, b FROM events) SELECT * FROM x WHERE $__adHocFilter()`
+- **WHEN** the ad-hoc filter macro resolves the schema for the FROM reference `x`
+- **THEN** the `DESCRIBE` target SHALL be the alias's subquery `(SELECT a, b FROM events)`, not the identifier `` `x` ``
+- **AND** the assembled statement SHALL re-parse to exactly one `DESCRIBE` over a subquery
+
+#### Scenario: Identifier that is not a WITH alias stays a table reference
+
+- **GIVEN** the SQL `SELECT * FROM events WHERE $__adHocFilter()` with no WITH clause
+- **WHEN** the macro resolves the schema for `events`
+- **THEN** the `DESCRIBE` target SHALL be the backtick-quoted identifier `` `events` ``
 
 #### Scenario: Table function is rejected
 

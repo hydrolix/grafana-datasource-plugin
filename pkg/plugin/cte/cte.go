@@ -107,9 +107,93 @@ func (v *tableVisitor) VisitTableIdentifier(expr *parser.TableIdentifier) error 
 // queryVisitor walks every SELECT in the AST. For each, it captures the
 // FROM expression (the CTE / table reference) and every macro invocation
 // inside that SELECT, mapping macros to their CTE context.
+//
+// scopeStack tracks the WITH-clause aliases of each enclosing SELECT so a
+// FROM reference to a CTE alias can be resolved to its defining subquery.
+// SelectQuery.Accept calls Enter(s) before, and Leave(s) (deferred) after,
+// VisitSelectQuery(s) and all child recursion, so during VisitSelectQuery
+// the stack holds [ancestors…, s] — searched top-down, nearest scope wins.
 type queryVisitor struct {
 	parser.DefaultASTVisitor
-	macroIds map[MacroId]CTE
+	macroIds   map[MacroId]CTE
+	scopeStack []map[string]*parser.SelectQuery
+}
+
+func (v *queryVisitor) Enter(expr parser.Expr) {
+	sq, ok := expr.(*parser.SelectQuery)
+	if !ok {
+		return
+	}
+	aliases := map[string]*parser.SelectQuery{}
+	if sq.With != nil {
+		for _, c := range sq.With.CTEs {
+			// The parser stores CTEs as `<Expr> AS <Alias>`; for the subquery
+			// form `name AS (SELECT …)` the name is in Expr and the body in
+			// Alias. Expression-form CTEs (`1 AS a`) have an *Ident Alias and
+			// are skipped — they are not table sources.
+			body, ok := c.Alias.(*parser.SelectQuery)
+			if !ok {
+				continue
+			}
+			name, ok := identName(c.Expr)
+			if !ok {
+				continue
+			}
+			aliases[name] = body
+		}
+	}
+	v.scopeStack = append(v.scopeStack, aliases)
+}
+
+func (v *queryVisitor) Leave(expr parser.Expr) {
+	if _, ok := expr.(*parser.SelectQuery); ok && len(v.scopeStack) > 0 {
+		v.scopeStack = v.scopeStack[:len(v.scopeStack)-1]
+	}
+}
+
+// resolveWithAlias returns the defining subquery for a bare-identifier FROM
+// reference that matches a WITH alias in scope (nearest enclosing scope
+// first), or (nil, false) if the FROM is not a bare identifier or matches no
+// alias.
+func (v *queryVisitor) resolveWithAlias(fromExpr parser.Expr) (*parser.SelectQuery, bool) {
+	name, ok := bareIdentName(fromExpr)
+	if !ok {
+		return nil, false
+	}
+	for i := len(v.scopeStack) - 1; i >= 0; i-- {
+		if body, ok := v.scopeStack[i][name]; ok {
+			return body, true
+		}
+	}
+	return nil, false
+}
+
+// identName returns the name of a plain identifier expression.
+func identName(e parser.Expr) (string, bool) {
+	if id, ok := e.(*parser.Ident); ok {
+		return id.Name, true
+	}
+	return "", false
+}
+
+// bareIdentName returns the single-part table name of a FROM expression that
+// is a bare identifier (no database qualifier, no subquery/function/JOIN),
+// unwrapping the JoinTableExpr → TableExpr → TableIdentifier chain.
+func bareIdentName(fromExpr parser.Expr) (string, bool) {
+	e := fromExpr
+	if jte, ok := e.(*parser.JoinTableExpr); ok {
+		if jte.Table == nil {
+			return "", false
+		}
+		e = jte.Table
+	}
+	if te, ok := e.(*parser.TableExpr); ok {
+		e = te.Expr
+	}
+	if ti, ok := e.(*parser.TableIdentifier); ok && ti.Database == nil && ti.Table != nil {
+		return ti.Table.Name, true
+	}
+	return "", false
 }
 
 func (v *queryVisitor) VisitSelectQuery(expr *parser.SelectQuery) error {
@@ -118,6 +202,11 @@ func (v *queryVisitor) VisitSelectQuery(expr *parser.SelectQuery) error {
 	}
 	pos := expr.Pos()
 	scope := parser.Format(expr.From.Expr)
+	// If the FROM references a WITH alias in scope, describe the alias's
+	// subquery instead of the (non-existent) table named by the alias.
+	if body, ok := v.resolveWithAlias(expr.From.Expr); ok {
+		scope = "(" + parser.Format(body) + ")"
+	}
 	tPos := expr.From.Expr.Pos()
 	tVisitor := tableVisitor{pos: tPos}
 	_ = expr.Accept(&tVisitor)

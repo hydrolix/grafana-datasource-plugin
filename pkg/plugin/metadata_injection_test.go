@@ -8,6 +8,7 @@ import (
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
+	"github.com/hydrolix/plugin/pkg/plugin/cte"
 	"github.com/hydrolix/plugin/pkg/plugin/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -188,4 +189,31 @@ func TestAdHocFilterMacro_ExplicitArgAcceptsIdentifier(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, "status")
 	assert.Equal(t, 1, ds.callCount)
+}
+
+func TestBuildDescribeSQL_ResolvedWithAliasFlowsThroughShapeCheck(t *testing.T) {
+	// End-to-end: a WITH-alias FROM is resolved by GetMacroCTEs to its
+	// subquery, which buildDescribeSQL turns into a validated DESCRIBE.
+	exprs, err := parser.NewParser("WITH x AS (SELECT a FROM events) SELECT $__adHocFilter() FROM x").ParseStmts()
+	require.NoError(t, err)
+	m, err := cte.GetMacroCTEs(exprs)
+	require.NoError(t, err)
+	require.Len(t, m, 1)
+
+	var cteStr string
+	for _, c := range m {
+		cteStr = c.CTE
+	}
+	require.Equal(t, "(SELECT a FROM events)", cteStr)
+
+	sql, err := buildDescribeSQL(cteStr)
+	require.NoError(t, err)
+	assert.Equal(t, "DESCRIBE (SELECT a FROM events)", sql)
+
+	// The resolved subquery still passes the re-parse/shape check.
+	stmts, err := parser.NewParser(sql).ParseStmts()
+	require.NoError(t, err)
+	require.Len(t, stmts, 1)
+	_, ok := stmts[0].(*parser.DescribeStmt)
+	assert.True(t, ok)
 }

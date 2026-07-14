@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
+	"github.com/hydrolix/plugin/pkg/plugin/cte"
 	"github.com/hydrolix/plugin/pkg/plugin/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -95,4 +96,39 @@ func TestAdHocFilterMacro_MapKeySubscriptQuoteEscaped(t *testing.T) {
 	got, err := AdHocFilterMacro(context.Background(), q, []string{"foo"}, parser.Pos(0), p)
 	require.NoError(t, err)
 	assert.Equal(t, "`mapColumn`['a\\'\\'b'] = 'v'", got)
+}
+
+// TestAdHocFilterMacro_WithCTEResolvesEndToEnd exercises the macro's own
+// resolution path: on a WITH-CTE query with no explicit argument, the macro
+// re-parses the SQL, resolves the FROM alias to its subquery via
+// cte.GetMacroCTEs, and looks up the schema under that resolved key — then
+// builds the condition. This is the glue this change adds, beyond the
+// isolated cte / buildDescribeSQL unit tests.
+func TestAdHocFilterMacro_WithCTEResolvesEndToEnd(t *testing.T) {
+	sql := "WITH x AS (SELECT status FROM events) SELECT $__adHocFilter() FROM x"
+
+	// Discover the resolved key + macro position the macro will use, then
+	// pre-seed the schema cache under that key (nopMetadataDS => no upstream).
+	exprs, err := parser.NewParser(sql).ParseStmts()
+	require.NoError(t, err)
+	m, err := cte.GetMacroCTEs(exprs)
+	require.NoError(t, err)
+	require.Len(t, m, 1)
+	var resolvedKey string
+	var pos parser.Pos
+	for id, c := range m {
+		resolvedKey = c.CTE
+		pos = id.Index
+	}
+	require.Equal(t, "(SELECT status FROM events)", resolvedKey)
+
+	p := preseededProvider(resolvedKey, map[string]string{"status": "String"})
+	q := &models.HdxQuery{
+		RawSQL:  sql,
+		Filters: []models.AdHocFilter{{Key: "status", Operator: "=", Value: "active"}},
+	}
+
+	got, err := AdHocFilterMacro(context.Background(), q, nil, pos, p)
+	require.NoError(t, err)
+	assert.Equal(t, "status = 'active'", got)
 }

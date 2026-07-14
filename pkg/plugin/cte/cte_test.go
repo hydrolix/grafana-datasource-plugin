@@ -80,3 +80,75 @@ func TestMacroPositions_InvalidSQL(t *testing.T) {
 	_, err := MacroPositions("SELEC FRO :: bad")
 	assert.Error(t, err)
 }
+
+func TestGetMacroCTEs_WithAliasResolvesToSubquery(t *testing.T) {
+	sql := "WITH x AS (SELECT a FROM events) SELECT $__adHocFilter() FROM x"
+	exprs, err := parser.NewParser(sql).ParseStmts()
+	assert.NoError(t, err)
+
+	got, err := GetMacroCTEs(exprs)
+	assert.NoError(t, err)
+	assert.Len(t, got, 1)
+	for _, c := range got {
+		assert.Equal(t, "(SELECT a FROM events)", c.CTE, "WITH alias must resolve to its subquery, not the bare name")
+	}
+}
+
+func TestGetMacroCTEs_NonAliasIdentifierStaysTable(t *testing.T) {
+	// FROM y matches no WITH alias, so it stays an identifier.
+	sql := "WITH x AS (SELECT a FROM events) SELECT $__adHocFilter() FROM y"
+	exprs, err := parser.NewParser(sql).ParseStmts()
+	assert.NoError(t, err)
+
+	got, err := GetMacroCTEs(exprs)
+	assert.NoError(t, err)
+	assert.Len(t, got, 1)
+	for _, c := range got {
+		assert.Equal(t, "y", c.CTE)
+	}
+}
+
+func TestGetMacroCTEs_InlineSubqueryUnchanged(t *testing.T) {
+	sql := "SELECT $__adHocFilter() FROM (SELECT a FROM events)"
+	exprs, err := parser.NewParser(sql).ParseStmts()
+	assert.NoError(t, err)
+
+	got, err := GetMacroCTEs(exprs)
+	assert.NoError(t, err)
+	assert.Len(t, got, 1)
+	for _, c := range got {
+		assert.Contains(t, c.CTE, "events")
+		assert.Contains(t, c.CTE, "SELECT")
+	}
+}
+
+func TestGetMacroCTEs_ShadowedAliasResolvesNearestScope(t *testing.T) {
+	sql := "WITH x AS (SELECT o FROM outer_tbl) SELECT * FROM " +
+		"(WITH x AS (SELECT i FROM inner_tbl) SELECT $__adHocFilter() FROM x)"
+	exprs, err := parser.NewParser(sql).ParseStmts()
+	assert.NoError(t, err)
+
+	got, err := GetMacroCTEs(exprs)
+	assert.NoError(t, err)
+	assert.Len(t, got, 1)
+	for _, c := range got {
+		assert.Contains(t, c.CTE, "inner_tbl", "nearest-scope alias must win")
+		assert.NotContains(t, c.CTE, "outer_tbl")
+	}
+}
+
+func TestGetMacroCTEs_AliasShadowsTableName(t *testing.T) {
+	// The WITH alias is named the same as a real table; the in-scope alias
+	// must win, so the CTE resolves to the subquery, not the table.
+	sql := "WITH events AS (SELECT a FROM real_events) SELECT $__adHocFilter() FROM events"
+	exprs, err := parser.NewParser(sql).ParseStmts()
+	assert.NoError(t, err)
+
+	got, err := GetMacroCTEs(exprs)
+	assert.NoError(t, err)
+	assert.Len(t, got, 1)
+	for _, c := range got {
+		assert.Equal(t, "(SELECT a FROM real_events)", c.CTE, "in-scope WITH alias must win over a same-named table")
+		assert.NotEqual(t, "events", c.CTE)
+	}
+}
