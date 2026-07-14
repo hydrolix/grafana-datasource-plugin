@@ -2,11 +2,11 @@
 package build
 
 import (
-	"github.com/grafana/grafana-plugin-sdk-go/build"
+	"github.com/grafana/grafana-plugin-sdk-go/build/buildinfo"
 )
 
 // DefaultBuilInfo is a Default build information
-var DefaultBuilInfo = build.Info{
+var DefaultBuilInfo = buildinfo.Info{
 	Time:     0,
 	PluginID: "hydrolix-hydrolix-datasource",
 	Version:  "",
@@ -14,14 +14,14 @@ var DefaultBuilInfo = build.Info{
 
 // BuildInfo is a provider of a build information
 type BuildInfo struct {
-	buildInfoProvider build.InfoGetterFunc
+	buildInfoProvider buildinfo.GetterFunc
 }
 
 // GetBuildInfo retrieves Grafana plugin's build information (time, plugin id, version)
-func (p BuildInfo) GetBuildInfo() build.Info {
+func (p BuildInfo) GetBuildInfo() buildinfo.Info {
 	var provider = p.buildInfoProvider
 	if provider == nil {
-		provider = build.GetBuildInfo
+		provider = buildinfo.GetBuildInfo
 	}
 	if info, err := provider(); err == nil && info.PluginID != "" {
 		return info

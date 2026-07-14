@@ -1,0 +1,19 @@
+version: '2'
+linters:
+  exclusions:
+    paths:
+      - node_modules
+    rules:
+      # SA1019: data.FieldTypeNullableJSON -> data.FieldTypeJSON is a field-type
+      # behavior change (null handling for JSON columns). Deferred until it can
+      # be validated against real JSON columns rather than blind-swapped.
+      - linters:
+          - staticcheck
+        text: 'SA1019: data.FieldTypeNullableJSON is deprecated'
+      # ST1005: these capitalized error strings are user-facing. The "Code: ..."
+      # ClickHouse error in driver.go is matched by ErrorMessageBeautifier and
+      # e2e assertions; lowercasing would change observable behavior. Deferred.
+      - linters:
+          - staticcheck
+        text: 'ST1005'
+        path: '(pkg/plugin/driver\.go|pkg/api/routes\.go)'
