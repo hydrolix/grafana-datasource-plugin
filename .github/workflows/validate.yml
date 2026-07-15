@@ -1,0 +1,42 @@
+name: Plugin Validator
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: "Node.js version to use"
+        required: true
+        type: string
+
+jobs:
+  plugin-validator:
+    name: Plugin Validator
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Set version
+        run: ./.github/scripts/set-version.sh
+
+      - name: Download plugin package
+        uses: actions/download-artifact@v8
+        with:
+          name: plugin-package
+
+      - name: Run plugin-validator
+        run: |
+          ZIP=$(find . -maxdepth 1 -name '*.zip' | head -n 1)
+          if [[ -z "$ZIP" ]]; then
+            echo "No zip file found"
+            exit 1
+          fi
+          echo "Validating $ZIP"
+          npx --yes @grafana/plugin-validator@latest -sourceCodeUri file://. "$ZIP"

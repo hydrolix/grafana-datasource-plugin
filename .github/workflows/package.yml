@@ -70,7 +70,8 @@ jobs:
           zip $ZIP_NAME $PLUGIN_NAME -r
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: "*.zip"
 
