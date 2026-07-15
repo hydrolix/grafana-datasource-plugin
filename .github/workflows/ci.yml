@@ -58,11 +58,18 @@ jobs:
     uses: ./.github/workflows/e2e.yml
     needs: [package]
 
+  plugin-validator:
+    name: Plugin Validator
+    uses: ./.github/workflows/validate.yml
+    needs: [package]
+    with:
+      node_version: '22'
+
   publish-aws:
     name: Publish to AWS S3
     uses: ./.github/workflows/s3_publish.yml
     if: github.event_name == 'pull_request' && github.base_ref == 'main'
-    needs: [package, e2e]
+    needs: [package, e2e, plugin-validator]
     secrets:
       aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
       aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -70,7 +77,7 @@ jobs:
   create-github-release:
     name: Create GitHub Release
     uses: ./.github/workflows/release.yml
-    needs: [package, e2e]
+    needs: [package, e2e, plugin-validator]
     if: github.event_name == 'pull_request' && github.base_ref == 'main'
     with:
       version: ${{ needs.package.outputs.version }}
