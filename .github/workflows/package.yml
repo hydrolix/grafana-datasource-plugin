@@ -20,14 +20,20 @@ jobs:
   package:
     name: Package Plugin
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     outputs:
       version: ${{ steps.create.outputs.version }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node_version }}
           cache: 'npm'
@@ -62,6 +68,12 @@ jobs:
           chmod 0775 dist/gpx_*
           mv dist/ $PLUGIN_NAME/
           zip $ZIP_NAME $PLUGIN_NAME -r
+
+      - name: Attest build provenance
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: "*.zip"
 
       - name: Upload package
         uses: actions/upload-artifact@v7

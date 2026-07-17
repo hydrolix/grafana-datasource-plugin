@@ -1,8 +1,119 @@
 // @ts-nocheck
-import {Locator, Page, test} from "@playwright/test";
+import {BrowserContext, Locator, Page, test} from "@playwright/test";
 import {DataSourceConfigPage, expect, PanelEditPage,} from "@grafana/plugin-e2e";
 import allLabels from "../src/labels";
 import {CreateDataSourcePageArgs} from "@grafana/plugin-e2e/dist/types";
+
+/**
+ * Install a passthrough route on `urlPattern` that captures the rawSql out of
+ * every POST body and returns the array (mutated as requests come in).
+ *
+ * The fetch+fulfill pair is wrapped in try/catch: when the page navigates or
+ * the test ends between the two calls, the Response is disposed and fulfill
+ * throws `route.fulfill: Fetch response has been disposed`. Swallowing it
+ * doesn't lose captured data (we push before fetching) and prevents the route
+ * handler from failing the test (the failure looks like a flake on 11.x).
+ */
+export async function captureSqls(
+    context: BrowserContext,
+    urlPattern: string | RegExp = "**/api/ds/query**",
+): Promise<string[]> {
+    const sqls: string[] = [];
+    await context.route(urlPattern, async (route, request) => {
+        if (request.method() === "POST") {
+            try {
+                const json = JSON.parse(request.postData() ?? "");
+                const sql = json?.queries?.[0]?.rawSql;
+                if (sql) sqls.push(sql);
+            } catch {
+                // ignore non-JSON
+            }
+        }
+        try {
+            const response = await route.fetch();
+            await route.fulfill({response});
+        } catch {
+            // route disposed / target closed: ignore
+        }
+    });
+    return sqls;
+}
+
+/**
+ * Like {@link captureSqls} but captures the full POST body as a string. Useful
+ * when assertions need to read structure beyond `rawSql` (querySettings,
+ * datasource ref, etc.).
+ */
+export async function captureRequestBodies(
+    context: BrowserContext,
+    urlPattern: string | RegExp = "**/api/ds/query**",
+): Promise<string[]> {
+    const bodies: string[] = [];
+    await context.route(urlPattern, async (route, request) => {
+        if (request.method() === "POST") {
+            const body = request.postData() ?? "";
+            if (body) bodies.push(body);
+        }
+        try {
+            const response = await route.fetch();
+            await route.fulfill({response});
+        } catch {
+            // route disposed / target closed: ignore
+        }
+    });
+    return bodies;
+}
+
+/**
+ * Capture paired request bodies + response bodies for every POST to
+ * `urlPattern`. The returned `requests` and `responses` arrays are kept in
+ * lockstep — index `i` in one corresponds to index `i` in the other — so
+ * callers can locate a request by its payload (e.g. `queries[0].source ===
+ * "annotation"`) and read the backend's reply at the same index.
+ *
+ * The response body is consumed once (`response.text()`) and replayed via
+ * `fulfill({response, body})` so the page receives identical bytes. As with
+ * {@link captureRequestBodies}, the fetch+fulfill pair is wrapped in try/catch
+ * to swallow `route.fulfill: Fetch response has been disposed` when navigation
+ * tears the route down mid-flight.
+ */
+export async function captureRequestsAndResponses(
+    context: BrowserContext,
+    urlPattern: string | RegExp = "**/api/ds/query**",
+): Promise<{ requests: string[]; responses: string[] }> {
+    const requests: string[] = [];
+    const responses: string[] = [];
+    await context.route(urlPattern, async (route, request) => {
+        if (request.method() !== "POST") {
+            try {
+                const response = await route.fetch();
+                await route.fulfill({response});
+            } catch {
+                // ignore
+            }
+            return;
+        }
+        const reqBody = request.postData() ?? "";
+        try {
+            const response = await route.fetch();
+            try {
+                const respText = await response.text();
+                requests.push(reqBody);
+                responses.push(respText);
+                await route.fulfill({response, body: respText});
+            } catch {
+                try {
+                    await route.fulfill({response});
+                } catch {
+                    // ignore
+                }
+            }
+        } catch {
+            // route disposed / target closed: ignore
+        }
+    });
+    return {requests, responses};
+}
 
 /**
  * Decorator for Playwright steps

@@ -2,7 +2,11 @@ name: Compatibility Check
 
 on:
   workflow_call:
-
+    inputs:
+      node_version:
+        description: "Node.js version to use"
+        required: true
+        type: string
 
 jobs:
   compatibilitycheck:
@@ -18,10 +22,12 @@ jobs:
       GRAFANA_VERSION: ${{ matrix.grafana_version }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node_version }}
           cache: 'npm'

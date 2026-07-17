@@ -14,7 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -29,8 +31,8 @@ jobs:
       - name: Set version
         run: ./.github/scripts/set-version.sh
 
-#      - name: Lint code
-#        run: npm run lint
+      - name: Lint code
+        run: npm run lint
 
       - name: Type check
         run: npm run typecheck

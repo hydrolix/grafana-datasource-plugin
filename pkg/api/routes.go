@@ -6,11 +6,15 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
+	"github.com/grafana/sqlds/v5"
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
-	"github.com/hydrolix/sqlds/v5"
+	"github.com/hydrolix/plugin/pkg/plugin/cte"
+	"github.com/hydrolix/plugin/pkg/plugin/models"
 )
 
 func AST(rw http.ResponseWriter, req *http.Request) {
@@ -32,15 +36,13 @@ func AST(rw http.ResponseWriter, req *http.Request) {
 
 	}
 
-	rw.WriteHeader(http.StatusOK)
-	marshal, err := json.Marshal(Response[[]parser.Expr]{
+	writeJSON(rw, Response[[]parser.Expr]{
 		false,
 		"",
 		body,
 	})
-	_, err = rw.Write(marshal)
 }
-func Interpolate(ds *sqlds.HydrolixDatasource, rw http.ResponseWriter, req *http.Request) {
+func Interpolate(ds *sqlds.SQLDatasource, rw http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if r := recover(); r != nil {
 			rawMessage, _ := json.Marshal(r)
@@ -60,15 +62,39 @@ func Interpolate(ds *sqlds.HydrolixDatasource, rw http.ResponseWriter, req *http
 		return
 	}
 
-	body, err := ds.Interpolator.Interpolate(req.Context(),
-		&sqlds.HDXQuery{
+	// sqlds.Interpolator is a func field taking (*sqlutil.Query,
+	// json.RawMessage). Hydrolix-specific fields (filters, round, etc.)
+	// travel via the rawJSON payload — shape preserved from the fork's
+	// HDXQuery so the plugin-local interpolator (C5) decodes it the same
+	// way. NewHdxSqlDatasource always installs the Hydrolix interpolator,
+	// so a nil field here means the datasource was not constructed through
+	// that path — surface it as an error rather than silently degrading.
+	hdxQuery := models.HdxQuery{
+		RawSQL:    request.Data.RawSql,
+		Filters:   request.Data.Filters,
+		Round:     request.Data.Round,
+		Interval:  interval,
+		TimeRange: timeRange,
+		Headers:   req.Header,
+	}
+	rawJSON, err := json.Marshal(hdxQuery)
+	if err != nil {
+		wrapError(rw, err)
+		return
+	}
+
+	if ds.Interpolator == nil {
+		wrapError(rw, errors.New("interpolator not configured"))
+		return
+	}
+	body, err := ds.Interpolator(req.Context(),
+		&sqlutil.Query{
 			RawSQL:    request.Data.RawSql,
-			Filters:   request.Data.Filters,
-			Round:     request.Data.Round,
-			Interval:  interval,
 			TimeRange: timeRange,
-			Headers:   req.Header,
-		})
+			Interval:  interval,
+		},
+		rawJSON,
+	)
 
 	if err != nil {
 		wrapError(rw, err)
@@ -76,16 +102,17 @@ func Interpolate(ds *sqlds.HydrolixDatasource, rw http.ResponseWriter, req *http
 
 	}
 
-	rw.WriteHeader(http.StatusOK)
-	marshal, err := json.Marshal(Response[string]{
+	writeJSON(rw, Response[string]{
 		false,
 		"",
 		body,
 	})
-	_, err = rw.Write(marshal)
 
 }
 
+// MacroCTEs returns the map of macro-to-CTE associations the dashboard's
+// macro-expansion preview consumes. Restored in C5 with plugin-local
+// GetMacroCTEs / CTE types.
 func MacroCTEs(rw http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -102,38 +129,50 @@ func MacroCTEs(rw http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		wrapError(rw, err)
 		return
-
 	}
 
-	body, err := sqlds.GetMacroCTEs(expr)
+	body, err := cte.GetMacroCTEs(expr)
 	if err != nil {
 		wrapError(rw, err)
 		return
-
 	}
 
-	rw.WriteHeader(http.StatusOK)
-	marshal, err := json.Marshal(Response[[]sqlds.CTE]{
+	writeJSON(rw, Response[[]cte.CTE]{
 		false,
 		"",
 		slices.Collect(maps.Values(body)),
 	})
-	_, err = rw.Write(marshal)
-
 }
 
 func wrapError(rw http.ResponseWriter, err error) {
-	rw.WriteHeader(http.StatusOK)
-	marshal, _ := json.Marshal(Response[any]{
+	marshal, marshalErr := json.Marshal(Response[any]{
 		true,
 		err.Error(),
 		nil,
 	})
-	_, err = rw.Write(marshal)
-	return
+	if marshalErr != nil {
+		http.Error(rw, marshalErr.Error(), http.StatusInternalServerError)
+		return
+	}
+	rw.Header().Set("Content-Type", "application/json")
+	rw.Header().Set("Content-Length", strconv.Itoa(len(marshal)))
+	rw.WriteHeader(http.StatusOK)
+	_, _ = rw.Write(marshal)
 }
 
-func Routes(ds *sqlds.HydrolixDatasource) map[string]func(http.ResponseWriter, *http.Request) {
+func writeJSON(rw http.ResponseWriter, v any) {
+	marshal, err := json.Marshal(v)
+	if err != nil {
+		wrapError(rw, err)
+		return
+	}
+	rw.Header().Set("Content-Type", "application/json")
+	rw.Header().Set("Content-Length", strconv.Itoa(len(marshal)))
+	rw.WriteHeader(http.StatusOK)
+	_, _ = rw.Write(marshal)
+}
+
+func Routes(ds *sqlds.SQLDatasource) map[string]func(http.ResponseWriter, *http.Request) {
 	return map[string]func(http.ResponseWriter, *http.Request){
 		"/ast": AST,
 		"/interpolate": func(writer http.ResponseWriter, request *http.Request) {
@@ -147,11 +186,11 @@ type Request[T any] struct {
 	Data T
 }
 type QueryData struct {
-	RawSql   string              `json:"rawSql"`
-	Round    string              `json:"round"`
-	Filters  []sqlds.AdHocFilter `json:"filters"`
-	Range    Range               `json:"range"`
-	Interval string              `json:"interval"`
+	RawSql   string               `json:"rawSql"`
+	Round    string               `json:"round"`
+	Filters  []models.AdHocFilter `json:"filters"`
+	Range    Range                `json:"range"`
+	Interval string               `json:"interval"`
 }
 
 type Range struct {

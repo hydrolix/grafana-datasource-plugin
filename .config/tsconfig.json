@@ -6,19 +6,21 @@
  */
 {
   "compilerOptions": {
-    "moduleResolution": "node",
     "alwaysStrict": true,
     "declaration": false,
     "rootDir": "../src",
-    "baseUrl": "../src",
     "typeRoots": ["../node_modules/@types"],
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "paths": {
+      "*": ["../src/*"]
+    }
   },
   "ts-node": {
     "compilerOptions": {
-      "module": "commonjs",
-      "target": "es5",
-      "esModuleInterop": true
+      "module": "nodenext",
+      "target": "es2022",
+      "esModuleInterop": true,
+      "moduleResolution": "nodenext"
     },
     "transpileOnly": true
   },

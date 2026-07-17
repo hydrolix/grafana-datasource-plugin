@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.11.0
+
+- **Feature**: Add Grafana annotations support (HDX-11579)
+- **Feature**: Support Grafana 13 while keeping Grafana 10 compatibility (GRAP-160)
+- **Feature**: Attribute queries via `hdx_query_comment` with canonical `panelId`/`panelName` defaults
+- **Refactor**: Retire the Hydrolix `sqlds` fork and adopt upstream `grafana/sqlds` v5.2.0 (AST interpolator, CTE extraction, TTL connection cache, OAuth/Org-Id keyed pooling, ClickHouse time/date macros, HTTP custom routes)
+- **Security**: Close SQL injection in metadata queries
+- **Security**: Close ad-hoc filter operator and map-key injection
+- **Security**: Resolve WITH-alias CTEs for ad-hoc filters
+- **Security**: Fix tasks from Aikido report (#159) and address reported CVEs
+- **Fix**: Revert Grafana User telemetry
+- **Chore**: Address Grafana plugin review remarks and add the `plugin-validator` release gate
+- **Chore**: Update create-plugin scaffold to 7.9.0 (webpack toolchain, ESLint 9 flat config, Prettier 3, `@grafana/*` 13.1.0), bump `grafana-plugin-sdk-go` and CI actions, add `golangci-lint` config
+
 ## 0.10.6
 - **Fix**: Default compression value
 - **Feature**: Improve Grafana User telemetry

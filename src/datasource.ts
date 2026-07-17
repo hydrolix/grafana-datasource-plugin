@@ -46,6 +46,11 @@ import { replace } from "./syntheticVariables";
 import { applyConditionalAll } from "./macros/macrosApplier";
 import { ErrorExposer } from "./errors/errorExposer";
 import defaultConfigs from "./defaultConfigs";
+import {
+  getDefaultQuery,
+  isAnnotationRequest,
+  prepareQuery,
+} from "./annotations";
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -68,6 +73,7 @@ export class DataSource extends DataSourceWithBackend<
       this.instanceSettings.jsonData?.exposeErrors ||
         defaultConfigs.exposeErrors
     );
+    this.annotations = { prepareQuery, getDefaultQuery };
   }
 
   async metricFindQuery(query: Partial<HdxQuery> | string, options?: any) {
@@ -89,6 +95,9 @@ export class DataSource extends DataSourceWithBackend<
   }
 
   query(request: DataQueryRequest<HdxQuery>): Observable<DataQueryResponse> {
+    if (isAnnotationRequest(request)) {
+      request = { ...request, app: "annotation" };
+    }
     if (request.range !== ZERO_TIME_RANGE) {
       this.options = request;
     }
@@ -159,6 +168,11 @@ export class DataSource extends DataSourceWithBackend<
     const builder = this.querySettingsBuilder({
       raw_query: () => t.rawSql,
       query_source: () => request.app,
+      "panel.id": () =>
+        request.panelId !== undefined ? String(request.panelId) : "",
+      "panel.name": () => request.panelName ?? "",
+      app: () => request.app,
+      ref_id: () => t.refId,
     });
     builder.addSettings(this.instanceSettings.jsonData.querySettings ?? []);
     builder.addSettings(t.querySettings ?? []);
@@ -168,15 +182,6 @@ export class DataSource extends DataSourceWithBackend<
       querySettings: builder.build(),
       meta: {
         timezone: this.resolveTimezone(request),
-        grafana: {
-          panelId: request.panelId,
-          panelName: request.panelName,
-          panelPluginId: request.panelPluginId,
-          dashboardUID: request.dashboardUID,
-          dashboardTitle: request.dashboardTitle,
-          app: request.app,
-          requestId: request.requestId,
-        },
       },
     };
   }

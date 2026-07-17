@@ -1,11 +1,12 @@
 import { firstValueFrom, of } from "rxjs";
-import { DataQueryRequest, toDataFrame } from "@grafana/data";
+import { CoreApp, DataQueryRequest, toDataFrame } from "@grafana/data";
 import {
   MockDataSourceInstanceSettings,
   setupDataSourceMock,
 } from "__mocks__/datasource";
 import { adHocTableVariable, fooVariable } from "./__mocks__/variable";
 import { AdHocFilterKeys, HdxQuery } from "./types";
+import { ZERO_TIME_RANGE } from "./editor/metadataProvider";
 
 describe("HdxDataSource", () => {
   beforeEach(() => {
@@ -570,81 +571,6 @@ describe("HdxDataSource", () => {
       expect(sentTarget.querySettings).toEqual([]);
     });
 
-    it("should forward Grafana panel metadata to target.meta.grafana", async () => {
-      const { datasource, queryMock } = setupDataSourceMock({});
-      queryMock.mockReturnValue(of({ data: [] }));
-      const req = {
-        targets: [{ rawSql: "select 1", refId: "A", querySettings: [] }],
-        requestId: "Q-42",
-        panelId: 7,
-        panelName: "Requests",
-        panelPluginId: "timeseries",
-        dashboardUID: "abc123",
-        dashboardTitle: "Production",
-        app: "dashboard",
-      } as unknown as DataQueryRequest<HdxQuery>;
-      await firstValueFrom(datasource.query(req));
-      const sentTarget = queryMock.mock.calls[0][0].targets[0];
-      expect(sentTarget.meta.grafana).toEqual({
-        panelId: 7,
-        panelName: "Requests",
-        panelPluginId: "timeseries",
-        dashboardUID: "abc123",
-        dashboardTitle: "Production",
-        app: "dashboard",
-        requestId: "Q-42",
-      });
-    });
-
-    it("should not break when panel metadata fields are missing", async () => {
-      const { datasource, queryMock } = setupDataSourceMock({});
-      queryMock.mockReturnValue(of({ data: [] }));
-      const req = {
-        targets: [{ rawSql: "select 1", refId: "A", querySettings: [] }],
-      } as unknown as DataQueryRequest<HdxQuery>;
-      await firstValueFrom(datasource.query(req));
-      const sentTarget = queryMock.mock.calls[0][0].targets[0];
-      expect(sentTarget.meta.grafana).toEqual({
-        panelId: undefined,
-        panelName: undefined,
-        panelPluginId: undefined,
-        dashboardUID: undefined,
-        dashboardTitle: undefined,
-        app: undefined,
-        requestId: undefined,
-      });
-    });
-
-    it("should survive JSON round-trip with populated and missing fields", async () => {
-      const { datasource, queryMock } = setupDataSourceMock({});
-      queryMock.mockReturnValue(of({ data: [] }));
-      const req = {
-        targets: [{ rawSql: "select 1", refId: "A", querySettings: [] }],
-        requestId: "Q-42",
-        panelId: 7,
-        panelName: "Requests",
-        dashboardUID: "abc123",
-        app: "dashboard",
-        // panelPluginId & dashboardTitle intentionally omitted to mimic
-        // Grafana's behaviour when only a subset of metadata is available.
-      } as unknown as DataQueryRequest<HdxQuery>;
-      await firstValueFrom(datasource.query(req));
-      const sentTarget = queryMock.mock.calls[0][0].targets[0];
-
-      // What actually goes over the wire to the Go backend: JSON.stringify
-      // drops `undefined` fields, so the round-trip is the source of truth.
-      const wire = JSON.parse(JSON.stringify(sentTarget.meta.grafana));
-      expect(wire).toEqual({
-        panelId: 7,
-        panelName: "Requests",
-        dashboardUID: "abc123",
-        app: "dashboard",
-        requestId: "Q-42",
-      });
-      expect(wire).not.toHaveProperty("panelPluginId");
-      expect(wire).not.toHaveProperty("dashboardTitle");
-    });
-
     it("should replace template variables in setting values", async () => {
       const { datasource, queryMock } = setupDataSourceMock({
         variables: [fooVariable],
@@ -667,6 +593,242 @@ describe("HdxDataSource", () => {
         (s: any) => s.setting === "hdx_query_admin_comment"
       );
       expect(comment.value).toBe("templatedFoo");
+    });
+
+    describe("hydrolix-namespaced synthetic variables", () => {
+      it("expands ${__hydrolix.panel.id}, .panel.name, .app, .ref_id in a dashboard context", async () => {
+        const { datasource, queryMock } = setupDataSourceMock({});
+        queryMock.mockReturnValue(of({ data: [] }));
+        const req = {
+          app: "dashboard",
+          panelId: 12,
+          panelName: "Throughput",
+          targets: [
+            {
+              rawSql: "select 1",
+              refId: "A",
+              querySettings: [
+                {
+                  setting: "hdx_query_admin_comment",
+                  value:
+                    "p=${__hydrolix.panel.id};n=${__hydrolix.panel.name};a=${__hydrolix.app};r=${__hydrolix.ref_id}",
+                },
+              ],
+            },
+          ],
+        } as unknown as DataQueryRequest<HdxQuery>;
+        await firstValueFrom(datasource.query(req));
+        const sentTarget = queryMock.mock.calls[0][0].targets[0];
+        const comment = sentTarget.querySettings.find(
+          (s: any) => s.setting === "hdx_query_admin_comment"
+        );
+        expect(comment.value).toBe("p=12;n=Throughput;a=dashboard;r=A");
+      });
+
+      it("expands missing panelId / panelName to empty strings (Explore-like context)", async () => {
+        const { datasource, queryMock } = setupDataSourceMock({});
+        queryMock.mockReturnValue(of({ data: [] }));
+        const req = {
+          app: "explore",
+          // panelId and panelName intentionally undefined
+          targets: [
+            {
+              rawSql: "select 1",
+              refId: "A",
+              querySettings: [
+                {
+                  setting: "hdx_query_admin_comment",
+                  value:
+                    "p=${__hydrolix.panel.id};n=${__hydrolix.panel.name};a=${__hydrolix.app}",
+                },
+              ],
+            },
+          ],
+        } as unknown as DataQueryRequest<HdxQuery>;
+        await firstValueFrom(datasource.query(req));
+        const sentTarget = queryMock.mock.calls[0][0].targets[0];
+        const comment = sentTarget.querySettings.find(
+          (s: any) => s.setting === "hdx_query_admin_comment"
+        );
+        expect(comment.value).toBe("p=;n=;a=explore");
+      });
+
+      it("reflects annotation context via __hydrolix.app and __hydrolix.ref_id", async () => {
+        const { datasource, queryMock } = setupDataSourceMock({});
+        queryMock.mockReturnValue(of({ data: [] }));
+        const req = {
+          app: "annotation",
+          targets: [
+            {
+              rawSql: "select 1",
+              refId: "Anno",
+              querySettings: [
+                {
+                  setting: "hdx_query_admin_comment",
+                  value: "a=${__hydrolix.app};r=${__hydrolix.ref_id}",
+                },
+              ],
+            },
+          ],
+        } as unknown as DataQueryRequest<HdxQuery>;
+        await firstValueFrom(datasource.query(req));
+        const sentTarget = queryMock.mock.calls[0][0].targets[0];
+        const comment = sentTarget.querySettings.find(
+          (s: any) => s.setting === "hdx_query_admin_comment"
+        );
+        expect(comment.value).toBe("a=annotation;r=Anno");
+      });
+
+      it("treats panelId=0 as a present id (not as the empty-fallback)", async () => {
+        const { datasource, queryMock } = setupDataSourceMock({});
+        queryMock.mockReturnValue(of({ data: [] }));
+        const req = {
+          app: "dashboard",
+          panelId: 0,
+          panelName: "",
+          targets: [
+            {
+              rawSql: "select 1",
+              refId: "A",
+              querySettings: [
+                {
+                  setting: "hdx_query_admin_comment",
+                  value: "p=${__hydrolix.panel.id};n=${__hydrolix.panel.name}",
+                },
+              ],
+            },
+          ],
+        } as unknown as DataQueryRequest<HdxQuery>;
+        await firstValueFrom(datasource.query(req));
+        const sentTarget = queryMock.mock.calls[0][0].targets[0];
+        const comment = sentTarget.querySettings.find(
+          (s: any) => s.setting === "hdx_query_admin_comment"
+        );
+        expect(comment.value).toBe("p=0;n=");
+      });
+    });
+  });
+
+  describe("annotation request retag", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    const realRange = {
+      from: { valueOf: () => 1 } as any,
+      to: { valueOf: () => 2 } as any,
+      raw: { from: "now-1h", to: "now" },
+    } as any;
+
+    function buildRequest(
+      targets: Array<Partial<HdxQuery>>,
+      overrides: Partial<DataQueryRequest<HdxQuery>> = {}
+    ): DataQueryRequest<HdxQuery> {
+      return {
+        app: CoreApp.Dashboard,
+        range: realRange,
+        targets: targets.map(
+          (t, i) =>
+            ({
+              refId: `R${i}`,
+              rawSql: "SELECT 1",
+              round: "",
+              querySettings: [],
+              ...t,
+            } as HdxQuery)
+        ),
+        filters: [],
+        ...overrides,
+      } as DataQueryRequest<HdxQuery>;
+    }
+
+    it("retags annotation requests to app='annotation' before super.query", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const req = buildRequest([{ source: "annotation" }]);
+      await firstValueFrom(datasource.query(req));
+
+      expect(queryMock.mock.calls[0][0].app).toBe("annotation");
+    });
+
+    it("does not retag panel requests", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const req = buildRequest([{}]);
+      await firstValueFrom(datasource.query(req));
+
+      expect(queryMock.mock.calls[0][0].app).toBe(CoreApp.Dashboard);
+    });
+
+    it("does not overwrite this.filters from an annotation request", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const panelFilters = [{ key: "k", operator: "=", value: "v" }];
+      await firstValueFrom(
+        datasource.query(buildRequest([{}], { filters: panelFilters as any }))
+      );
+      expect(datasource.filters).toEqual(panelFilters);
+
+      await firstValueFrom(
+        datasource.query(
+          buildRequest([{ source: "annotation" }], { filters: [] })
+        )
+      );
+      expect(datasource.filters).toEqual(panelFilters);
+    });
+
+    it("updates this.filters for a panel request (regression check)", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const panelFilters = [{ key: "k2", operator: "=", value: "v2" }];
+      await firstValueFrom(
+        datasource.query(buildRequest([{}], { filters: panelFilters as any }))
+      );
+      expect(datasource.filters).toEqual(panelFilters);
+    });
+
+    it("updates this.options for an annotation request with a real range", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const req = buildRequest([{ source: "annotation" }]);
+      await firstValueFrom(datasource.query(req));
+
+      expect(datasource.options?.range).toBe(realRange);
+      expect(datasource.options?.app).toBe("annotation");
+    });
+
+    it("leaves this.options unchanged for ZERO_TIME_RANGE", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const prior = buildRequest([{}]);
+      await firstValueFrom(datasource.query(prior));
+      const snapshot = datasource.options;
+
+      const zero = buildRequest([{ source: "annotation" }], {
+        range: ZERO_TIME_RANGE as any,
+      });
+      await firstValueFrom(datasource.query(zero));
+      expect(datasource.options).toBe(snapshot);
+    });
+
+    it("does not mutate the original DataQueryRequest", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({});
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const req = buildRequest([{ source: "annotation" }]);
+      const originalApp = req.app;
+      const originalTargets = req.targets;
+
+      await firstValueFrom(datasource.query(req));
+
+      expect(req.app).toBe(originalApp);
+      expect(req.targets).toBe(originalTargets);
     });
   });
 });
