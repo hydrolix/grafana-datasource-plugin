@@ -1,0 +1,77 @@
+## 1. Prerequisites
+
+- [x] 1.1 Confirm `@grafana/assistant`'s peer range accepts `@grafana/*` `^13.1.0`; record the resolved version and any transitive dependency growth
+- [ ] 1.2 Verify against a live Assistant instance that a custom MCP server can be registered on the target tenant, and that `mcp-hydrolix`'s `/health` endpoint is reachable from Grafana
+- [x] 1.3 Resolve whether the Skill ships as a versioned repo file provisioned via `grafana_assistant_skill`, or as documented copy-paste content; the design leans toward the versioned file
+
+## 2. Dependency and availability plumbing
+
+- [x] 2.1 Add `@grafana/assistant` to `package.json` and refresh `package-lock.json`
+- [x] 2.2 Add an availability hook wrapping `isAssistantAvailable`, returning a stable unavailable state on error or non-resolution
+- [x] 2.3 Unit-test the availability hook: available, unavailable, error, and late-resolution cases
+
+## 3. Context payload construction
+
+- [x] 3.1 Add a pure builder that assembles the structured context payload — SQL, database, table, time range, column schema, primary time column, datasource host — reading only from `src/editor/metadataProvider.ts` state and the current query
+- [x] 3.2 Omit table, schema, and primary-time-column fields when no table is resolvable, rather than emitting empty placeholders
+- [x] 3.3 Unit-test the builder: resolved table, unresolved table, empty query, and datasource host always present
+- [x] 3.4 Unit-test that building context issues no metadata provider fetch or datasource query
+
+## 4. QueryEditor integration
+
+- [x] 4.1 Register page context from `src/components/QueryEditor.tsx` via `providePageContext`, gated on the availability hook
+- [x] 4.2 Update published context when the SQL or time range changes, using the setter returned by `providePageContext`
+- [x] 4.3 Add the Assistant entry point to the QueryEditor, passing datasource and current query
+- [x] 4.4 Unit-test that no context is published and no entry point renders when Assistant is unavailable
+- [x] 4.5 Unit-test that context updates on SQL and time-range changes
+
+## 5. Error-path explain action
+
+- [x] 5.1 Derive the "Explain error" action from `QueryEditorProps.data` (per-refId `DataQueryError`) instead of the `query()` pipeline — an RxJS map has no render surface, and `props.data` avoids new mutable state on `DataSource` (design D9)
+- [x] 5.2 Extract `matchSolutionTemplate` from `ErrorExposer` into `src/errors/errorSolution.ts` (shared classifier + `{placeholder}` rendering); refactor `ErrorExposer` onto it, behavior unchanged
+- [x] 5.3 Render `OpenAssistantButton` in the QueryEditor toolbar with the failing SQL, error text, and classified guidance; `autoSend: false` so the user confirms what is sent; gated on Assistant availability
+- [x] 5.4 Unit-test the classifier (groups extraction, rendering, `{{...}}` escapes, no-match) and the button (per-refId scoping, refId-less errors, unclassified errors, hidden without error/SQL); error reporting path untouched
+
+## 6. Skill document
+
+- [x] 6.1 Author the Skill with the dialect rules: time-range guard, primary key from `system.tables.primary_key`, untrustworthy nullability, `SETTINGS max_execution_time`, `TurbineStorage` engine
+- [x] 6.2 Add the instruction to emit literal time bounds rather than macros in generated SQL
+- [x] 6.3 Add the macro translation reference covering `$__timeFilter` and `$__conditionalAll`
+- [x] 6.4 Configure auto-approval for `list_databases`, `list_tables`, and `get_table_info`; leave `run_select_query` to the operator
+- [ ] 6.5 Verify the Skill content is under the 64KB limit and provisions cleanly by the mechanism chosen in 1.3
+- [x] 6.6 Add the error-triage section distilled from `src/errors/solutionTemplates.ts` (fix-the-query / retry-once / stop-and-escalate buckets), plus review improvements: explicit-UTC time bounds, summary-table `-Merge` rule from mcp-hydrolix's `get_table_info` metadata, and the datasourceHost cross-check against page context
+- [x] 6.7 Add the ad-hoc-filter operator translation table (verified against `pkg/plugin/macros_adhoc.go`): live testing showed the Assistant emitting `match()` where the plugin emits `LIKE` — `=~` is a wildcard LIKE unless the value has a `regex:` prefix
+- [x] 6.8 Add MCP-server discovery guidance: the skill searches for the tools under a server named "Hydrolix"/the cluster name and disambiguates multiple servers via `datasourceHost`; the operator guide establishes the naming convention that makes this routing work
+
+## 7. Operator documentation
+
+- [ ] 7.1 Write a focused registration guide (first draft `docs/grafana-assistant.md` was written, then removed 2026-08-17 as not focused enough — needs a rewrite; the auth/reachability caveats moved to the README section in the meantime)
+- [ ] 7.2 State the same-cluster requirement between `mcp-hydrolix`'s `HYDROLIX_HOST` and the Hydrolix datasource (was in the removed guide; keep in the rewrite)
+- [ ] 7.3 Document the auth model — bypass of Grafana datasource permissions and of `forwardOAuth` per-user identity — and the "Just me" versus "Everybody" scope trade-off (condensed form now in README; full treatment in the rewrite)
+- [ ] 7.4 Describe what works with and without the MCP server registered, so the context-only state is not oversold
+- [x] 7.5 Add a README section: allowlist explanation, MCP+skill pointer, condensed auth/reachability caveats
+
+## 8. End-to-end verification
+
+- [ ] 8.1 Add a Playwright e2e asserting the QueryEditor renders and functions unchanged when the Assistant app is absent
+- [ ] 8.2 Add a Playwright e2e covering the Assistant entry point when availability is stubbed as available
+- [ ] 8.3 Manually verify against a live Assistant instance with `mcp-hydrolix` registered: schema discovery, a generated query that satisfies the time-range guard, and the error-explain action
+
+## 9. Quality gates
+
+- [x] 9.1 `npm run typecheck` and `npm run lint` clean
+- [x] 9.2 `npm test -- --ci` passing
+- [x] 9.3 `go vet ./...`, `golangci-lint run`, and `go test -race ./...` still passing — expected unaffected, this change is frontend-only
+- [x] 9.4 `npm run build` produces a clean `dist/`; confirm bundle size impact is acceptable
+- [x] 9.5 Run the e2e suite via the `grafana-plugin-e2e` skill — 32/32 passed (2.0m, zero flakes) against Grafana 13.0.1 *without* the Assistant app, with the Assistant-integrated bundle loaded; doubles as live evidence for the 8.1 scenario
+
+## 10. Code-review fixes (2026-08-16)
+
+- [x] 10.1 Replace the regex table extractor with backend `/ast` parsing (`DataSource.getAst` + `resolveTableRef`); regex verified to truncate quoted identifiers and fabricate tables from literals/comments
+- [x] 10.2 Drop the synchronous metadata cache mirror; fetch schema through the memoized async `metadataProvider.columns()`/`primaryKey()` with a debounce and a stale-completion guard (fixes permanent cache-key miss and stale publications)
+- [x] 10.3 Gate page-context registration by mounting `AssistantQueryContext` only while `useAssistant().isAvailable`; registration now provably absent on Assistant-less installs
+- [x] 10.4 Replace the hand-rolled availability hook with the SDK's `useAssistant()`
+- [x] 10.5 Implement `DataSource.getQueryDisplayText` so the Assistant button phrases prompts around the current query
+- [x] 10.6 Filter `props.queries` by datasource uid before the `HdxQuery[]` cast (Mixed-panel leak)
+- [x] 10.7 Drop the dead `datasourceName` field; type the test mocks without `any`
+- [x] 10.8 Re-run gates: typecheck, lint, `npm run test:ci` (192 passing), clean build

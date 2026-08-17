@@ -375,6 +375,27 @@ export class DataSource extends DataSourceWithBackend<
     }));
   }
 
+  // Read by the Assistant's QueryWithAssistantButton to phrase its prompt
+  // around the current query instead of asking for a brand-new one.
+  getQueryDisplayText(query: HdxQuery): string {
+    return query.rawSql || "";
+  }
+
+  // Parses SQL via the backend /ast resource (clickhouse-sql-parser). The
+  // parse itself runs no query, but sqlds connects to the cluster when it
+  // creates the datasource instance — before serving its first resource call
+  // — so an unreachable cluster fails this too. Also rejects on syntax
+  // errors, normal for mid-edit SQL; callers treat either as "no structure
+  // available".
+  async getAst(sql: string): Promise<unknown> {
+    const response: { error?: boolean; errorMessage?: string; data?: unknown } =
+      await this.postResource("ast", { data: { query: sql } });
+    if (response.error) {
+      throw new Error(response.errorMessage || "Unknown ast parsing error");
+    }
+    return response.data;
+  }
+
   async getMacroCTE(query: string): Promise<MacroCTEResponse> {
     if (query.toUpperCase().startsWith("DESCRIBE")) {
       return {

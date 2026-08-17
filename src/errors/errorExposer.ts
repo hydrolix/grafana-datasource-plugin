@@ -1,7 +1,7 @@
 import { locationService, TemplateSrv } from "@grafana/runtime";
 import { ErrorMessageBeautifier } from "./errorBeautifier";
 import { ErrorFixSuggestion, ExposeErrorsOptions } from "../types";
-import { SOLUTION_TEMPLATES } from "./solutionTemplates";
+import { matchSolutionTemplate } from "./errorSolution";
 import {VariableWithOptions} from "@grafana/data";
 
 export class ErrorExposer {
@@ -49,17 +49,10 @@ export class ErrorExposer {
       message: beautifiedMessage || message,
     };
 
-    const suggestion = SOLUTION_TEMPLATES.find((s) =>
-      new RegExp(s.regexp).test(message)
-    );
+    const suggestion = matchSolutionTemplate(message);
     if (suggestion) {
-      const match = new RegExp(suggestion.regexp).exec(message);
       error.template = suggestion.name;
-      if (match?.groups) {
-        error.groups = match.groups;
-      } else {
-        error.groups = {};
-      }
+      error.groups = suggestion.groups;
     }
     errors.push(error);
 
