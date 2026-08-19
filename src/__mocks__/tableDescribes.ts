@@ -619,3 +619,42 @@ export const DESCRIBE2 = [
     ttl_expression: "",
   },
 ];
+
+export const DESCRIBE_UUID_IP = [
+  {
+    name: "request_id",
+    type: "UUID",
+    default_type: "",
+    default_expression: "",
+    comment: "",
+    codec_expression: "",
+    ttl_expression: "",
+  },
+  {
+    name: "session_id",
+    type: "Nullable(UUID)",
+    default_type: "",
+    default_expression: "",
+    comment: "",
+    codec_expression: "",
+    ttl_expression: "",
+  },
+  {
+    name: "client_v4",
+    type: "IPv4",
+    default_type: "",
+    default_expression: "",
+    comment: "",
+    codec_expression: "",
+    ttl_expression: "",
+  },
+  {
+    name: "client_v6",
+    type: "IPv6",
+    default_type: "",
+    default_expression: "",
+    comment: "",
+    codec_expression: "",
+    ttl_expression: "",
+  },
+];
