@@ -1,0 +1,59 @@
+name: Tag Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tag-and-dispatch:
+    name: Tag and Dispatch Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Read version
+        id: version
+        run: echo "version=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag and dispatch release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA: ${{ github.sha }}
+        run: |
+          # Shape-guard: this workflow fires on every push to main, so skip
+          # cleanly (not a failure) unless package.json carries a plain
+          # release version — a -dev version landing on main must not mint a
+          # permanent junk tag.
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "package.json version \"${VERSION}\" is not a plain X.Y.Z release version; skipping tag creation and dispatch"
+            exit 0
+          fi
+
+          TAG="v${VERSION}"
+
+          # Created-guard: this workflow fires on every push to main, so dispatch
+          # only when this run created the tag — a version-less push (docs fix,
+          # revert) must not re-release an existing version.
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" > /dev/null 2>&1; then
+            echo "Tag ${TAG} already exists; skipping tag creation and dispatch"
+            exit 0
+          fi
+
+          gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${TAG}" -f sha="${SHA}"
+          echo "Created ${TAG} at ${SHA}"
+
+          # GitHub suppresses push triggers for refs created with GITHUB_TOKEN,
+          # so start the release workflow explicitly at the tag ref.
+          gh workflow run release.yml --ref "refs/tags/${TAG}"
+          echo "Dispatched release.yml at refs/tags/${TAG}"

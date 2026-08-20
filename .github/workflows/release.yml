@@ -1,67 +1,275 @@
-name: GitHub Release
+name: Release
 
 on:
-  workflow_call:
-    inputs:
-      version:
-        description: "plugin version to release"
-        required: true
-        type: string
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Both triggers can fire for the same tag (manual push + dispatch); serialize
+# them so a duplicate run cannot publish twice.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  classify:
+    name: Classify Tag
+    runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.classify.outputs.channel }}
+      tag: ${{ steps.classify.outputs.tag }}
+      version: ${{ steps.classify.outputs.version }}
+    steps:
+      # fetch-depth: 0 gives full (unshallow) history for the checked-out
+      # ref, but actions/checkout only maps that one ref — it does not
+      # populate remote-tracking refs for other branches. The containment
+      # check below needs main/develop/release/hotfix branches, so they are
+      # fetched explicitly in the containment step.
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Classify tag shape
+        id: classify
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [[ "$REF" != refs/tags/v* ]]; then
+            echo "Ref \"$REF\" is not a v* tag; run this workflow at a tag ref"
+            exit 1
+          fi
+          TAG="${REF#refs/tags/}"
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            CHANNEL=release
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
+            CHANNEL=rc
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-dev\+[0-9a-f]{8}$ ]]; then
+            CHANNEL=dev
+          else
+            echo "Tag \"$TAG\" matches no publication channel (vX.Y.Z, vX.Y.Z-rc.N, vX.Y.Z-dev+<sha8>)"
+            exit 1
+          fi
+          {
+            echo "channel=$CHANNEL"
+            echo "tag=$TAG"
+            echo "version=${TAG#v}"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## Release run"
+            echo "- Ref: \`$REF\`"
+            echo "- Channel: $CHANNEL"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Every channel is a claim about process, not just tag shape: released
+      # code reached main, RC code sits on a release/hotfix branch, dev
+      # builds are merged to develop. Checked here, before anything builds
+      # or signs, so a tag pushed from an arbitrary commit cannot publish.
+      - name: Assert tag containment in its source branch
+        env:
+          TAG: ${{ steps.classify.outputs.tag }}
+          CHANNEL: ${{ steps.classify.outputs.channel }}
+        run: |
+          # actions/checkout mapped only the tag ref above; fetch every
+          # branch so main/develop/release/hotfix tips are all available.
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+          if [[ -z "$(git for-each-ref refs/remotes/origin)" ]]; then
+            echo "No branches found under refs/remotes/origin after fetch; cannot verify containment"
+            exit 1
+          fi
+
+          # Peel to the commit: for annotated tags GITHUB_SHA / the push
+          # event's SHA is the tag object, not the commit it points at.
+          COMMIT=$(git rev-parse "refs/tags/${TAG}^{commit}")
+
+          CONTAINING_BRANCH=""
+          case "$CHANNEL" in
+            release)
+              TARGET_DESC="origin/main"
+              if git merge-base --is-ancestor "$COMMIT" "$(git rev-parse origin/main)"; then
+                CONTAINING_BRANCH="origin/main"
+              fi
+              ;;
+            dev)
+              TARGET_DESC="origin/develop"
+              if git merge-base --is-ancestor "$COMMIT" "$(git rev-parse origin/develop)"; then
+                CONTAINING_BRANCH="origin/develop"
+              fi
+              ;;
+            rc)
+              TARGET_DESC="a release[/_-]* or hotfix[/_-]* branch"
+              while IFS= read -r ref; do
+                short="${ref#origin/}"
+                if [[ "$short" =~ ^release[/_-] ]] || [[ "$short" =~ ^hotfix[/_-] ]]; then
+                  if git merge-base --is-ancestor "$COMMIT" "$(git rev-parse "$ref")"; then
+                    CONTAINING_BRANCH="$ref"
+                    break
+                  fi
+                fi
+              done < <(git for-each-ref --format='%(refname:short)' refs/remotes/origin)
+              ;;
+            *)
+              echo "Unknown channel \"$CHANNEL\"; cannot determine its required branch"
+              exit 1
+              ;;
+          esac
+
+          if [[ -z "$CONTAINING_BRANCH" ]]; then
+            echo "tag $TAG at $COMMIT is not contained in $TARGET_DESC; $CHANNEL tags must point at commits on $TARGET_DESC"
+            exit 1
+          fi
+
+          echo "tag $TAG at $COMMIT is contained in $CONTAINING_BRANCH"
+          {
+            echo "- Containment: \`$COMMIT\` is contained in \`$CONTAINING_BRANCH\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-frontend:
+    name: Build Frontend
+    uses: ./.github/workflows/build-frontend.yml
+    needs: classify
+    with:
+      node_version: '22'
+
+  build-backend:
+    name: Build Backend
+    uses: ./.github/workflows/build-backend.yml
+    needs: classify
+    with:
+      go_version: '1.26.5'
+
+  package:
+    name: Package Plugin
+    uses: ./.github/workflows/package.yml
+    needs: [classify, build-frontend, build-backend]
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    with:
+      node_version: '22'
+      attest: ${{ needs.classify.outputs.channel == 'release' }}
+    secrets:
+      grafana_token: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
+
+  e2e:
+    name: E2E Tests
+    uses: ./.github/workflows/e2e.yml
+    needs: [classify, package]
+    if: needs.classify.outputs.channel == 'rc' || needs.classify.outputs.channel == 'release'
+
+  plugin-validator:
+    name: Plugin Validator
+    uses: ./.github/workflows/validate.yml
+    needs: [classify, package]
+    if: needs.classify.outputs.channel == 'rc' || needs.classify.outputs.channel == 'release'
+    with:
+      node_version: '22'
+
+  publish-dev:
+    name: Publish Dev to AWS S3
+    uses: ./.github/workflows/s3_publish.yml
+    needs: [classify, package]
+    if: needs.classify.outputs.channel == 'dev'
+    with:
+      path_prefix: dev/
+    secrets:
+      aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+  publish-rc:
+    name: Publish RC to AWS S3
+    uses: ./.github/workflows/s3_publish.yml
+    needs: [classify, package, e2e, plugin-validator]
+    if: needs.classify.outputs.channel == 'rc'
+    with:
+      path_prefix: rc/
+    secrets:
+      aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
   create-github-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
+    needs: [classify, package, e2e, plugin-validator]
+    if: needs.classify.outputs.channel == 'release'
     permissions:
       contents: write
     steps:
-      - name: Display all outputs as JSON
-        run: |
-          echo "${{ toJSON(github) }}"
       - name: Checkout code
         uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - name: Download GitHub artifact
+      - name: Download plugin package
         uses: actions/download-artifact@v8
         with:
           name: plugin-package
           path: /tmp/plugin-package
+
       - name: Parse changelog
         id: parse
-        run: |
-          changelog=`.github/scripts/parse-changelog.sh CHANGELOG.md`
-          echo 'changelog<<EOF' >> "$GITHUB_OUTPUT"
-          echo "$changelog" >> "$GITHUB_OUTPUT"
-          echo 'EOF' >> "$GITHUB_OUTPUT"
-        shell: bash
-      - name: Create tag
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
-        # Allow the tag creation to fail, in case it already exists
-        # (e.g.: created manually, or re-triggering a release).
-        continue-on-error: true
-        with:
-          script: |
-            const { PLUGIN_VERSION } = process.env
-            const sha = process.env.PR_HEAD_SHA || context.sha
-            github.rest.git.createRef({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: `refs/tags/v${PLUGIN_VERSION}`,
-              sha: sha
-            })
         env:
-          PLUGIN_VERSION: ${{ inputs.version }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          VERSION: ${{ needs.classify.outputs.version }}
+        run: |
+          changelog=$(.github/scripts/parse-changelog.sh CHANGELOG.md)
+          # A blank or whitespace-only entry means CHANGELOG.md was never
+          # updated for this version — fail before the release is created
+          # rather than shipping empty release notes.
+          trimmed=$(printf '%s' "$changelog" | tr -d '[:space:]')
+          if [[ -z "$trimmed" ]]; then
+            echo "CHANGELOG.md has no entry for version $VERSION"
+            exit 1
+          fi
+          {
+            echo 'changelog<<EOF'
+            echo "$changelog"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+        shell: bash
 
       - name: Create Github release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
-          draft: ${{ contains(inputs.version, 'dev') }}
-          name: ${{ inputs.version }}
-          tag_name: v${{ inputs.version }}
+          name: ${{ needs.classify.outputs.version }}
+          tag_name: ${{ needs.classify.outputs.tag }}
           files: |
             /tmp/plugin-package/*.zip
           fail_on_unmatched_files: true
           body: ${{ steps.parse.outputs.changelog }}
+
+  publish-release:
+    name: Publish Release to AWS S3
+    uses: ./.github/workflows/s3_publish.yml
+    needs: [classify, package, e2e, plugin-validator]
+    if: needs.classify.outputs.channel == 'release'
+    secrets:
+      aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+  verify-release:
+    name: Verify Published Release
+    runs-on: ubuntu-latest
+    needs: [classify, create-github-release, publish-release]
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.classify.outputs.tag }}
+    steps:
+      # Needed so the verification script below can source the shared
+      # bucket/URL config; this job otherwise has no checkout.
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Verify the downloaded copies, not the workspace ZIP: each upload can
+      # independently truncate, misfile, or overwrite, and the external
+      # verifier this exists for fetches the GitHub release asset.
+      - name: Verify published release artifacts
+        run: ./.github/scripts/verify-release-artifacts.sh "$TAG"

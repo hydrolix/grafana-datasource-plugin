@@ -5,7 +5,52 @@ on:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+  script-tests:
+    name: Script Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Run set-version tests
+        run: ./.github/scripts/set-version.test.sh
+
+  main-ancestry-gate:
+    name: Base main Ancestry Gate
+    runs-on: ubuntu-latest
+    if: github.base_ref == 'main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Assert the source branch contains main's tip
+        env:
+          # The PR head, not the checked-out HEAD: on pull_request the checkout
+          # is the merge ref, which contains main by construction and would
+          # make this assertion vacuously true.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Fetch main fresh: the event payload's base.sha is the base tip as
+          # of the last PR event, not the tip the merge commit will carry.
+          git fetch origin main
+          MAIN_TIP=$(git rev-parse origin/main)
+          if git merge-base --is-ancestor "$MAIN_TIP" "$HEAD_SHA"; then
+            echo "origin/main tip $MAIN_TIP is contained in PR head $HEAD_SHA"
+          else
+            echo "The source branch is missing origin/main's tip commit $MAIN_TIP."
+            echo "Merge main into the source branch and push: git fetch origin && git merge origin/main"
+            exit 1
+          fi
+
   build-frontend:
     name: Build Frontend
     uses: ./.github/workflows/build-frontend.yml
@@ -64,22 +109,3 @@ jobs:
     needs: [package]
     with:
       node_version: '24'
-
-  publish-aws:
-    name: Publish to AWS S3
-    uses: ./.github/workflows/s3_publish.yml
-    if: github.event_name == 'pull_request' && github.base_ref == 'main'
-    needs: [package, e2e, plugin-validator]
-    secrets:
-      aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-  create-github-release:
-    name: Create GitHub Release
-    uses: ./.github/workflows/release.yml
-    needs: [package, e2e, plugin-validator]
-    if: github.event_name == 'pull_request' && github.base_ref == 'main'
-    with:
-      version: ${{ needs.package.outputs.version }}
-    permissions:
-      contents: write
