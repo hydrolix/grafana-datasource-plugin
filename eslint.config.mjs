@@ -20,6 +20,8 @@ export default defineConfig([
       "**/junit.xml",
       "**/error_panel/",
       "**/openspec/",
+      "**/.claude/",
+      "**/.codex/"
     ],
   },
   ...baseConfig,

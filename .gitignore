@@ -11,3 +11,4 @@ hydrolix-hydrolix-datasource/
 .bra.toml
 .DS_Store
 junit.xml
+dist_*/

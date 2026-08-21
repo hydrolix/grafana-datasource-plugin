@@ -18,14 +18,17 @@ import VirtualModulesPlugin from 'webpack-virtual-modules';
 
 import { BuildModeWebpackPlugin } from './BuildModeWebpackPlugin.ts';
 import { DIST_DIR, SOURCE_DIR } from '../bundler/constants.ts';
-import { getCPConfigVersion, getEntries, getPackageJson, getPluginJson, isWSL } from '../bundler/utils.ts';
+import { getCPConfigVersion, getEntries, getPackageJson, getPluginJson, hasReadme, isWSL } from '../bundler/utils.ts';
 import { externals } from '../bundler/externals.ts';
 import { copyFilePatterns } from '../bundler/copyFiles.ts';
 
 const pluginJson = getPluginJson();
 const cpVersion = getCPConfigVersion();
 const pluginVersion = getPackageJson().version;
-
+// @ts-ignore
+const logoPaths = Array.from(new Set([pluginJson.info?.logos?.large, pluginJson.info?.logos?.small])).filter(Boolean);
+// @ts-ignore
+const screenshotPaths = pluginJson.info?.screenshots?.map((s: { path: string }) => s.path) || [];
 const virtualPublicPath = new VirtualModulesPlugin({
   'node_modules/grafana-public-path.js': `
 import amdMetaModule from 'amd-module';
@@ -129,11 +132,11 @@ const config = async (env: Env): Promise<Configuration> => {
       minimize: Boolean(env.production),
       minimizer: [
         new TerserPlugin({
+          // Emit a single LICENSE.txt file for all comments.
           extractComments: {
             banner: false,
             filename: 'LICENSE.txt',
           },
-
           terserOptions: {
             format: {
               comments: (_, { type, value }) => type === 'comment2' && value.trim().startsWith('[create-plugin]'),
@@ -179,7 +182,6 @@ const config = async (env: Env): Promise<Configuration> => {
         {
           dir: DIST_DIR,
           test: [/(^|\/)plugin\.json$/, /(^|\/)README\.md$/],
-
           rules: [
             {
               search: /\%VERSION\%/g,
