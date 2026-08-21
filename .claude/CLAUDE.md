@@ -27,11 +27,6 @@ hazard is real: **keep them committed**, and after running `create-plugin update
 diff `.config/AGENTS/skills/` and restore anything it clobbered. There is no
 copy outside `.config/` to fall back on.
 
-`validate-plugin` fully supersedes the generic `@grafana/create-plugin`
-validate recipe (no snapshot file). The original unforked recipe is preserved
-in git history as the first committed version of
-`.config/AGENTS/skills/validate-plugin.md` (commit ffc071b) — diff against that
-after a `create-plugin update`.
 
 - **`build-plugin`** — frontend webpack bundle (`dist/module.js*`)
   and Go backend binary (`dist/gpx_plugin_*`). Covers when each needs a
@@ -88,7 +83,7 @@ after a `create-plugin update`.
 - Frequently used scripts (full list in `package.json`):
   - `npm run typecheck` — `tsc --noEmit`
   - `npm run lint` — `eslint --cache .`
-  - `npm test` — Jest in watch mode (use `npm test -- --ci` for one-shot)
+  - `npm test` — Jest in **watch mode on changed files only** (`jest --watch --onlyChanged`); use `npm run test:ci` for a one-shot full sweep
   - `npm run build` — webpack production bundle (`dist/module.js*`)
   - `npm run e2e` — Playwright (prefer `e2e-dev` skill)
 
@@ -101,7 +96,7 @@ Host Go picks up the wrong toolchain. See `build-plugin`.
 |-------------------------------------|-------|------------------------------|
 | `npm run typecheck`                 | MUST  |                              |
 | `npm run lint`                      | MUST  |                              |
-| `npm test -- --ci`                  | MUST  |                              |
+| `npm run test:ci`                   | MUST  | `--passWithNoTests`: check count ≠ 0 |
 | `go vet ./...`                      | MUST  |                              |
 | `golangci-lint run`                 | MUST  |                              |
 | `go test -race ./...`               | MUST  |                              |
@@ -118,8 +113,7 @@ Host Go picks up the wrong toolchain. See `build-plugin`.
 - `ZERO_TIME_RANGE` is the sentinel `{from: 0, to: 0}` defined in
   `src/editor/metadataProvider.ts`. Internal metadata queries use it so they
   don't clobber the cached dashboard range.
-- Annotation queries (see the in-flight
-  `openspec/changes/add-grafana-annotations`) arrive from Grafana with
+- Annotation queries (spec: `annotations`) arrive from Grafana with
   `app === CoreApp.Dashboard`. The plugin retags them at `query()` entry
   to `app === 'annotation'` so the existing guard naturally skips the
   filter cache assignment.
@@ -151,6 +145,11 @@ Host Go picks up the wrong toolchain. See `build-plugin`.
 - Slash commands: `/opsx:propose` (new change), `/opsx:apply` (implement),
   `/opsx:verify` (validate vs artifacts), `/opsx:archive` (finalize).
 - General principles and artifact format rules: `openspec/config.yaml`.
+- Reference OpenSpec work **by capability name only** (e.g. the `annotations`
+  spec), never by status or by a `openspec/changes/...` path — changes get
+  archived under a date prefix, so paths and statuses go stale. Look the
+  current state up in `openspec/specs/` and `openspec/changes/` when it
+  matters.
 - A change ships when all artifacts (proposal, design, specs, tasks) are
   done **and** the tasks checklist is complete.
 
