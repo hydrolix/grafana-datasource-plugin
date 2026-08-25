@@ -14,6 +14,7 @@ tests/helpers.ts                         — utilities + ConfigPageSteps
 tests/grafanaSelect.ts                   — cross-version Select helpers
 tests/queryEditorRow.ts                  — QueryEditorRow page-object
 tests/variablePicker.ts                  — VariablePicker page-object
+tests/adHocFilter.ts                     — AdHocFilter page-object (ad-hoc filters variable)
 tests/dashboardBuilder.ts                — fluent DashboardBuilder (POSTs JSON)
 .config/playwright/Dockerfile            — runner image (apt + node + deps + chromium)
 .config/supervisord/supervisord.conf     — dev Grafana under supervisord
@@ -207,6 +208,18 @@ react-select renders one `<option>` per setting on every version, but the *acces
 | 11.x–13.x  | `"hdx_query_max_rows Set the maximum…"`      | `"hdx_query_max_rows Set the maximum…"`  |
 
 Use `.filter({ hasText: /^prefix/ })` against inner text — works on both. Avoid `\b` after the prefix: on 10.x there's no word boundary between the setting name and the description start (`...rowsSet...`).
+
+**Leading-whitespace trap on 11.5–12.x option markup.** Some option lists (observed: the ad-hoc filter operator listbox) indent the option's inner markup, so its raw text content starts with a newline. A bare `^prefix` anchor then matches **nothing** — the option is on screen and visible, yet `hasText` reports zero matches and the click times out. Anchor with `^\s*prefix` instead. `pickOptionByPrefix` / `pickOptionByExactText` in `tests/grafanaSelect.ts` already do this; the trap only bites hand-rolled regexes.
+
+**Dashboard ad-hoc filters variable — three renderers**
+
+| Grafana            | Renderer  | Entry point                                            |
+| ------------------ | --------- | ------------------------------------------------------ |
+| 10.4               | segments  | `+` button (`Add Filter`) → key / `=` / value segment buttons (`AdHocFilterKey-*` / `AdHocFilterValue-*` test ids) |
+| 11.5 – 12.3        | combobox  | `input[placeholder="Filter by label values"]`          |
+| 13.x               | combobox  | `input[placeholder="+ label = value"]`                 |
+
+What triggers the value preload (`getTagValues`) also differs: picking the operator (combobox) vs clicking the value segment (segments). Don't hand-roll this — drive it through the `AdHocFilter` page-object (`tests/adHocFilter.ts`), which probes the DOM for the renderer (13.x's `AdHocFilter-label-announcer` live-region makes prefix test-id sniffing unreliable) and hides the differences behind `selectKey` / `openValues` / `reopenValues` / `pickValue` / `typeValue` / `dismiss`.
 
 **Dashboard settings button**
 
@@ -427,7 +440,13 @@ Before reaching for raw locator chains, check whether one of the existing helper
 `tests/grafanaSelect.ts` — cross-version Select helpers:
 - `openGrafanaSelect(root)` — clicks the `[data-value=""]` wrapper scoped to `root.last()`.
 - `pickOption(page, name)` — page-scoped, `getByRole("option").or(getByRole("checkbox"))` to span 11+ vs 10.
-- `pickOptionByPrefix(page, prefix)` — same but matches by inner-text prefix (no `\b` after the prefix; see Cross-version section).
+- `pickOptionByPrefix(page, prefix)` — same but matches by inner-text prefix (no `\b` after the prefix; tolerates leading whitespace — see Cross-version section).
+- `pickOptionByExactText(page, text)` / `optionByExactText(page, text)` — exact inner-text match, whitespace-tolerant, regex-escaped. Use when the label is a prefix of a sibling (`status` vs `status_null`) or on 10.x where every option's accessible name is the constant "Select option".
+- `visibleOptionTexts(page)` — trimmed inner text of every rendered option; the building block for "which values did the dropdown offer" assertions.
+
+`tests/adHocFilter.ts` — `AdHocFilter` page-object for the dashboard's ad-hoc filters variable (three renderers across the matrix — see Cross-version section):
+- `new AdHocFilter(page)` then `selectKey(key)`, `openValues({timeout, waitForOptions})` → `{options, elapsedMs}`, `reopenValues(key, opts)` (proves a second `getTagValues` fires), `pickValue(value)`, `typeValue(value)` (manual entry of a non-suggested value), `dismiss()`.
+- `elapsedMs` starts at the click that actually issues `getTagValues` on each renderer, so timing-budget assertions are comparable across versions. `waitForOptions: false` is for preloads that legitimately return nothing.
 
 `tests/queryEditorRow.ts` — `QueryEditorRow` page-object wrapping `panelEditPage.getQueryEditorRow(refId)`:
 - `setSql(sql)`, `setRound(duration)`, `openQuerySettings()`, `addQuerySetting(name, value)`, `toggleInterpolatedQuery(show)`.
@@ -572,14 +591,13 @@ If a freshly-built grafana container is unresponsive on `:3000`, check `docker e
 
 ## Gaps still worth filling (audit reference)
 
-Already implemented: **#3** additional settings persistence, **#8** interpolated query show/hide + clipboard, **#9** querySettings round-trip via request body, **#1** password secureJsonData round-trip, **#6** run-and-render a panel, **#12** template variable substitution.
+Already implemented: **#3** additional settings persistence, **#8** interpolated query show/hide + clipboard, **#9** querySettings round-trip via request body, **#1** password secureJsonData round-trip, **#6** run-and-render a panel, **#12** template variable substitution, **#13** ad-hoc filters (`tests/adHocFilterValues.spec.ts` + `tests/adHocGuardrails.spec.ts`, driven through `AdHocFilter` + `DashboardBuilder.addAdHocVariable()`).
 
-Still open: **#2** TLS skip-verify gating + bad-cert error, **#4** port-mandatory-only-when-useDefaultPort-off, **#5** secureSocksDSProxyEnabled, **#7** query-type switching, **#10** round invalid duration, **#11** format query button, **#13** ad-hoc filters, **#14** annotations / metricFindQuery, **#15** save & test with unreachable host, **#16** OAuth pass-through.
+Still open: **#2** TLS skip-verify gating + bad-cert error, **#4** port-mandatory-only-when-useDefaultPort-off, **#5** secureSocksDSProxyEnabled, **#7** query-type switching, **#10** round invalid duration, **#11** format query button, **#14** annotations / metricFindQuery (annotations covered by `tests/annotations.spec.ts`; metricFindQuery still open), **#15** save & test with unreachable host, **#16** OAuth pass-through.
 
 Most of the open items hit surfaces already covered by the abstractions:
 - #7 / #10 / #11 → extend `QueryEditorRow` (`setQueryType`, validate round-error state, `formatQuery`).
-- #13 → `DashboardBuilder.addAdHocVariable()` + `VariablePicker`.
-- #14 → `DashboardBuilder.addAnnotation()` + `captureRequestBodies` against `/api/ds/query` for the annotation query body.
+- #14 (metricFindQuery) → `captureRequestBodies` against `/api/ds/query` for the variable-query body.
 - #2 / #4 / #5 / #15 → `ConfigPageSteps` proxy (add new locators following the existing naming convention).
 - #16 → new auth path; out of scope for the current Playwright `auth.setup.js`.
 

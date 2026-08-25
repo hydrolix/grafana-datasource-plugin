@@ -3,6 +3,7 @@ import {
   ConstantVariableModel,
   CoreApp,
   DataFrame,
+  dateTime,
   DataQueryError,
   DataQueryRequest,
   DataQueryResponse,
@@ -14,6 +15,7 @@ import {
   MetricFindValue,
   ScopedVars,
   TestDataSourceResponse,
+  TimeRange,
 } from "@grafana/data";
 import {
   DataSourceWithBackend,
@@ -41,7 +43,14 @@ import {
   ZERO_TIME_RANGE,
 } from "./editor/metadataProvider";
 import { getColumnKeysForMapStatement, getColumnValuesStatement } from "./ast";
-import { MAP_KEY_REGEX, SYNTHETIC_EMPTY, SYNTHETIC_NULL } from "./constants";
+import {
+  AD_HOC_PRELOAD_LOOKBACK_SECONDS,
+  MAP_KEY_REGEX,
+  NULLABLE_MAP_TYPES,
+  NULLABLE_TYPES,
+  SYNTHETIC_EMPTY,
+  SYNTHETIC_NULL,
+} from "./constants";
 import { replace } from "./syntheticVariables";
 import { applyConditionalAll } from "./macros/macrosApplier";
 import { ErrorExposer } from "./errors/errorExposer";
@@ -335,7 +344,7 @@ export class DataSource extends DataSourceWithBackend<
   ): Promise<{ key: string; val: string[] }> {
     const response = await this.metadataProvider.executeQuery(
       getColumnKeysForMapStatement(column, table),
-      this.options?.range,
+      this.capPreloadTimeRange(this.options?.range),
       this.filters
     );
     let values: string[] = this.getValuesFromResponse(response);
@@ -412,6 +421,15 @@ export class DataSource extends DataSourceWithBackend<
       column = options.key;
     }
 
+    // For map-access keys (e.g. attrs['env']) the key list only carries the
+    // base map column, never the full accessor - resolve the base column's
+    // type and gate on the nullable Map(String, Nullable(...)) variant.
+    const nullGateType = isMapKey
+      ? keys.find((k) => k.value === options.key.split("['")[0])?.type
+      : type;
+    const nullableTypes = isMapKey ? NULLABLE_MAP_TYPES : NULLABLE_TYPES;
+    const isNullable = !!nullGateType && nullableTypes.includes(nullGateType);
+
     let timeFilter = await this.metadataProvider.primaryKey(
       this.getTableIdentifier(table)
     );
@@ -430,7 +448,7 @@ export class DataSource extends DataSourceWithBackend<
     }
     let response = await this.metadataProvider.executeQuery(
       sql,
-      options.timeRange,
+      this.capPreloadTimeRange(options.timeRange),
       options.filters
     );
     let values: string[] = this.getValuesFromResponse(response);
@@ -440,9 +458,7 @@ export class DataSource extends DataSourceWithBackend<
         .filter((v) => ![SYNTHETIC_EMPTY, SYNTHETIC_NULL].includes(v)),
 
       values.filter((v) => v === "").length ? SYNTHETIC_EMPTY : null,
-      values.filter((v) => v === null || v === undefined).length
-        ? SYNTHETIC_NULL
-        : null,
+      isNullable ? SYNTHETIC_NULL : null,
     ]
       .filter((v) => v !== null)
       .map((n: string) => ({
@@ -455,6 +471,20 @@ export class DataSource extends DataSourceWithBackend<
       ? response.data[0].fields
       : [];
     return fields[0]?.values || [];
+  }
+
+  private capPreloadTimeRange(range?: TimeRange): TimeRange | undefined {
+    if (!range) {
+      return range;
+    }
+    const cappedFromMs = Math.max(
+      range.from.valueOf(),
+      range.to.valueOf() - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+    );
+    return {
+      ...range,
+      from: dateTime(cappedFromMs),
+    };
   }
 
   private adHocFilterTableName() {

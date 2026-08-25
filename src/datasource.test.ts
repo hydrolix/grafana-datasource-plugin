@@ -1,5 +1,5 @@
 import { firstValueFrom, of } from "rxjs";
-import { CoreApp, DataQueryRequest, toDataFrame } from "@grafana/data";
+import { CoreApp, DataQueryRequest, dateTime, toDataFrame } from "@grafana/data";
 import {
   MockDataSourceInstanceSettings,
   setupDataSourceMock,
@@ -7,6 +7,7 @@ import {
 import { adHocTableVariable, fooVariable } from "./__mocks__/variable";
 import { AdHocFilterKeys, HdxQuery } from "./types";
 import { ZERO_TIME_RANGE } from "./editor/metadataProvider";
+import { AD_HOC_PRELOAD_LOOKBACK_SECONDS } from "./constants";
 
 describe("HdxDataSource", () => {
   beforeEach(() => {
@@ -146,7 +147,58 @@ describe("HdxDataSource", () => {
       expect(values).toEqual([100, 200].map((k) => ({ text: k, value: k })));
     });
 
-    it("should return null value", async () => {
+    it("should append synthetic null for a Nullable column type even without null rows", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve([
+          { text: "key1", value: "key1", type: "Nullable(String)" },
+          { text: "key2", value: "key2", type: "String" },
+          { text: "key3", value: "key3", type: "String" },
+        ] as AdHocFilterKeys[])
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["a", "b"] }],
+            }),
+          ],
+        })
+      );
+      let values = await datasource.getTagValues({ key: "key1", filters: [] });
+
+      expect(values).toEqual([
+        { text: "a", value: "a" },
+        { text: "b", value: "b" },
+        { text: "__null__", value: "__null__" },
+      ]);
+    });
+
+    it("should not append synthetic null for a non-Nullable column type", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve(
+          ["key1", "key2", "key3"].map(
+            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
+          )
+        )
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["a", "b"] }],
+            }),
+          ],
+        })
+      );
+      let values = await datasource.getTagValues({ key: "key1", filters: [] });
+
+      expect(values).toEqual([
+        { text: "a", value: "a" },
+        { text: "b", value: "b" },
+      ]);
+    });
+
+    it("should drop raw null entries from a non-Nullable column's value list", async () => {
       getKeysMock.mockReturnValue(
         Promise.resolve(
           ["key1", "key2", "key3"].map(
@@ -165,8 +217,23 @@ describe("HdxDataSource", () => {
       );
       let values = await datasource.getTagValues({ key: "key1", filters: [] });
 
-      expect(values).toEqual([{ text: "__null__", value: "__null__" }]);
+      expect(values).toEqual([]);
     });
+
+    it("should return an empty list without error for an empty successful response", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve(
+          ["key1", "key2", "key3"].map(
+            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
+          )
+        )
+      );
+      queryMock.mockReturnValue(of({ data: [] }));
+      let values = await datasource.getTagValues({ key: "key1", filters: [] });
+
+      expect(values).toEqual([]);
+    });
+
     it("should return empty value", async () => {
       getKeysMock.mockReturnValue(
         Promise.resolve(
@@ -210,13 +277,13 @@ describe("HdxDataSource", () => {
 
       expect(values).toEqual([{ text: "__empty__", value: "__empty__" }]);
     });
-    it("should return null and synthetic value", async () => {
+    it("should dedupe a raw '__null__' value against the type-gated synthetic null", async () => {
       getKeysMock.mockReturnValue(
-        Promise.resolve(
-          ["key1", "key2", "key3"].map(
-            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
-          )
-        )
+        Promise.resolve([
+          { text: "key1", value: "key1", type: "Nullable(String)" },
+          { text: "key2", value: "key2", type: "String" },
+          { text: "key3", value: "key3", type: "String" },
+        ] as AdHocFilterKeys[])
       );
       queryMock.mockReturnValue(
         of({
@@ -231,13 +298,13 @@ describe("HdxDataSource", () => {
 
       expect(values).toEqual([{ text: "__null__", value: "__null__" }]);
     });
-    it("should return empty, null and both synthetic values", async () => {
+    it("should return empty, null and both synthetic values for a Nullable column", async () => {
       getKeysMock.mockReturnValue(
-        Promise.resolve(
-          ["key1", "key2", "key3"].map(
-            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
-          )
-        )
+        Promise.resolve([
+          { text: "key1", value: "key1", type: "Nullable(String)" },
+          { text: "key2", value: "key2", type: "String" },
+          { text: "key3", value: "key3", type: "String" },
+        ] as AdHocFilterKeys[])
       );
       queryMock.mockReturnValue(
         of({
@@ -430,6 +497,65 @@ describe("HdxDataSource", () => {
         value: "metadata['key2']",
         type: "Map(String, Nullable(String))",
       });
+    });
+
+    it("should append synthetic null for a map key on a Map(String, Nullable(String)) column", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve([
+          {
+            text: "metadata",
+            value: "metadata",
+            type: "Map(String, Nullable(String))",
+          },
+        ] as AdHocFilterKeys[])
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["prod", "dev"] }],
+            }),
+          ],
+        })
+      );
+
+      let values = await datasource.getTagValues({
+        key: "metadata['env']",
+        filters: [],
+      });
+
+      expect(values).toEqual([
+        { text: "prod", value: "prod" },
+        { text: "dev", value: "dev" },
+        { text: "__null__", value: "__null__" },
+      ]);
+    });
+
+    it("should not append synthetic null for a map key on a Map(String, String) column", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve([
+          { text: "labels", value: "labels", type: "Map(String, String)" },
+        ] as AdHocFilterKeys[])
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["prod", "dev"] }],
+            }),
+          ],
+        })
+      );
+
+      let values = await datasource.getTagValues({
+        key: "labels['env']",
+        filters: [],
+      });
+
+      expect(values).toEqual([
+        { text: "prod", value: "prod" },
+        { text: "dev", value: "dev" },
+      ]);
     });
   });
 
@@ -829,6 +955,107 @@ describe("HdxDataSource", () => {
 
       expect(req.app).toBe(originalApp);
       expect(req.targets).toBe(originalTargets);
+    });
+  });
+
+  describe("preload time range capping", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    function makeRange(fromMs: number, toMs: number) {
+      const from = dateTime(fromMs);
+      const to = dateTime(toMs);
+      return { from, to, raw: { from, to } };
+    }
+
+    it("caps a 90-day range to the trailing 24h for getTagValues", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({
+        variables: [adHocTableVariable],
+      });
+      jest.spyOn(datasource.metadataProvider, "tableKeys").mockReturnValue(
+        Promise.resolve([
+          { text: "key1", value: "key1", type: "String" },
+        ] as AdHocFilterKeys[])
+      );
+      jest
+        .spyOn(datasource.metadataProvider, "primaryKey")
+        .mockReturnValue(Promise.resolve("ts"));
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const to = 1_700_000_000_000;
+      const from = to - 90 * 24 * 60 * 60 * 1000;
+      await datasource.getTagValues({
+        key: "key1",
+        filters: [],
+        timeRange: makeRange(from, to) as any,
+      });
+
+      const sentRange = queryMock.mock.calls[0][0].range;
+      expect(sentRange.from.valueOf()).toBe(
+        to - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+      expect(sentRange.to.valueOf()).toBe(to);
+    });
+
+    it("leaves a 6-hour range untouched for getTagValues", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({
+        variables: [adHocTableVariable],
+      });
+      jest.spyOn(datasource.metadataProvider, "tableKeys").mockReturnValue(
+        Promise.resolve([
+          { text: "key1", value: "key1", type: "String" },
+        ] as AdHocFilterKeys[])
+      );
+      jest
+        .spyOn(datasource.metadataProvider, "primaryKey")
+        .mockReturnValue(Promise.resolve("ts"));
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const to = 1_700_000_000_000;
+      const from = to - 6 * 60 * 60 * 1000;
+      await datasource.getTagValues({
+        key: "key1",
+        filters: [],
+        timeRange: makeRange(from, to) as any,
+      });
+
+      const sentRange = queryMock.mock.calls[0][0].range;
+      expect(sentRange.from.valueOf()).toBe(from);
+      expect(sentRange.to.valueOf()).toBe(to);
+    });
+
+    it("caps this.options.range for getTagKeysForMap on a long dashboard range", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({
+        variables: [adHocTableVariable],
+      });
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const to = 1_700_000_000_000;
+      const from = to - 90 * 24 * 60 * 60 * 1000;
+      const req = {
+        app: CoreApp.Dashboard,
+        range: makeRange(from, to),
+        targets: [
+          {
+            refId: "A",
+            rawSql: "SELECT 1",
+            round: "",
+            querySettings: [],
+          },
+        ],
+        filters: [],
+      } as unknown as DataQueryRequest<HdxQuery>;
+      await firstValueFrom(datasource.query(req));
+      queryMock.mockClear();
+
+      await datasource.getTagKeysForMap("labels", "sample.table");
+
+      const sentRange = queryMock.mock.calls[0][0].range;
+      expect(sentRange.from.valueOf()).toBe(
+        to - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+      expect(sentRange.to.valueOf()).toBe(to);
     });
   });
 });

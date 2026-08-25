@@ -1,14 +1,25 @@
 import { DataQueryResponse, toDataFrame } from "@grafana/data";
-import { of } from "rxjs";
-import { getKeyMap, getMetadataProvider } from "./metadataProvider";
-import { setupDataSourceMock } from "../__mocks__/datasource";
+import { firstValueFrom, of } from "rxjs";
+import { getKeyMap, getMetadataProvider, getQueryRunner } from "./metadataProvider";
+import {
+  MockDataSourceInstanceSettings,
+  setupDataSourceMock,
+} from "../__mocks__/datasource";
 import { adHocTableVariable } from "../__mocks__/variable";
 import {
   DESCRIBE1,
   DESCRIBE2,
   DESCRIBE_UUID_IP,
 } from "../__mocks__/tableDescribes";
-import { ARRAY_TYPES, SUPPORTED_TYPES, NULLABLE_TYPES } from "../constants";
+import {
+  ARRAY_TYPES,
+  SUPPORTED_TYPES,
+  NULLABLE_TYPES,
+  AD_HOC_PRELOAD_ROUND_INTERVAL,
+  METADATA_QUERY_TIMEOUT_SETTING,
+  METADATA_QUERY_TIMEOUT_VALUE,
+} from "../constants";
+import { getColumnKeysForMapStatement, getColumnValuesStatement } from "../ast";
 
 const FUNCTIONS = ["widthBucket", "tupleConcat"];
 const SCHEMAS = ["schema1", "schema2"];
@@ -566,5 +577,197 @@ describe("getKeyMap", () => {
     };
     let result = getKeyMap(response);
     expect(result).toEqual(keys);
+  });
+});
+
+describe("getQueryRunner guardrails", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("injects the execution-time breaker into every metadata query target", async () => {
+    const { datasource, queryMock } = setupDataSourceMock({});
+    queryMock.mockReturnValue(of({ data: [] }));
+    const runner = getQueryRunner(datasource);
+
+    await firstValueFrom(runner("SELECT 1"));
+
+    const target = queryMock.mock.calls[0][0].targets[0];
+    expect(target.querySettings).toEqual([
+      {
+        setting: METADATA_QUERY_TIMEOUT_SETTING,
+        value: METADATA_QUERY_TIMEOUT_VALUE,
+      },
+    ]);
+  });
+
+  it("never puts timeout_overflow_mode on the driver querySettings channel", async () => {
+    const { datasource, queryMock } = setupDataSourceMock({});
+    queryMock.mockReturnValue(of({ data: [] }));
+    const runner = getQueryRunner(datasource);
+
+    await firstValueFrom(runner("SELECT 1"));
+
+    const target = queryMock.mock.calls[0][0].targets[0];
+    expect(
+      target.querySettings.find(
+        (s: any) => s.setting === "timeout_overflow_mode"
+      )
+    ).toBeUndefined();
+  });
+
+  it("sets round to 5m on metadata query targets", async () => {
+    const { datasource, queryMock } = setupDataSourceMock({});
+    queryMock.mockReturnValue(of({ data: [] }));
+    const runner = getQueryRunner(datasource);
+
+    await firstValueFrom(runner("SELECT 1"));
+
+    const target = queryMock.mock.calls[0][0].targets[0];
+    expect(target.round).toBe(AD_HOC_PRELOAD_ROUND_INTERVAL);
+  });
+
+  it("a larger DS-level hdx_query_max_execution_time cannot loosen the breaker", async () => {
+    const { datasource, queryMock } = setupDataSourceMock({
+      customInstanceSettings: {
+        ...MockDataSourceInstanceSettings,
+        jsonData: {
+          ...MockDataSourceInstanceSettings.jsonData,
+          querySettings: [
+            { setting: "hdx_query_max_execution_time", value: "60" },
+          ],
+        },
+      },
+    });
+    queryMock.mockReturnValue(of({ data: [] }));
+    const runner = getQueryRunner(datasource);
+
+    await firstValueFrom(runner("SELECT 1"));
+
+    const target = queryMock.mock.calls[0][0].targets[0];
+    expect(target.querySettings).toEqual([
+      {
+        setting: METADATA_QUERY_TIMEOUT_SETTING,
+        value: METADATA_QUERY_TIMEOUT_VALUE,
+      },
+    ]);
+  });
+
+  it("a smaller DS-level max_execution_time alias tightens the breaker", async () => {
+    const { datasource, queryMock } = setupDataSourceMock({
+      customInstanceSettings: {
+        ...MockDataSourceInstanceSettings,
+        jsonData: {
+          ...MockDataSourceInstanceSettings.jsonData,
+          querySettings: [{ setting: "max_execution_time", value: "5" }],
+        },
+      },
+    });
+    queryMock.mockReturnValue(of({ data: [] }));
+    const runner = getQueryRunner(datasource);
+
+    await firstValueFrom(runner("SELECT 1"));
+
+    const target = queryMock.mock.calls[0][0].targets[0];
+    expect(
+      target.querySettings.find(
+        (s: any) => s.setting === METADATA_QUERY_TIMEOUT_SETTING
+      )
+    ).toEqual({ setting: METADATA_QUERY_TIMEOUT_SETTING, value: "5" });
+  });
+
+  it("never adopts a DS-level 0 (unlimited)", async () => {
+    const { datasource, queryMock } = setupDataSourceMock({
+      customInstanceSettings: {
+        ...MockDataSourceInstanceSettings,
+        jsonData: {
+          ...MockDataSourceInstanceSettings.jsonData,
+          querySettings: [
+            { setting: "hdx_query_max_execution_time", value: "0" },
+          ],
+        },
+      },
+    });
+    queryMock.mockReturnValue(of({ data: [] }));
+    const runner = getQueryRunner(datasource);
+
+    await firstValueFrom(runner("SELECT 1"));
+
+    const target = queryMock.mock.calls[0][0].targets[0];
+    expect(
+      target.querySettings.find(
+        (s: any) => s.setting === METADATA_QUERY_TIMEOUT_SETTING
+      )
+    ).toEqual({
+      setting: METADATA_QUERY_TIMEOUT_SETTING,
+      value: METADATA_QUERY_TIMEOUT_VALUE,
+    });
+  });
+
+  it("ignores a non-numeric DS-level value", async () => {
+    const { datasource, queryMock } = setupDataSourceMock({
+      customInstanceSettings: {
+        ...MockDataSourceInstanceSettings,
+        jsonData: {
+          ...MockDataSourceInstanceSettings.jsonData,
+          querySettings: [
+            { setting: "hdx_query_max_execution_time", value: "$timeout" },
+          ],
+        },
+      },
+    });
+    queryMock.mockReturnValue(of({ data: [] }));
+    const runner = getQueryRunner(datasource);
+
+    await firstValueFrom(runner("SELECT 1"));
+
+    const target = queryMock.mock.calls[0][0].targets[0];
+    expect(target.querySettings).toEqual([
+      {
+        setting: METADATA_QUERY_TIMEOUT_SETTING,
+        value: METADATA_QUERY_TIMEOUT_VALUE,
+      },
+    ]);
+  });
+
+  it("does not let unrelated DS-level settings affect the breaker", async () => {
+    const { datasource, queryMock } = setupDataSourceMock({
+      customInstanceSettings: {
+        ...MockDataSourceInstanceSettings,
+        jsonData: {
+          ...MockDataSourceInstanceSettings.jsonData,
+          querySettings: [{ setting: "hdx_query_admin_comment", value: "x" }],
+        },
+      },
+    });
+    queryMock.mockReturnValue(of({ data: [] }));
+    const runner = getQueryRunner(datasource);
+
+    await firstValueFrom(runner("SELECT 1"));
+
+    const target = queryMock.mock.calls[0][0].targets[0];
+    expect(
+      target.querySettings.find(
+        (s: any) => s.setting === METADATA_QUERY_TIMEOUT_SETTING
+      )
+    ).toEqual({
+      setting: METADATA_QUERY_TIMEOUT_SETTING,
+      value: METADATA_QUERY_TIMEOUT_VALUE,
+    });
+  });
+
+  it("renders the value-preload and map-key SQL with the break/timerange SETTINGS suffix", () => {
+    const valueSql = getColumnValuesStatement(
+      "clientIP",
+      "sample.log",
+      "ts",
+      ""
+    );
+    const mapSql = getColumnKeysForMapStatement("attributes", "sample.log");
+
+    [valueSql, mapSql].forEach((sql) => {
+      expect(sql).toContain("SETTINGS timeout_overflow_mode = 'break'");
+      expect(sql).toContain("hdx_query_max_timerange_sec = 87000");
+    });
   });
 });
