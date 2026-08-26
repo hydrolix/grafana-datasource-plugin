@@ -2,6 +2,12 @@ name: S3 Publish
 
 on:
   workflow_call:
+    inputs:
+      path_prefix:
+        description: "Optional key prefix under grafana-datasource-plugin/, e.g. dev/ or rc/ (empty keeps the flat release layout)"
+        required: false
+        type: string
+        default: ""
     secrets:
       aws_access_key_id:
         description: "Specifies the AWS access key used as part of the credentials to authenticate the user"
@@ -29,4 +35,5 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.aws_access_key_id }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.aws_secret_access_key }}
+          PATH_PREFIX: ${{ inputs.path_prefix }}
         run: ./.github/scripts/publish-aws.sh
