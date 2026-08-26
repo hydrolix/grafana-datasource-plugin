@@ -152,11 +152,6 @@ export default {
           description: "Time to live for stored errors in seconds",
           placeholder: "300",
         },
-        useDefaultAiBaseUrl: {
-          testId: "data-testid hdx_useDefaultPortAiBaseUrl",
-          label: "Use default",
-          description: "Use default Assistant API base URL",
-        },
       },
     },
     query: {
@@ -181,9 +176,6 @@ export default {
         },
         runQuery: {
           tooltip: "Click or hit CTRL/CMD+Return to run query",
-        },
-        showAiAssistant: {
-          label: "Ask Hydrolix Assistant",
         },
       },
     },
