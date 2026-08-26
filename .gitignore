@@ -1,7 +1,6 @@
 dist/
 node_modules/
 playwright-report/
-playwright/
 test-results/
 coverage/
 hydrolix-hydrolix-datasource/
