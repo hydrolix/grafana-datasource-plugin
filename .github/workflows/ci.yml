@@ -10,13 +10,13 @@ jobs:
     name: Build Frontend
     uses: ./.github/workflows/build-frontend.yml
     with:
-      node_version: '22'
+      node_version: '24'
 
   test-frontend:
     name: Test Frontend
     uses: ./.github/workflows/test-frontend.yml
     with:
-      node_version: '22'
+      node_version: '24'
 
   compatibility-check:
     name: Compatibility Check
@@ -26,7 +26,7 @@ jobs:
       pull-requests: write
       contents: read
     with:
-      node_version: '22'
+      node_version: '24'
 
   build-backend:
     name: Build Backend
@@ -49,7 +49,7 @@ jobs:
       id-token: write
       attestations: write
     with:
-      node_version: '22'
+      node_version: '24'
     secrets:
       grafana_token: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
 
@@ -63,7 +63,7 @@ jobs:
     uses: ./.github/workflows/validate.yml
     needs: [package]
     with:
-      node_version: '22'
+      node_version: '24'
 
   publish-aws:
     name: Publish to AWS S3
