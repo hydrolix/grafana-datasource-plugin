@@ -481,9 +481,16 @@ export class DataSource extends DataSourceWithBackend<
       range.from.valueOf(),
       range.to.valueOf() - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
     );
+    // `raw` describes the same window in unresolved form, so it has to move
+    // with `from` — a capped window is no longer whatever the picker said
+    // (e.g. "now-90d"). `to` is untouched, so `raw.to` carries through.
     return {
       ...range,
       from: dateTime(cappedFromMs),
+      raw: {
+        ...range.raw,
+        from: dateTime(cappedFromMs),
+      },
     };
   }
 
