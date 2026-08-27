@@ -95,7 +95,7 @@ personal and an organization-wide server registration.
 #### Scenario: Reachability verified before registration
 
 - **WHEN** an operator follows the guide
-- **THEN** they verify the MCP server's health endpoint from the Grafana instance before registering it
+- **THEN** they verify the MCP server is reachable from the Grafana instance before registering it
 
 #### Scenario: Same-cluster requirement stated
 
