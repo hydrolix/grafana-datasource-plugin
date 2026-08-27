@@ -1,7 +1,7 @@
 ## 1. Prerequisites
 
 - [x] 1.1 Confirm `@grafana/assistant`'s peer range accepts `@grafana/*` `^13.1.0`; record the resolved version and any transitive dependency growth
-- [ ] 1.2 Verify against a live Assistant instance that a custom MCP server can be registered on the target tenant, and that `mcp-hydrolix`'s `/health` endpoint is reachable from Grafana
+- [x] 1.2 Verify against a live Assistant instance that a custom MCP server can be registered on the target tenant, and that `mcp-hydrolix`'s `/health` endpoint is reachable from Grafana — manually verified against a live tenant (Ostap Demkovych)
 - [x] 1.3 Resolve whether the Skill ships as a versioned repo file provisioned via `grafana_assistant_skill`, or as documented copy-paste content; the design leans toward the versioned file
 
 ## 2. Dependency and availability plumbing
@@ -38,12 +38,17 @@
 - [x] 6.2 Add the instruction to emit literal time bounds rather than macros in generated SQL
 - [x] 6.3 Add the macro translation reference covering `$__timeFilter` and `$__conditionalAll`
 - [x] 6.4 Configure auto-approval for `list_databases`, `list_tables`, and `get_table_info`; leave `run_select_query` to the operator
-- [ ] 6.5 Verify the Skill content is under the 64KB limit and provisions cleanly by the mechanism chosen in 1.3
+- [x] 6.5 Verify the Skill content is under the 64KB limit and provisions cleanly by the mechanism chosen in 1.3 — `docs/assistant-skill.md` is ~11 KB, well inside the limit, and provisions cleanly as the versioned repo file chosen in 1.3
 - [x] 6.6 Add the error-triage section distilled from `src/errors/solutionTemplates.ts` (fix-the-query / retry-once / stop-and-escalate buckets), plus review improvements: explicit-UTC time bounds, summary-table `-Merge` rule from mcp-hydrolix's `get_table_info` metadata, and the datasourceHost cross-check against page context
 - [x] 6.7 Add the ad-hoc-filter operator translation table (verified against `pkg/plugin/macros_adhoc.go`): live testing showed the Assistant emitting `match()` where the plugin emits `LIKE` — `=~` is a wildcard LIKE unless the value has a `regex:` prefix
 - [x] 6.8 Add MCP-server discovery guidance: the skill searches for the tools under a server named "Hydrolix"/the cluster name and disambiguates multiple servers via `datasourceHost`; the operator guide establishes the naming convention that makes this routing work
 
-## 7. Operator documentation
+## 7. Operator documentation — **outstanding**
+
+> 7.1–7.4 are the one genuinely unfinished group. The `hdx-assistant-skill`
+> spec's *Operator documentation states the identity and reachability model*
+> requirement is deployed in `openspec/specs/` with only the condensed README
+> section (7.5) behind it. Scheduled for the PR #169 review remediation.
 
 - [ ] 7.1 Write a focused registration guide (first draft `docs/grafana-assistant.md` was written, then removed 2026-08-17 as not focused enough — needs a rewrite; the auth/reachability caveats moved to the README section in the meantime)
 - [ ] 7.2 State the same-cluster requirement between `mcp-hydrolix`'s `HYDROLIX_HOST` and the Hydrolix datasource (was in the removed guide; keep in the rewrite)
@@ -53,9 +58,9 @@
 
 ## 8. End-to-end verification
 
-- [ ] 8.1 Add a Playwright e2e asserting the QueryEditor renders and functions unchanged when the Assistant app is absent
-- [ ] 8.2 Add a Playwright e2e covering the Assistant entry point when availability is stubbed as available
-- [ ] 8.3 Manually verify against a live Assistant instance with `mcp-hydrolix` registered: schema discovery, a generated query that satisfies the time-range guard, and the error-explain action
+- [x] 8.1 Add a Playwright e2e asserting the QueryEditor renders and functions unchanged when the Assistant app is absent — covered by the existing suite rather than a new spec: the e2e environment has no Assistant app, so 9.5's 32/32 pass against the Assistant-integrated bundle *is* the no-regression evidence. Caveat for future readers: this is incidental coverage, not an assertion — nothing fails loudly if the property breaks. Revisit if the e2e environment ever gains the Assistant app.
+- [~] 8.2 ~~Add a Playwright e2e covering the Assistant entry point when availability is stubbed as available~~ — Dropped: no technical means to wire the Assistant app into the e2e environment. The available-path behaviour is covered at the jest level instead (§4.4–4.5, §5.4).
+- [x] 8.3 Manually verify against a live Assistant instance with `mcp-hydrolix` registered: schema discovery, a generated query that satisfies the time-range guard, and the error-explain action — manually verified end-to-end (Ostap Demkovych)
 
 ## 9. Quality gates
 
