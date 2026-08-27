@@ -34,10 +34,7 @@ chance to return useful values — it must be fast and degrade gracefully.
   new config UI.
 - Non-breaking: no `plugin.json` changes, no query model changes, no backend
   changes; existing dashboards keep working on Grafana ≥ 10.
-- Test coverage: frontend unit tests plus Playwright e2e for the dropdown
-  behavior and for runtime guardrail application (intercepted request
-  payload, rounded-SQL stability via UUID-tagged `query_log` lookup,
-  slow-source tolerance just under the breaker budget).
+- Test coverage: frontend unit tests plus Playwright e2e.
 
 ## Capabilities
 
@@ -66,4 +63,4 @@ etc.) cover the backend macro and models; their requirements do not change.
 - No Go backend changes: guardrails ride the existing
   `querySettings` → session settings path in `driver.go`.
 - Risk: `topK` results are approximate and aggregate functions skip NULLs —
-  both handled in design; dropdown remains best-effort by definition.
+  the dropdown remains best-effort by definition.

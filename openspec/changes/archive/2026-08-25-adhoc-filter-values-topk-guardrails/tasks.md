@@ -16,22 +16,22 @@
       locked template (including the trailing `SETTINGS` clause) through the
       `/interpolate` backend resource; if resolution fails, apply the D1
       fallback (explicit argument or outer-query filter)
-- [ ] 1.3 Close the remaining cluster checks: verify
-      `hdx_query_max_timerange_sec = 87000` in the `SETTINGS` clause (a
+- [x] 1.3 **MANUAL (production cluster) — handed off to HDX-11854.** Record
+      the remaining cluster checks as manual verification on the ticket:
+      verify `hdx_query_max_timerange_sec = 87000` in the `SETTINGS` clause (a
       capped >24h-range preload must pass; a deliberately uncapped >24h+slack
       range must be cancelled); record the exact rejection error for
       `timeout_overflow_mode` as a URL parameter, and alias precedence when
       both `hdx_query_max_execution_time` and `max_execution_time` are
       supplied with different values
 
-      _Deliberately left open at archive time (2026-08-25): these require the
-      production Hydrolix cluster, which no CI or dev-stack path can reach —
-      stock ClickHouse accepts `hdx_*` settings via `custom_settings_prefixes`
-      but does not enforce them. The design's load-bearing cluster behavior
-      (flat topK form, driver-channel breaker + SQL-level `break` returning
-      partial results) was already confirmed on the real cluster on
-      2026-08-24; what remains is confirmatory. Track it on the ticket, not
-      here._
+      _Not automatable: these require the production Hydrolix cluster, which
+      no CI or dev-stack path can reach — stock ClickHouse accepts `hdx_*`
+      settings via `custom_settings_prefixes` but does not enforce them. The
+      design's load-bearing cluster behavior (flat topK form, driver-channel
+      breaker + SQL-level `break` returning partial results) was already
+      confirmed on the real cluster on 2026-08-24; what remains is
+      confirmatory and is tracked on the ticket, not here._
 - [x] 1.4 On the dev ClickHouse stack, check whether stock ClickHouse
       accepts `hdx_` settings on both channels — `hdx_query_max_execution_time`
       as a session setting and `hdx_query_max_timerange_sec` in the SQL
