@@ -4,7 +4,7 @@ import {
   ChatContextItem,
   createAssistantContextItem,
 } from "@grafana/assistant";
-import { isObject } from "../ast";
+import { isObject, walkNodes } from "../ast";
 
 export interface HdxTableRef {
   database?: string;
@@ -35,40 +35,38 @@ export interface AssistantContextPayload {
 }
 
 /**
+ * The `Name` of an AST node's named sub-node, when it has one. Parser output
+ * spells identifiers as `{Name: string, QuoteType: number}`, but the same
+ * field name is reused for nodes whose `Name` is an object, so the string
+ * check is what distinguishes them.
+ */
+const identifierName = (value: unknown): string | undefined =>
+  isObject(value) && typeof (value as { Name?: unknown }).Name === "string"
+    ? (value as { Name: string }).Name
+    : undefined;
+
+/**
  * Collects every table reference from a clickhouse-sql-parser AST (the
  * `/ast` backend resource's response). A TableIdentifier marshals as
  * `{Database?: {Name}, Table: {Name}}`, and `Table.Name` being a string is
  * unique to that node type — TableExpr's `Table` field holds an object, and
  * table functions carry `Name`/`Args` instead.
  */
-export const collectTableRefs = (
-  node: unknown,
-  out: HdxTableRef[] = []
-): HdxTableRef[] => {
-  if (Array.isArray(node)) {
-    node.forEach((child) => collectTableRefs(child, out));
-    return out;
+export const collectTableRefs = (node: unknown): HdxTableRef[] => {
+  const refs: HdxTableRef[] = [];
+  for (const candidate of walkNodes(node)) {
+    if (!isObject(candidate)) {
+      continue;
+    }
+    const rec = candidate as Record<string, unknown>;
+    const table = identifierName(rec.Table);
+    if (table === undefined) {
+      continue;
+    }
+    const database = identifierName(rec.Database);
+    refs.push({ table, ...(database ? { database } : {}) });
   }
-  if (!isObject(node)) {
-    return out;
-  }
-  const rec = node as Record<string, unknown>;
-  const table = rec.Table;
-  if (isObject(table) && typeof (table as { Name?: unknown }).Name === "string") {
-    const database = rec.Database;
-    const databaseName =
-      isObject(database) &&
-      typeof (database as { Name?: unknown }).Name === "string"
-        ? ((database as { Name: string }).Name as string)
-        : undefined;
-    out.push({
-      table: (table as { Name: string }).Name,
-      ...(databaseName ? { database: databaseName } : {}),
-    });
-    return out;
-  }
-  Object.values(rec).forEach((child) => collectTableRefs(child, out));
-  return out;
+  return refs;
 };
 
 /**
