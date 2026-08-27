@@ -273,21 +273,30 @@ export function QueryEditor(props: Props) {
                     gap: 4,
                   }}
                 >
+                  {/* One gate for both toolbar surfaces: the spec requires the
+                      plugin to determine availability before rendering any
+                      Assistant UI. QueryWithAssistantButton also self-gates,
+                      but relying on that would make the guarantee the SDK's
+                      rather than ours. */}
                   {assistantAvailable && (
-                    <ExplainErrorButton
-                      datasource={props.datasource}
-                      rawSql={props.query.rawSql}
-                      refId={props.query.refId}
-                      data={props.data}
-                    />
+                    <>
+                      <ExplainErrorButton
+                        datasource={props.datasource}
+                        rawSql={props.query.rawSql}
+                        refId={props.query.refId}
+                        data={props.data}
+                      />
+                      <QueryWithAssistantButton<HdxQuery>
+                        currentQuery={props.query}
+                        queries={siblingQueries}
+                        dataSourceInstanceSettings={
+                          props.datasource.instanceSettings
+                        }
+                        datasourceApi={props.datasource}
+                        app={props.app}
+                      />
+                    </>
                   )}
-                  <QueryWithAssistantButton<HdxQuery>
-                    currentQuery={props.query}
-                    queries={siblingQueries}
-                    dataSourceInstanceSettings={props.datasource.instanceSettings}
-                    datasourceApi={props.datasource}
-                    app={props.app}
-                  />
                   <ToolbarButton
                     tooltip={labels.formatQuery.tooltip}
                     onClick={formatQuery}

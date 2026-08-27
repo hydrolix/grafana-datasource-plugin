@@ -385,21 +385,27 @@ describe("QueryEditor Assistant gating", () => {
     mockUseProvidePageContext.mockReturnValue(jest.fn());
   });
 
-  it("registers no page context and renders no explain action when Assistant is unavailable", () => {
+  it("registers no page context and renders no Assistant UI when Assistant is unavailable", () => {
     const props = makeProps();
     render(<QueryEditor {...props} data={failedData} />);
 
     expect(mockUseProvidePageContext).not.toHaveBeenCalled();
     expect(screen.queryByTestId("explain-error-stub")).not.toBeInTheDocument();
+    // QueryWithAssistantButton self-gates inside the SDK, but the spec puts
+    // the availability decision on the plugin, so QueryEditor gates it too.
+    expect(
+      screen.queryByTestId("query-with-assistant-stub")
+    ).not.toBeInTheDocument();
   });
 
-  it("registers page context and renders the explain action when Assistant is available", () => {
+  it("registers page context and renders both Assistant surfaces when available", () => {
     mockUseAssistant.mockReturnValue({ isAvailable: true });
     const props = makeProps();
     render(<QueryEditor {...props} data={failedData} />);
 
     expect(mockUseProvidePageContext).toHaveBeenCalled();
     expect(screen.getByTestId("explain-error-stub")).toBeInTheDocument();
+    expect(screen.getByTestId("query-with-assistant-stub")).toBeInTheDocument();
   });
 
   it("keeps the editor itself intact when Assistant is unavailable", () => {
