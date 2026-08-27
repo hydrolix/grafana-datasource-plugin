@@ -22,7 +22,7 @@
 - [x] 4.1 Register page context from `src/components/QueryEditor.tsx` via `providePageContext`, gated on the availability hook
 - [x] 4.2 Update published context when the SQL or time range changes, using the setter returned by `providePageContext`
 - [x] 4.3 Add the Assistant entry point to the QueryEditor, passing datasource and current query
-- [x] 4.4 Unit-test that no context is published and no entry point renders when Assistant is unavailable
+- [x] 4.4 Unit-test that no context is published and no entry point renders when Assistant is unavailable — the tick was premature; delivered in §11.2 after the PR #169 review found no assistant coverage in `QueryEditor.test.tsx`
 - [x] 4.5 Unit-test that context updates on SQL and time-range changes
 
 ## 5. Error-path explain action
@@ -75,3 +75,12 @@
 - [x] 10.6 Filter `props.queries` by datasource uid before the `HdxQuery[]` cast (Mixed-panel leak)
 - [x] 10.7 Drop the dead `datasourceName` field; type the test mocks without `any`
 - [x] 10.8 Re-run gates: typecheck, lint, `npm run test:ci` (192 passing), clean build
+
+## 11. Code-review fixes (PR #169, 2026-08-27)
+
+- [x] 11.1 Auto-approval had no implementation. It is a property of the Skill *resource* (`allowed_tools` = `integration_id` + `tool_name` on `grafana_assistant_skill`), not of the Skill document — a markdown body has no frontmatter equivalent. Delivered as the **Allowed tools** step in `docs/grafana-assistant.md` §4 plus an as-code Terraform variant, with `run_select_query` excluded and the exclusion explained.
+- [x] 11.2 Add the §4.4 assertions that were ticked but never written: `QueryEditor.test.tsx` now mocks `@grafana/assistant` and asserts `useProvidePageContext` is not called and no explain action renders when unavailable, and that both appear when available. Verified to fail with the `assistantAvailable &&` gates removed.
+- [x] 11.3 `metadataProvider.primaryKey` memoized on truthiness, so a table whose primary key resolves to `""`/undefined re-queried the cluster on every call — once per keystroke behind Assistant's 300ms debounce. Switched to a `key in primaryKeys` presence check; two regression tests, both verified to fail against the old predicate. Pre-existing code; this change is what put it on a hot path.
+- [x] 11.4 Operator documentation (§7.1–7.4) written as `docs/grafana-assistant.md`.
+- [x] 11.5 Reachability is verified by curling `/mcp` and expecting an authentication failure. `/health` is not served on a live cluster; the `hdx-assistant-skill` spec scenario named it specifically and was amended to require reachability without naming an endpoint. `design.md` R4 keeps the original wording as the archived record.
+- [x] 11.6 Re-run gates: typecheck, lint (0 errors), `npm run test:ci` — 214 passing across 19 suites. Backend untouched.

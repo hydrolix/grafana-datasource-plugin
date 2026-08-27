@@ -250,6 +250,37 @@ describe("MetadataProvider", () => {
     await mdp.primaryKey({ schema: "schema", table: "table" });
     expect(queryMock).toHaveBeenCalledTimes(1);
   });
+
+  // A falsy primary key is a real result, not a miss. Assistant republishes
+  // context on a 300ms debounce, so treating "" or undefined as "not fetched
+  // yet" issues a cluster query per keystroke.
+  test("treats an empty pk as already-fetched", async () => {
+    queryMock.mockReturnValue(
+      of({
+        data: [toDataFrame({ fields: [{ values: [""] }] })],
+      })
+    );
+    let mdp = getMetadataProvider(datasource);
+    let first = await mdp.primaryKey({ schema: "schema", table: "table" });
+    let second = await mdp.primaryKey({ schema: "schema", table: "table" });
+    expect(first).toEqual("");
+    expect(second).toEqual("");
+    expect(queryMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("treats a pk query returning no rows as already-fetched", async () => {
+    queryMock.mockReturnValue(
+      of({
+        data: [toDataFrame({ fields: [{ values: [] }] })],
+      })
+    );
+    let mdp = getMetadataProvider(datasource);
+    let first = await mdp.primaryKey({ schema: "schema", table: "table" });
+    let second = await mdp.primaryKey({ schema: "schema", table: "table" });
+    expect(first).toBeUndefined();
+    expect(second).toBeUndefined();
+    expect(queryMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("getKeyMap", () => {
