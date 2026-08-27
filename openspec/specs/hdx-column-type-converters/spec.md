@@ -1,4 +1,12 @@
-## ADDED Requirements
+# hdx-column-type-converters Specification
+
+## Purpose
+
+Owns the mapping from ClickHouse column types to Grafana data frame fields: which types the converter registry (`pkg/converters`) recognises, the frame field type each produces, how SQL `NULL` is represented, and the contracts a converter must honour — rejecting unexpected scan types rather than substituting a zero value, never aliasing the reused scan buffer, and matching type names deterministically regardless of registry iteration order. Rendering follows the *declared column type* rather than the value, matching ClickHouse's own `toString()`, so an IPv4-mapped address in an `IPv6` column keeps its `::ffff:` prefix.
+
+Also owns which of those types are offered as ad-hoc filter keys (via the frontend supported-type list) and the requirement that a filter naming an eligible key produces valid SQL rather than being silently dropped to `1=1`.
+
+## Requirements
 
 ### Requirement: UUID columns convert to string frame fields
 
@@ -150,11 +158,11 @@ condition that ClickHouse accepts and that matches the intended rows.
 - **WHEN** an ad-hoc filter applies `=` with an address literal to an `IPv4` or `IPv6` column
 - **THEN** the generated condition executes without a ClickHouse type error and selects the matching rows
 
-#### Scenario: Equality filter using the dotted-quad text a panel displays
+#### Scenario: Equality filter using a dotted-quad literal
 
 - **WHEN** an ad-hoc filter applies `=` with `1.2.3.4` to an `IPv6` column holding the IPv4-mapped address `::ffff:1.2.3.4`
 - **THEN** the row matches, because ClickHouse parses the literal into an IPv6 value before comparing
-- **AND** a value copied out of a panel cell is therefore valid ad-hoc filter input
+- **AND** the padded `::ffff:1.2.3.4` form the panel displays matches under `=` as well, so a value copied out of a panel cell is valid ad-hoc filter input
 
 #### Scenario: Negated equality filter on an IP column
 
@@ -165,6 +173,11 @@ condition that ClickHouse accepts and that matches the intended rows.
 
 - **WHEN** an ad-hoc filter applies the multi-value operator `=|` with two address literals to an `IPv4` column
 - **THEN** the generated `IN (...)` condition selects the rows matching either literal
+
+#### Scenario: Negated multi-value filter on an IP column
+
+- **WHEN** an ad-hoc filter applies the negated multi-value operator `!=|` with two address literals to an `IPv4` column
+- **THEN** the generated `NOT IN (...)` condition excludes the rows matching either literal and retains the rest
 
 #### Scenario: NULL sentinel filter on a nullable UUID or IP column
 
@@ -184,6 +197,12 @@ condition that ClickHouse accepts and that matches the intended rows.
 - **THEN** no rows match, because `=~` compares rendered text and the pattern carries no wildcards
 - **AND** the same literal under `=` does match, because `=` parses the literal before comparing
 
+#### Scenario: Negated text operator excludes the matching row
+
+- **WHEN** an ad-hoc filter applies `!~` with the rendered form of a value to an `IPv6` column
+- **THEN** the generated `toString(...) NOT LIKE` condition excludes the row holding that value and retains the rest
+- **AND** the retained rows are identified positively, so a condition that lost its negation is distinguishable from one that applied it
+
 ### Requirement: Ad-hoc filters on UUID and IP columns are not silently dropped
 
 The ad-hoc filter macro SHALL apply a filter whose key names a `UUID`, `IPv4`, or
@@ -194,3 +213,4 @@ The ad-hoc filter macro SHALL apply a filter whose key names a `UUID`, `IPv4`, o
 - **WHEN** a dashboard applies an ad-hoc filter on a UUID or IP column and the panel query contains `$__adHocFilter()`
 - **THEN** the filter reaches the backend attached to the query
 - **AND** the emitted condition restricts the result set rather than resolving to `1=1`
+

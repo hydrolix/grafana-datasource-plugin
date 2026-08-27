@@ -372,7 +372,7 @@ func TestIPv6(t *testing.T) {
 	assert.Equal(t, "2001:db8::1", actual)
 }
 
-// TestIPv6IPv4MappedAddress pins D5: rendering follows the *column type*, so an
+// TestIPv6IPv4MappedAddress pins the rendering rule: it follows the *column type*, so an
 // IPv4-mapped address in an IPv6 column keeps ClickHouse's "::ffff:" prefix
 // rather than collapsing to the dotted-quad form net.IP.String() would give.
 // This is the dominant case on Hydrolix, which stores IPv4 addresses mapped.
@@ -389,7 +389,7 @@ func TestIPv6IPv4MappedAddress(t *testing.T) {
 	assert.Equal(t, "::ffff:1.2.3.4", actual)
 }
 
-// TestIPv4ColumnStaysDottedQuad is the other half of D5: the *same* mapped bytes
+// TestIPv4ColumnStaysDottedQuad is the other half of that rule: the *same* mapped bytes
 // in an IPv4 column render dotted-quad, because that is what ClickHouse shows
 // for an IPv4 column. The two converters must not be interchangeable.
 func TestIPv4ColumnStaysDottedQuad(t *testing.T) {
@@ -529,7 +529,7 @@ func TestNullableIPv4NoAliasing(t *testing.T) {
 	assert.Equal(t, "2.2.2.2", *s2)
 }
 
-// TestUUIDAndIPTypesResolveExactlyOnce pins D4: exact-name matching, no
+// TestUUIDAndIPTypesResolveExactlyOnce pins exact-name matching: no
 // regex reachability, so registry map iteration order can't produce a
 // nondeterministic match for any of these six type names.
 func TestUUIDAndIPTypesResolveExactlyOnce(t *testing.T) {

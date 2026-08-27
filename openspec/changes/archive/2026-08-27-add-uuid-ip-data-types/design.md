@@ -145,10 +145,14 @@ Concretely, type-driven rendering buys three things:
 cell carries an `::ffff:` prefix, which is noisier than dotted-quad for the
 dominant case. Users who prefer the short form can strip the prefix with a
 standard string transformation — the reverse is not possible, because dotted-quad
-has already discarded which family the column holds. Separately, Hydrolix's
-documentation currently states that "Grafana automatically represents IPv4 in
-typical dotted-quad form"; that sentence describes the behavior this decision
-changes and should be updated alongside the release.
+has already discarded which family the column holds. Separately, the Hydrolix
+**IP Data Type** page (<https://docs.hydrolix.io/docs/ip-data-type>) states that
+"Grafana automatically represents IPv4 in typical dotted-quad form". That
+sentence already contradicts the rest of its own page — which says the `ip` type
+maps to `IPv6` at storage and query time and that "IPv4 addresses are returned in
+IPv4-mapped IPv6 form" — and it contradicts this decision, so it should be
+corrected alongside the release. The page's `toIPv4OrDefault(ip)` + `toString()`
+recipe stays valid as the way to render dotted-quad on demand.
 
 *Alternative considered:* keep dotted-quad and make `=~` consistent by rewriting
 the backend's regex branch to parse IP literals. Rejected — it would break the

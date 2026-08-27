@@ -79,7 +79,7 @@ func jsonConverter(in interface{}) (interface{}, error) {
 // an IPv6 column always renders in IPv6 notation — including the "::ffff:"
 // prefix for an IPv4-mapped address. Go's net.IP.String() is value-driven
 // instead and collapses a mapped 16-byte address to dotted-quad, which is why
-// the IPv6 path cannot simply call it (see design decision D5).
+// the IPv6 path cannot simply call it.
 //
 // The registry pairs each type name with the matching renderer, so the mapping
 // holds regardless of how many bytes the driver happens to hand over.

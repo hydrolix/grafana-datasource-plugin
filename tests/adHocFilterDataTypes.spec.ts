@@ -101,7 +101,7 @@ const cases: FilterCase[] = [
   {
     // The Hydrolix-shaped case, and the panel-to-filter round trip. v6_mapped is
     // IPv6 holding ::ffff:1.2.3.4, which the plugin renders padded — matching
-    // ClickHouse's own toString() (design decision D5). So this literal is
+    // ClickHouse's own toString(). So this literal is
     // exactly the text a user copies out of a panel cell.
     title:
       "IPv4-mapped IPv6 column, '=' against the padded form the panel displays",
@@ -175,7 +175,7 @@ const cases: FilterCase[] = [
     // rather than a parsed comparison. Because the plugin now renders IPv6
     // columns the same way toString() does, the value copied from a panel cell
     // works under '=~' as well as under '=' (the pair of cases above and this
-    // one are the whole point of D5: one text form, every operator).
+    // one are the whole point: one text form, every operator).
     title:
       "IPv4-mapped IPv6 column, '=~' matches the same padded form the panel displays",
     key: "v6_mapped",
@@ -197,7 +197,58 @@ const cases: FilterCase[] = [
     value: "1.2.3.4",
     expectedCount: 0,
   },
+  {
+    // The negation of the '=~' case above -> `toString(key) NOT LIKE '…'`.
+    // Negation is where a silently inverted condition hides: a macro that lost
+    // the NOT would return row 1 here instead of row 2, and both are one-row
+    // answers, so only the row fingerprint separates them.
+    //
+    // Deliberately not covered: '!~' against a dotted-quad literal. No row
+    // renders as "1.2.3.4", so NOT LIKE keeps both rows — a count of 2, which
+    // is exactly what a dropped filter falling back to 1=1 produces. With this
+    // fixture the assertion could not tell those apart, so it would pin nothing.
+    title:
+      "IPv4-mapped IPv6 column, '!~' excludes the row matching the padded form",
+    key: "v6_mapped",
+    operator: "!~",
+    value: "::ffff:1.2.3.4",
+    expectedCount: 1,
+    expectedRowUuid: ROW2_UUID,
+  },
+  {
+    // Negated multi-value operator -> `key NOT IN ('…','…')`. One literal that
+    // matches a row and one that matches nothing, so the answer is a single
+    // row — distinguishable from both a dropped filter (2 rows) and an
+    // over-broad exclusion (0 rows).
+    title: "IPv4 column, '!=|' excludes the matching row and keeps the other",
+    key: "v4_col",
+    operator: "!=|",
+    values: ["1.2.3.4", "9.9.9.9"],
+    expectedCount: 1,
+    expectedRowUuid: ROW2_UUID,
+  },
 ];
+
+/**
+ * The subset of the /api/ds/query wire shapes these assertions read. Declared
+ * locally rather than imported from the SDK: what matters here is the shape of
+ * the captured JSON, which is deliberately narrower than the runtime types.
+ */
+interface WireQuery {
+  refId: string;
+  rawSql?: string;
+  filters?: unknown[];
+}
+interface WireRequest {
+  queries?: WireQuery[];
+}
+interface WireFrame {
+  schema?: { fields?: Array<{ name: string }> };
+  data?: { values?: unknown[][] };
+}
+interface WireResponse {
+  results?: Record<string, { frames?: WireFrame[] }>;
+}
 
 /**
  * Pulls the first frame for the panel query out of a captured /api/ds/query
@@ -207,23 +258,23 @@ const cases: FilterCase[] = [
 function findPanelFrame(
   requests: string[],
   responses: string[],
-): any | undefined {
+): { frame: WireFrame; query: WireQuery } | undefined {
   for (let i = requests.length - 1; i >= 0; i--) {
-    let req: any;
+    let req: WireRequest;
     try {
-      req = JSON.parse(requests[i]);
+      req = JSON.parse(requests[i]) as WireRequest;
     } catch {
       continue;
     }
     const query = (req?.queries ?? []).find(
-      (q: any) =>
+      (q) =>
         typeof q?.rawSql === "string" && q.rawSql.includes("$__adHocFilter()"),
     );
     if (!query) continue;
 
-    let resp: any;
+    let resp: WireResponse;
     try {
-      resp = JSON.parse(responses[i]);
+      resp = JSON.parse(responses[i]) as WireResponse;
     } catch {
       continue;
     }
@@ -236,9 +287,9 @@ function findPanelFrame(
 }
 
 /** Column values of a Grafana JSON data frame, by field name. */
-function columnByName(frame: any, name: string): any[] | undefined {
+function columnByName(frame: WireFrame, name: string): unknown[] | undefined {
   const index = (frame?.schema?.fields ?? []).findIndex(
-    (f: any) => f.name === name,
+    (f) => f.name === name,
   );
   return index < 0 ? undefined : frame?.data?.values?.[index];
 }

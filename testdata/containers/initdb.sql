@@ -36,8 +36,8 @@ CREATE TABLE e2e.datatypes
     v6_null   Nullable(IPv6),
     -- An IPv6 column holding IPv4-mapped addresses. This mirrors how Hydrolix
     -- stores its own `ip` transform type: one IPv6 column carrying both
-    -- families, IPv4 padded to ::ffff:a.b.c.d. Rendering is type-driven
-    -- (design decision D5): the plugin keeps the ::ffff: prefix, matching
+    -- families, IPv4 padded to ::ffff:a.b.c.d. Rendering is type-driven:
+    -- the plugin keeps the ::ffff: prefix, matching
     -- ClickHouse's own toString() form, so panel text round-trips into every
     -- ad-hoc filter operator.
     v6_mapped IPv6
