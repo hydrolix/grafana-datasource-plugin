@@ -401,11 +401,17 @@ func TestIPv4ColumnStaysDottedQuad(t *testing.T) {
 }
 
 // TestIPv6RenderingMatchesClickhouse pins the full rendering table against
-// ClickHouse's toString() output, verified on clickhouse-server 24.8 and 25.x.
-// The IPv4-compatible form (::1.2.3.4, no ffff) is the single divergence:
-// ClickHouse prints "::1.2.3.4", Go prints "::102:304". That address form was
-// deprecated by RFC 4291 and ClickHouse cannot store it distinctly from any
-// other 16-byte value, so it is left alone rather than special-cased.
+// ClickHouse's toString() output, verified on clickhouse-server 24.8 and 26.5.
+//
+// The rows below the mapped ones are the IPv4-compatible form (::1.2.3.4, no
+// ffff). RFC 4291 deprecated that form, but ClickHouse both stores it
+// distinctly (::1.2.3.4 is 0…0.01020304, ::ffff:1.2.3.4 is 0…0.ffff.01020304)
+// and renders it with a dotted-quad tail, so the plugin has to as well: "=~"
+// compares toString(column), and a hex rendering the server never produces
+// would match no rows.
+//
+// The last four rows are the boundary the v4Compatible predicate has to hold —
+// low bits set but bytes 12-13 zero, which ClickHouse keeps in hex.
 func TestIPv6RenderingMatchesClickhouse(t *testing.T) {
 	sut := getConverter("IPv6")
 	cases := []struct {
@@ -417,11 +423,20 @@ func TestIPv6RenderingMatchesClickhouse(t *testing.T) {
 		{net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0, 0, 0, 0}, "::ffff:0.0.0.0"},
 		{net.IPv6zero, "::"},
 		{net.IPv6loopback, "::1"},
+		// IPv4-compatible: dotted-quad tail, matching ClickHouse.
+		{net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4}, "::1.2.3.4"},
+		{net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 1}, "::10.0.0.1"},
+		{net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0}, "::0.1.0.0"},
+		{net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff}, "::255.255.255.255"},
+		// Bytes 12-13 zero: stays hex, so the branch above must not fire.
+		{net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2}, "::2"},
+		{net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0}, "::100"},
+		{net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff}, "::ffff"},
 	}
 	for _, c := range cases {
 		v, err := sut.FrameConverter.ConverterFunc(&c.ip)
 		assert.Nil(t, err)
-		assert.Equal(t, c.expected, v.(string))
+		assert.Equal(t, c.expected, v.(string), "rendering %v", []byte(c.ip))
 	}
 }
 

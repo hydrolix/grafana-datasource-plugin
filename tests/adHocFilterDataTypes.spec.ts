@@ -135,11 +135,17 @@ const cases: FilterCase[] = [
   {
     // Multi-value operator -> `key IN ('…','…')`. plugin.json sets
     // multiValueFilterOperators, so Grafana offers "=|" for these keys.
-    title: "IPv4 column, '=|' with two literals matches both rows",
+    //
+    // One literal that matches a row and one that matches nothing, mirroring
+    // the '!=|' case below. Two matching literals would be the natural way to
+    // write this, but both rows is also what a dropped filter falling back to
+    // 1=1 returns — same count, same fingerprint — so that version could not
+    // fail on the one failure mode this file exists to catch.
+    title: "IPv4 column, '=|' with two literals matches the one that exists",
     key: "v4_col",
     operator: "=|",
-    values: ["1.2.3.4", "5.6.7.8"],
-    expectedCount: 2,
+    values: ["1.2.3.4", "9.9.9.9"],
+    expectedCount: 1,
     expectedRowUuid: ROW1_UUID,
   },
   {
@@ -226,6 +232,23 @@ const cases: FilterCase[] = [
     values: ["1.2.3.4", "9.9.9.9"],
     expectedCount: 1,
     expectedRowUuid: ROW2_UUID,
+  },
+  {
+    // The IPv4-compatible form (::a.b.c.d, no ffff), which ClickHouse renders
+    // with a dotted-quad tail while Go's netip renders hex ("::a00:1").
+    //
+    // '=~' compares toString(key), so this literal is only usable if the panel
+    // shows the same text the server produces. The display half is asserted in
+    // tests/dataTypes.spec.ts against this exact string; together the two pin
+    // the copy-from-panel round trip for this form. Before the renderer handled
+    // it, a cell read "::a00:1" and filtering on it returned no rows.
+    title:
+      "IPv4-compatible IPv6 column, '=~' matches the dotted-quad form the panel displays",
+    key: "v6_compat",
+    operator: "=~",
+    value: "::10.0.0.1",
+    expectedCount: 1,
+    expectedRowUuid: ROW1_UUID,
   },
 ];
 

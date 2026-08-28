@@ -60,10 +60,22 @@ produces.
 - **WHEN** the same IPv4-mapped 16-byte value reaches the converter for an `IPv4` column
 - **THEN** the frame value is the dotted-quad form `1.2.3.4`, because rendering follows the column type rather than the value
 
+#### Scenario: IPv4-compatible address in an IPv6 column
+
+- **WHEN** an `IPv6` column holds an address in the deprecated IPv4-compatible form — first 12 bytes zero and the low 32 bits carrying an IPv4 address, such as `::10.0.0.1`
+- **THEN** the frame value is `::10.0.0.1`, with the dotted-quad tail ClickHouse's `toString()` produces
+- **AND** it is NOT rendered in the hexadecimal form `::a00:1` that a general-purpose IPv6 formatter produces, which would be text the server never emits and therefore unusable as input to the text-comparing operators
+
+#### Scenario: Low-order bits set but not IPv4-compatible
+
+- **WHEN** an `IPv6` column holds an address whose first 12 bytes are zero and whose bytes 12-13 are also zero, such as `::2`, `::100`, or `::ffff`
+- **THEN** the frame value stays in hexadecimal form, matching ClickHouse, because the dotted-quad tail applies only to the IPv4-compatible range
+
 #### Scenario: Rendering is verified against the server rather than a fixture
 
 - **WHEN** an integration test selects an `IPv6` column alongside `toString()` of the same column
 - **THEN** the converted frame value equals the value ClickHouse rendered, over both the native and the HTTP protocol
+- **AND** the addresses exercised cover every branch of the renderer — ordinary, IPv4-mapped, IPv4-compatible, and the low-bits-set boundary — so no branch is pinned only by a hardcoded expectation that could drift from the server
 
 #### Scenario: Value of an unrenderable length
 
@@ -163,8 +175,9 @@ condition that ClickHouse accepts and that matches the intended rows.
 
 #### Scenario: Multi-value filter on an IP column
 
-- **WHEN** an ad-hoc filter applies the multi-value operator `=|` with two address literals to an `IPv4` column
-- **THEN** the generated `IN (...)` condition selects the rows matching either literal
+- **WHEN** an ad-hoc filter applies the multi-value operator `=|` with two address literals to an `IPv4` column, one present in the data and one absent from it
+- **THEN** the generated `IN (...)` condition selects only the row matching the present literal
+- **AND** the result is a strict subset of the table, so it is distinguishable from a filter that was dropped
 
 #### Scenario: Negated multi-value filter on an IP column
 
@@ -182,6 +195,12 @@ condition that ClickHouse accepts and that matches the intended rows.
 - **WHEN** an ad-hoc filter applies `=~` or `!~` to a `UUID`, `IPv4`, or `IPv6` column
 - **THEN** the generated condition wraps the column in `toString(...)`
 - **AND** because the plugin renders values in the same form `toString(...)` produces, the text shown in a panel cell matches under `=~` as well as under `=`
+
+#### Scenario: Displayed value of an IPv4-compatible address is valid `=~` input
+
+- **WHEN** an ad-hoc filter applies `=~` with the dotted-quad text a panel shows for an `IPv6` column holding an IPv4-compatible address, such as `::10.0.0.1`
+- **THEN** the row holding that address matches
+- **AND** the assertion is anchored to the same literal the rendering test asserts, so a renderer that regressed to the hexadecimal form fails the rendering test rather than leaving both tests passing on different text
 
 #### Scenario: A literal in a different textual form does not match under `=~`
 
@@ -205,3 +224,9 @@ The ad-hoc filter macro SHALL apply a filter whose key names a `UUID`, `IPv4`, o
 - **WHEN** a dashboard applies an ad-hoc filter on a UUID or IP column and the panel query contains `$__adHocFilter()`
 - **THEN** the filter reaches the backend attached to the query
 - **AND** the emitted condition restricts the result set rather than resolving to `1=1`
+
+#### Scenario: Every filter case is falsifiable against the fallback
+
+- **WHEN** a filter case asserts the result of applying an ad-hoc filter to a UUID or IP column
+- **THEN** its expected row count and row fingerprint differ from what the `1=1` fallback returns for the same fixture
+- **AND** a case that cannot satisfy that is either reshaped until it can — by choosing literals that select a strict subset — or omitted with the reason recorded, rather than kept as an assertion blind to the failure mode it exists to catch

@@ -161,11 +161,31 @@ column type, and it cannot be done without either unmapping in SQL (lossy for
 genuine IPv6 values) or duplicating Go's formatting rules in ClickHouse
 expressions.
 
-*Not special-cased:* the deprecated IPv4-compatible form (`::1.2.3.4`, no
-`ffff`). ClickHouse prints `::1.2.3.4`, Go prints `::102:304`. RFC 4291
-deprecated that form and ClickHouse cannot distinguish it from any other 16-byte
-value on the way in, so the divergence is documented by a unit test rather than
-worked around.
+*Special-cased:* the deprecated IPv4-compatible form (`::1.2.3.4`, no `ffff`).
+`netip.AddrFrom16(...).String()` prints `::102:304` where ClickHouse prints
+`::1.2.3.4`, so `ipv6Text` renders the dotted-quad tail itself when the first 12
+bytes are zero and bytes 12-13 are not both zero. That predicate is the
+equivalent of ClickHouse's own `formatIPv6` branch (`best.base == 0 &&
+best.len == 6`): with words 0-5 zero, a non-zero word 6 is exactly what pins the
+best zero-run at length 6, which is why `::`, `::1`, `::2`, `::100` and `::ffff`
+stay in hex on both sides.
+
+An earlier revision left this divergence in place on the grounds that RFC 4291
+deprecated the form and that ClickHouse could not store it distinctly. The second
+half was wrong: `::1.2.3.4` stores as `0…0.01020304` and `::ffff:1.2.3.4` as
+`0…0.ffff.01020304` — distinct bytes, distinct renderings. And the deprecation
+governs whether the form should be *used*, not how the server prints one it
+holds, whereas this decision's whole premise is that the plugin prints what the
+server prints. Leaving it diverged broke that premise for real data: `=~` and
+`!~` compare `toString(column)`, so a cell reading `::a00:1` was text the server
+never emits, and copying it into a filter returned zero rows.
+
+The renderer is therefore verified against the server rather than against a table
+this repo wrote: `TestIPv6RenderingMatchesServer` round-trips every branch —
+ordinary, mapped, IPv4-compatible, and the low-bits-set boundary — through
+`toString()`. That is the test that cannot drift, and the reason this gap
+survived the first round is that it held only the mapped address, so the one case
+that disagreed was pinned solely by a hardcoded expectation.
 
 ### D6. Ad-hoc filter eligibility is driven by the frontend supported-type list
 

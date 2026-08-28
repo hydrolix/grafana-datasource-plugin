@@ -97,3 +97,32 @@ test("IPv4-mapped addresses in an IPv6 column keep the ::ffff: prefix", async ()
     "::ffff:5.6.7.8",
   ]);
 });
+
+/**
+ * The IPv4-compatible form (::a.b.c.d, no ffff). ClickHouse renders it with a
+ * dotted-quad tail; Go's netip renders it in hex ("::10.0.0.1" as "::a00:1").
+ *
+ * This is the display half of a two-part guarantee. The ad-hoc counterpart in
+ * tests/adHocFilterDataTypes.spec.ts filters v6_compat with '=~' against the
+ * same literal asserted here, and '=~' compares toString(column) — the server's
+ * own text. So the two tests agreeing on this string is what proves a value
+ * copied out of a panel cell is accepted by the text-comparing operators; if
+ * the renderer regressed to hex, this test fails while that one still passes.
+ */
+test("IPv4-compatible addresses in an IPv6 column render dotted-quad", async () => {
+  await queryTextSet(
+    "A",
+    "select v6_compat, v6_col from e2e.datatypes order by datetime",
+    panelEditPage,
+  );
+  await expect(panelEditPage.refreshPanel()).toBeOK();
+
+  await expect(panelEditPage.panel.fieldNames).toContainText([
+    "v6_compat",
+    "v6_col",
+  ]);
+  await expect(panelEditPage.panel.data).toContainText([
+    "::10.0.0.1",
+    "::20.0.0.2",
+  ]);
+});

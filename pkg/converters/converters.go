@@ -95,10 +95,34 @@ func ipv4Text(ip net.IP) (string, error) {
 	return v4.String(), nil
 }
 
+// v4Compatible reports whether a 16-byte address is in the deprecated
+// IPv4-compatible form (RFC 4291 §2.5.5.1): the first 12 bytes zero, with the
+// low 32 bits carrying an IPv4 address. ClickHouse renders exactly this set
+// with a dotted-quad tail, so the predicate has to select exactly it.
+//
+// Requiring bytes 12-13 to be non-zero is what keeps "::", "::1", "::2",
+// "::100" and "::ffff" in hex. It mirrors ClickHouse's formatIPv6, which takes
+// the dotted-quad branch on `best.base == 0 && best.len == 6` — with words 0-5
+// zero, a non-zero word 6 is precisely what pins the best zero-run at 6.
+func v4Compatible(b []byte) bool {
+	for _, x := range b[:12] {
+		if x != 0 {
+			return false
+		}
+	}
+	return b[12] != 0 || b[13] != 0
+}
+
 // ipv6Text renders a value from an IPv6 column in IPv6 notation, matching
 // ClickHouse's own formatter. netip.Addr is used instead of net.IP because
 // AddrFrom16 never unmaps: an IPv4-mapped address stays "::ffff:1.2.3.4" where
 // net.IP.String() would print "1.2.3.4".
+//
+// netip alone is not enough, though: it prints the IPv4-compatible form in hex
+// ("::10.0.0.1" as "::a00:1") where ClickHouse prints the dotted-quad tail.
+// That gap is not cosmetic — "=~" compares toString(column) text, so a value
+// copied out of a panel cell would match no rows. The v4Compatible branch below
+// closes it.
 //
 // A 4-byte input (not something the driver produces for an IPv6 column, but
 // cheap to handle) is widened by To16 into its mapped form, which is exactly
@@ -107,6 +131,9 @@ func ipv6Text(ip net.IP) (string, error) {
 	b := ip.To16()
 	if b == nil {
 		return "", fmt.Errorf("expected an IPv6 address, got %d bytes (%v)", len(ip), ip)
+	}
+	if v4Compatible(b) {
+		return "::" + net.IP(b[12:]).String(), nil
 	}
 	return netip.AddrFrom16([16]byte(b)).String(), nil
 }

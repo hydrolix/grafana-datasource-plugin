@@ -40,10 +40,17 @@ CREATE TABLE e2e.datatypes
     -- the plugin keeps the ::ffff: prefix, matching
     -- ClickHouse's own toString() form, so panel text round-trips into every
     -- ad-hoc filter operator.
-    v6_mapped IPv6
+    v6_mapped IPv6,
+    -- An IPv6 column holding the deprecated IPv4-compatible form (::a.b.c.d,
+    -- no ffff). ClickHouse renders it with a dotted-quad tail where Go's netip
+    -- renders hex ("::a00:1"), so this column exists to pin that branch of the
+    -- renderer end to end. It matters because '=~' compares toString(column):
+    -- a hex rendering in the panel would be text the server never produces, so
+    -- the value a user copies out of a cell would match no rows.
+    v6_compat IPv6
 ) ENGINE = MergeTree() ORDER BY datetime;
 
-INSERT INTO e2e.datatypes (datetime, uuid_col, uuid_null, v4_col, v4_null, v6_col, v6_null, v6_mapped) VALUES
-    ('2025-04-09 00:00:00', '61f0c404-5cb3-11e7-907b-a6006ad3dba0', '61f0c404-5cb3-11e7-907b-a6006ad3dba0', '1.2.3.4', '1.2.3.4', '2001:db8::1', '2001:db8::1', '::ffff:1.2.3.4');
-INSERT INTO e2e.datatypes (datetime, uuid_col, uuid_null, v4_col, v4_null, v6_col, v6_null, v6_mapped) VALUES
-    ('2025-04-09 00:10:00', '9d3b1f3a-0c2e-4c9a-9a8b-1c2d3e4f5a6b', NULL, '5.6.7.8', NULL, '2001:db8::2', NULL, '::ffff:5.6.7.8');
+INSERT INTO e2e.datatypes (datetime, uuid_col, uuid_null, v4_col, v4_null, v6_col, v6_null, v6_mapped, v6_compat) VALUES
+    ('2025-04-09 00:00:00', '61f0c404-5cb3-11e7-907b-a6006ad3dba0', '61f0c404-5cb3-11e7-907b-a6006ad3dba0', '1.2.3.4', '1.2.3.4', '2001:db8::1', '2001:db8::1', '::ffff:1.2.3.4', '::10.0.0.1');
+INSERT INTO e2e.datatypes (datetime, uuid_col, uuid_null, v4_col, v4_null, v6_col, v6_null, v6_mapped, v6_compat) VALUES
+    ('2025-04-09 00:10:00', '9d3b1f3a-0c2e-4c9a-9a8b-1c2d3e4f5a6b', NULL, '5.6.7.8', NULL, '2001:db8::2', NULL, '::ffff:5.6.7.8', '::20.0.0.2');
