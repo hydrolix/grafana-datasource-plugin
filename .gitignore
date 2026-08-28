@@ -11,3 +11,6 @@ hydrolix-hydrolix-datasource/
 .DS_Store
 junit.xml
 dist_*/
+.cache/
+playwright/.auth
+

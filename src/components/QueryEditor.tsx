@@ -11,6 +11,7 @@ import { DataSource } from "../datasource";
 import {
   HdxDataSourceOptions,
   HdxQuery,
+  InterpolationContext,
   InterpolationResult,
   QuerySetting,
   QueryType,
@@ -27,7 +28,10 @@ import {
   Select,
   ToolbarButton,
 } from "@grafana/ui";
-import { QUERY_DURATION_REGEX } from "../editor/timeRangeUtils";
+import {
+  deriveInterpolationInterval,
+  QUERY_DURATION_REGEX,
+} from "../editor/timeRangeUtils";
 import { InterpolatedQuery } from "./InterpolatedQuery";
 import { ValidationBar } from "./ValidationBar";
 import { useDebounce } from "react-use";
@@ -96,7 +100,6 @@ export function QueryEditor(props: Props) {
   );
 
   const [showSql, setShowSql] = useState(false);
-  const [dryRunTriggered, setDryRunTriggered] = useState(false);
   const [interpolationResult, setInterpolationResult] =
     useState<InterpolationResult>({
       originalSql: props.query.rawSql,
@@ -106,22 +109,6 @@ export function QueryEditor(props: Props) {
     });
 
   let [monaco, setMonaco] = useState<Monaco | null>(null);
-
-  const dryRun = useCallback(() => {
-    if (!dryRunTriggered && props.query.rawSql) {
-      setDryRunTriggered(true);
-      let setDryRun = () => {
-        let dry = true;
-        return () => {
-          let r = dry;
-          dry = false;
-          return r;
-        };
-      };
-      props.onChange({ ...props.query, skipNextRun: setDryRun() });
-      props.onRunQuery();
-    }
-  }, [props, dryRunTriggered]);
 
   const onQueryTextChange = (queryText: string) => {
     props.onChange({ ...props.query, rawSql: queryText });
@@ -151,29 +138,36 @@ export function QueryEditor(props: Props) {
   if (interpolationId !== interpolationIdString) {
     setInterpolationId(interpolationIdString);
   }
+  // Everything interpolation needs comes from props, so it is available on the
+  // first render — no panel run has to have happened first.
+  const panelRequest = props.data?.request;
+  const interpolationContext = useMemo<InterpolationContext>(
+    () => ({
+      range: props.range,
+      interval: props.range
+        ? deriveInterpolationInterval(
+            props.range,
+            panelRequest?.maxDataPoints
+          )
+        : undefined,
+      filters: panelRequest?.filters,
+    }),
+    [props.range, panelRequest]
+  );
+
   useDebounce(
     async () => {
       if (showSql || SHOW_VALIDATION_BAR) {
-        if (props.datasource.options) {
-          let interpolatedQuery = await props.datasource.interpolateQuery(
-            props.query,
-            interpolationId
-          );
-          setInterpolationResult(interpolatedQuery);
-        } else {
-          dryRun();
-        }
+        let interpolatedQuery = await props.datasource.interpolateQuery(
+          props.query,
+          interpolationId,
+          interpolationContext
+        );
+        setInterpolationResult(interpolatedQuery);
       }
     },
     300,
-    // `props.datasource.options` is mutated by `datasource.query()` (see
-    // dryRun() below). When the user clicks "Show Interpolated Query" on a
-    // freshly-opened panel, options is undefined → dryRun() runs onRunQuery
-    // which populates options, but without this dep the debounce never
-    // re-fires and the UI stays on "processing" forever. Including options
-    // here makes the React re-render triggered by setDryRunTriggered(true)
-    // re-arm the debounce, so the next pass takes the interpolate branch.
-    [showSql, interpolationId, props.datasource.options]
+    [showSql, interpolationId, interpolationContext]
   );
   // eslint-disable-next-line eqeqeq
   let dirty = interpolationResult?.interpolationId != interpolationId;

@@ -48,6 +48,24 @@ stat -f '%Sm %N' dist/module.js src/components/QueryEditor.tsx
 
 If `module.js` predates your edit, the dev container is serving stale frontend.
 
+### `console.log` does not survive the build — use `console.warn` for probes
+
+`.config/webpack/webpack.config.ts` sets `drop_console: ['log', 'info']`, so
+`npm run build` strips **every** `console.log` / `console.info` from
+`dist/module.js`. Temporary instrumentation added to plugin source to answer a
+question ("is this prop populated yet?") therefore emits nothing, and a stripped
+probe is indistinguishable from a probe that never ran — you conclude the
+component isn't rendering when in fact it is.
+
+```sh
+# confirm the probe actually made it into the bundle before blaming the test
+grep -c MYPROBE dist/module.js     # 0 → it was stripped (or not rebuilt)
+```
+
+Use `console.warn` in plugin source. `page.on("console")` in the spec catches it
+the same way. (This applies only to code compiled into the bundle — `console.log`
+inside a spec file runs in Node and is untouched.)
+
 ## How to run
 
 The e2e suite runs inside the `playwright` service in `docker-compose.yaml`. The service is built from `.config/playwright/Dockerfile`, which bakes Node 22, the npm dependencies (`npm ci`), and the Chromium browser into the image at build time. The image's `ENTRYPOINT` is `npx playwright test --reporter=list,junit`, so extra args passed to `run --rm` are appended naturally.
@@ -299,27 +317,37 @@ Also note the nesting in `@grafana/e2e-selectors`: `PanelDataErrorMessage` lives
 
 ## State-dependent flows in `QueryEditor`
 
-### `Show Interpolated Query` — how the dryRun fallback works (no workaround needed)
+### `Show Interpolated Query` — no state precondition
 
-`QueryEditor.tsx`'s interpolation debounce has two branches:
+Interpolation takes its context (range, interval, filters) as an explicit
+parameter that `QueryEditor` builds from its own props:
 
 ```ts
 useDebounce(async () => {
   if (showSql || SHOW_VALIDATION_BAR) {
-    if (props.datasource.options) {
-      setInterpolationResult(await props.datasource.interpolateQuery(...));
-    } else {
-      dryRun();          // ← fallback: fires onRunQuery with skipNextRun
-    }
+    setInterpolationResult(
+      await props.datasource.interpolateQuery(props.query, interpolationId, {
+        range:    props.range,
+        interval: deriveInterpolationInterval(props.range, maxDataPoints),
+        filters:  props.data?.request?.filters,
+      })
+    );
   }
-}, 300, [showSql, interpolationId, props.datasource.options]);
+}, 300, [showSql, interpolationId, interpolationContext]);
 ```
 
-`props.datasource.options` is mutated by `datasource.query()` (see `src/datasource.ts:91-93`) — interpolation reads time range / scoped vars / filters from it. On a freshly-opened panel editor it's `undefined` until Grafana runs the query for the first time. When the user clicks "Show Interpolated Query" *before* any panel refresh has completed, the debounce takes the `dryRun()` branch, which calls `onRunQuery` with a `skipNextRun` flag — Grafana runs the query, sets `this.options = request`, but the target's SQL is skipped.
+Everything it needs is populated on the first render — measured on Grafana 13:
+a freshly-opened panel editor already has `props.range` and
+`props.data.request` (`state: "Done"`) before any query has run. So clicking
+Show works immediately and **no panel run has to happen first**. Tests do not
+need `panelEditPage.refreshPanel()` or `timeRange.set()` as a precondition.
 
-`props.datasource.options` is listed as the third dependency of `useDebounce`. After `dryRun` populates `options` and the `setDryRunTriggered(true)` re-render lands, deps change (undefined → request object), the debounce re-fires, and the second pass takes the `interpolateQuery` branch. The user sees "processing" briefly (~300 ms × 2 debounces) then the copy button appears with the expanded SQL.
-
-**Historical note**: before the third dependency was added, the debounce never re-fired after `dryRun()` populated options. The first click of "Show Interpolated Query" left the spinner stuck forever, and tests had to call `panelEditPage.refreshPanel()` before clicking Show as a workaround. That workaround is no longer needed — the e2e test in `tests/queryEditor.spec.ts` confirms the unguarded flow works.
+**Historical note**: until 2026-08-28 the debounce read a mutable
+`datasource.options` field populated as a side effect of `query()`, with a
+`dryRun()` fallback that fired `onRunQuery` with `skipNextRun` purely to
+populate it, plus the field in the dep array to re-arm afterwards. All of that
+is gone. If you find a test that sets a time range before clicking Show, that
+was the old workaround — it is no longer load-bearing.
 
 ## Unit-test parallels worth knowing
 

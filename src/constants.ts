@@ -22,6 +22,11 @@ export const AD_HOC_PRELOAD_ROUND_INTERVAL_SECONDS = 300;
 export const AD_HOC_PRELOAD_MAX_TIMERANGE_SECONDS =
   AD_HOC_PRELOAD_LOOKBACK_SECONDS + 2 * AD_HOC_PRELOAD_ROUND_INTERVAL_SECONDS;
 
+// Stand-in for the panel's maxDataPoints when the editor has no panel request
+// to read it from. The interpolation preview only needs a representative bucket
+// width, not the exact one the panel will run with.
+export const DEFAULT_INTERPOLATION_RESOLUTION = 1000;
+
 export const METADATA_QUERY_TIMEOUT_SETTING = "hdx_query_max_execution_time";
 export const METADATA_QUERY_TIMEOUT_SETTING_ALIAS = "max_execution_time";
 export const METADATA_QUERY_TIMEOUT_VALUE = "10";

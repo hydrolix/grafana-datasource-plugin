@@ -7,6 +7,7 @@ import {
   DataQueryError,
   DataQueryRequest,
   DataQueryResponse,
+  DataSourceGetTagKeysOptions,
   DataSourceGetTagValuesOptions,
   DataSourceInstanceSettings,
   Field,
@@ -30,6 +31,7 @@ import {
   DEFAULT_QUERY,
   HdxDataSourceOptions,
   HdxQuery,
+  InterpolationContext,
   InterpolationResult,
   TableIdentifier,
   InterpolationResponse,
@@ -38,10 +40,7 @@ import {
 import { from, Observable, switchMap } from "rxjs";
 import { map } from "rxjs/operators";
 import { ErrorMessageBeautifier } from "./errors/errorBeautifier";
-import {
-  getMetadataProvider,
-  ZERO_TIME_RANGE,
-} from "./editor/metadataProvider";
+import { getMetadataProvider } from "./editor/metadataProvider";
 import { getColumnKeysForMapStatement, getColumnValuesStatement } from "./ast";
 import {
   AD_HOC_PRELOAD_LOOKBACK_SECONDS,
@@ -67,8 +66,6 @@ export class DataSource extends DataSourceWithBackend<
 > {
   public readonly metadataProvider = getMetadataProvider(this);
   private readonly beautifier = new ErrorMessageBeautifier();
-  public options: DataQueryRequest<HdxQuery> | undefined;
-  public filters: AdHocVariableFilter[] | undefined;
   private errorExposer!: ErrorExposer;
 
   constructor(
@@ -107,17 +104,9 @@ export class DataSource extends DataSourceWithBackend<
     if (isAnnotationRequest(request)) {
       request = { ...request, app: "annotation" };
     }
-    if (request.range !== ZERO_TIME_RANGE) {
-      this.options = request;
-    }
-    if (request.app === CoreApp.Dashboard) {
-      this.filters = request.filters;
-    }
     let targets$ = from(
       Promise.all(
-        request.targets
-          .filter((t) => !(t.skipNextRun && t.skipNextRun()))
-          .map(async (t) => await this.prepareTarget(t, request))
+        request.targets.map(async (t) => await this.prepareTarget(t, request))
       )
     );
     return targets$.pipe(
@@ -219,7 +208,8 @@ export class DataSource extends DataSourceWithBackend<
 
   public async interpolateQuery(
     query: HdxQuery,
-    interpolationId: string
+    interpolationId: string,
+    context: InterpolationContext
   ): Promise<InterpolationResult> {
     let macroContext: Context = {
       templateVars: this.templateSrv.getVariables(),
@@ -238,10 +228,13 @@ export class DataSource extends DataSourceWithBackend<
       hasWarning: false,
     };
     try {
-      let interpolationResponse = await this.getInterpolatedQuery({
-        ...query,
-        rawSql: sql,
-      });
+      let interpolationResponse = await this.getInterpolatedQuery(
+        {
+          ...query,
+          rawSql: sql,
+        },
+        context
+      );
       if (interpolationResponse.error) {
         result = {
           ...result,
@@ -304,7 +297,9 @@ export class DataSource extends DataSourceWithBackend<
     };
   }
 
-  async getTagKeys(): Promise<MetricFindValue[]> {
+  async getTagKeys(
+    options?: DataSourceGetTagKeysOptions<HdxQuery>
+  ): Promise<MetricFindValue[]> {
     let table = this.adHocFilterTableName();
 
     if (table) {
@@ -314,7 +309,14 @@ export class DataSource extends DataSourceWithBackend<
           .filter((key) => key.type.includes("Map"))
           .map((key) => key.value?.toString())
           .filter((key) => !!key)
-          .map((column) => this.getTagKeysForMap(column!, table))
+          .map((column) =>
+            this.getTagKeysForMap(
+              column!,
+              table,
+              options?.timeRange,
+              options?.filters
+            )
+          )
       ).then((response: Array<{ key: string; val: string[] }>) =>
         response.reduce((map, obj) => {
           map[obj.key] = obj.val;
@@ -340,24 +342,29 @@ export class DataSource extends DataSourceWithBackend<
 
   async getTagKeysForMap(
     column: string,
-    table: string
+    table: string,
+    timeRange?: TimeRange,
+    filters?: AdHocVariableFilter[]
   ): Promise<{ key: string; val: string[] }> {
     const response = await this.metadataProvider.executeQuery(
       getColumnKeysForMapStatement(column, table),
-      this.capPreloadTimeRange(this.options?.range),
-      this.filters
+      this.capPreloadTimeRange(timeRange ?? this.currentTemplateRange()),
+      filters
     );
     let values: string[] = this.getValuesFromResponse(response);
     return { key: column, val: values.map((v) => `${column}['${v}']`) };
   }
 
-  async getInterpolatedQuery(query: HdxQuery): Promise<InterpolationResponse> {
+  async getInterpolatedQuery(
+    query: HdxQuery,
+    context: InterpolationContext
+  ): Promise<InterpolationResponse> {
     return this.postResource("interpolate", {
       data: {
         rawSql: query.rawSql,
-        range: this.options?.range,
-        interval: this.options?.interval,
-        filters: this.filters,
+        range: context.range,
+        interval: context.interval,
+        filters: context.filters,
         round: query.round,
       },
     }).then((a: any) => ({
@@ -471,6 +478,17 @@ export class DataSource extends DataSourceWithBackend<
       ? response.data[0].fields
       : [];
     return fields[0]?.values || [];
+  }
+
+  /**
+   * The dashboard's current range as the template service sees it. Grafana
+   * omits `timeRange` from the tag-keys options before 10.3, which is below
+   * the verified matrix but inside the declared floor of 10.
+   */
+  private currentTemplateRange(): TimeRange | undefined {
+    // `timeRange` is present on Grafana's TemplateSrv implementation but not on
+    // the published TemplateSrv type; `runQuery` reads it the same way.
+    return (this.templateSrv as any).timeRange;
   }
 
   private capPreloadTimeRange(range?: TimeRange): TimeRange | undefined {
