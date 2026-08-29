@@ -42,6 +42,9 @@ export const SUPPORTED_TYPES = [
   "Decimal64",
   "Decimal128",
   "Decimal256",
+  "UUID",
+  "IPv4",
+  "IPv6",
 ];
 
 export const NULLABLE_TYPES = SUPPORTED_TYPES.map((t) => `Nullable(${t})`);

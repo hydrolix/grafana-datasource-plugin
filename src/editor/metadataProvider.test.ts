@@ -3,7 +3,11 @@ import { of } from "rxjs";
 import { getKeyMap, getMetadataProvider } from "./metadataProvider";
 import { setupDataSourceMock } from "../__mocks__/datasource";
 import { adHocTableVariable } from "../__mocks__/variable";
-import { DESCRIBE1, DESCRIBE2 } from "../__mocks__/tableDescribes";
+import {
+  DESCRIBE1,
+  DESCRIBE2,
+  DESCRIBE_UUID_IP,
+} from "../__mocks__/tableDescribes";
 import { ARRAY_TYPES, SUPPORTED_TYPES, NULLABLE_TYPES } from "../constants";
 
 const FUNCTIONS = ["widthBucket", "tupleConcat"];
@@ -51,6 +55,9 @@ describe("ARRAY_TYPES constant", () => {
     expect(ARRAY_TYPES).toContain("Array(Int64)");
     expect(ARRAY_TYPES).toContain("Array(Float32)");
     expect(ARRAY_TYPES).toContain("Array(Float64)");
+    expect(ARRAY_TYPES).toContain("Array(UUID)");
+    expect(ARRAY_TYPES).toContain("Array(IPv4)");
+    expect(ARRAY_TYPES).toContain("Array(IPv6)");
   });
 
   test("should include arrays of nullable types", () => {
@@ -514,6 +521,32 @@ describe("getKeyMap", () => {
           text: "scores",
           type: "Array(Float64)",
           value: "scores",
+        },
+      ],
+    },
+    {
+      name: "uuid and ip types are included",
+      describe: DESCRIBE_UUID_IP,
+      keys: [
+        {
+          text: "request_id",
+          type: "UUID",
+          value: "request_id",
+        },
+        {
+          text: "session_id",
+          type: "Nullable(UUID)",
+          value: "session_id",
+        },
+        {
+          text: "client_v4",
+          type: "IPv4",
+          value: "client_v4",
+        },
+        {
+          text: "client_v6",
+          type: "IPv6",
+          value: "client_v6",
         },
       ],
     },
