@@ -348,7 +348,7 @@ export class DataSource extends DataSourceWithBackend<
   ): Promise<{ key: string; val: string[] }> {
     const response = await this.metadataProvider.executeQuery(
       getColumnKeysForMapStatement(column, table),
-      this.capPreloadTimeRange(timeRange ?? this.currentTemplateRange()),
+      this.adHocPreloadRange(timeRange),
       filters
     );
     let values: string[] = this.getValuesFromResponse(response);
@@ -455,7 +455,7 @@ export class DataSource extends DataSourceWithBackend<
     }
     let response = await this.metadataProvider.executeQuery(
       sql,
-      this.capPreloadTimeRange(options.timeRange),
+      this.adHocPreloadRange(options.timeRange),
       options.filters
     );
     let values: string[] = this.getValuesFromResponse(response);
@@ -481,33 +481,48 @@ export class DataSource extends DataSourceWithBackend<
   }
 
   /**
-   * The dashboard's current range as the template service sees it. Grafana
-   * omits `timeRange` from the tag-keys options before 10.3, which is below
-   * the verified matrix but inside the declared floor of 10.
+   * Time window for the ad-hoc key/value preload queries.
+   *
+   * Grafana's signature makes the options object itself optional
+   * (`getTagKeys?(options?: DataSourceGetTagKeysOptions)`), so a caller can
+   * supply no time range at all. Both preload statements carry
+   * `$__timeFilter()`, while `ZERO_TIME_RANGE` — the sentinel `executeQuery`
+   * substitutes for a missing range — means "this metadata query has no time
+   * macro" and is only correct for the unfiltered `system.*` / `DESCRIBE`
+   * lookups. Letting it reach a filtered query resolves to a 1970 window that
+   * returns no rows and silently erases the column from the ad-hoc dropdown,
+   * so fall back to the same lookback the cap already enforces for long
+   * ranges. Never returns undefined, so `ZERO_TIME_RANGE` is unreachable here.
    */
-  private currentTemplateRange(): TimeRange | undefined {
-    // `timeRange` is present on Grafana's TemplateSrv implementation but not on
-    // the published TemplateSrv type; `runQuery` reads it the same way.
-    return (this.templateSrv as any).timeRange;
+  private adHocPreloadRange(timeRange?: TimeRange): TimeRange {
+    if (timeRange) {
+      return this.capPreloadTimeRange(timeRange);
+    }
+    const to = dateTime();
+    const from = dateTime(
+      to.valueOf() - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+    );
+    return { from, to, raw: { from, to } };
   }
 
-  private capPreloadTimeRange(range?: TimeRange): TimeRange | undefined {
-    if (!range) {
+  private capPreloadTimeRange(range: TimeRange): TimeRange {
+    const lookbackFromMs =
+      range.to.valueOf() - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000;
+    if (range.from.valueOf() >= lookbackFromMs) {
+      // Already inside the lookback, so nothing to cap. Return the range
+      // untouched rather than rebuilding it: the rewrite below would freeze a
+      // relative `raw` (e.g. "now-6h") to an absolute instant for no gain.
       return range;
     }
-    const cappedFromMs = Math.max(
-      range.from.valueOf(),
-      range.to.valueOf() - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
-    );
     // `raw` describes the same window in unresolved form, so it has to move
     // with `from` — a capped window is no longer whatever the picker said
     // (e.g. "now-90d"). `to` is untouched, so `raw.to` carries through.
     return {
       ...range,
-      from: dateTime(cappedFromMs),
+      from: dateTime(lookbackFromMs),
       raw: {
         ...range.raw,
-        from: dateTime(cappedFromMs),
+        from: dateTime(lookbackFromMs),
       },
     };
   }

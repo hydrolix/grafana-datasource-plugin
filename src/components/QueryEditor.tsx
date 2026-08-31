@@ -144,12 +144,13 @@ export function QueryEditor(props: Props) {
   const interpolationContext = useMemo<InterpolationContext>(
     () => ({
       range: props.range,
+      // Not `undefined`: JSON.stringify drops the key, the backend decodes
+      // Interval as "" and time.ParseDuration("") fails the whole interpolate
+      // request before any macro runs. The interval macros floor at 1, so a
+      // zero interval degrades cleanly instead.
       interval: props.range
-        ? deriveInterpolationInterval(
-            props.range,
-            panelRequest?.maxDataPoints
-          )
-        : undefined,
+        ? deriveInterpolationInterval(props.range, panelRequest?.maxDataPoints)
+        : "0ms",
       filters: panelRequest?.filters,
     }),
     [props.range, panelRequest]

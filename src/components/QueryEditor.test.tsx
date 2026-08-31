@@ -278,6 +278,28 @@ describe("QueryEditor", () => {
     expect(props.onRunQuery).not.toHaveBeenCalled();
   });
 
+  // `undefined` is dropped by JSON.stringify, so the backend would decode
+  // Interval as "" and time.ParseDuration("") fails the whole interpolate
+  // request. A parseable zero degrades cleanly instead.
+  it("sends a parseable zero interval when the panel has no range", async () => {
+    const props = makeProps(
+      { format: QueryType.Table },
+      { range: undefined, data: { request: { maxDataPoints: 1000 } } as any }
+    );
+    render(<QueryEditor {...props} />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Show Interpolated Query/i })
+    );
+
+    const interpolateQuery = (props.datasource as any).interpolateQuery;
+    await waitFor(() => expect(interpolateQuery).toHaveBeenCalled());
+
+    const context = interpolateQuery.mock.calls[0][2];
+    expect(context.range).toBeUndefined();
+    expect(context.interval).toBe("0ms");
+  });
+
   it("calls onRunQuery when the run toolbar button is clicked", async () => {
     const props = makeProps({ format: QueryType.Table });
     render(<QueryEditor {...props} />);

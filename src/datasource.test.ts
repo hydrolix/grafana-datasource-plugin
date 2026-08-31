@@ -987,6 +987,64 @@ describe("HdxDataSource", () => {
       expect(sentRange.to.valueOf()).toBe(to);
     });
 
+    // makeRange builds an absolute `raw`, so these two use relative
+    // expressions: the cap must only rewrite `raw` on ranges it actually caps.
+    function setupValuesMock() {
+      const mock = setupDataSourceMock({ variables: [adHocTableVariable] });
+      jest.spyOn(mock.datasource.metadataProvider, "tableKeys").mockReturnValue(
+        Promise.resolve([
+          { text: "key1", value: "key1", type: "String" },
+        ] as AdHocFilterKeys[])
+      );
+      jest
+        .spyOn(mock.datasource.metadataProvider, "primaryKey")
+        .mockReturnValue(Promise.resolve("ts"));
+      mock.queryMock.mockReturnValue(of({ data: [] }));
+      return mock;
+    }
+
+    it("preserves a relative raw range when nothing is capped", async () => {
+      const { datasource, queryMock } = setupValuesMock();
+
+      const to = 1_700_000_000_000;
+      const from = to - 6 * 60 * 60 * 1000;
+      await datasource.getTagValues({
+        key: "key1",
+        filters: [],
+        timeRange: {
+          from: dateTime(from),
+          to: dateTime(to),
+          raw: { from: "now-6h", to: "now" },
+        },
+      } as any);
+
+      const sentRange = queryMock.mock.calls[0][0].range;
+      expect(sentRange.raw).toEqual({ from: "now-6h", to: "now" });
+    });
+
+    it("rewrites raw.from to the capped instant on a capped range", async () => {
+      const { datasource, queryMock } = setupValuesMock();
+
+      const to = 1_700_000_000_000;
+      const from = to - 90 * 24 * 60 * 60 * 1000;
+      await datasource.getTagValues({
+        key: "key1",
+        filters: [],
+        timeRange: {
+          from: dateTime(from),
+          to: dateTime(to),
+          raw: { from: "now-90d", to: "now" },
+        },
+      } as any);
+
+      const sentRange = queryMock.mock.calls[0][0].range;
+      // The window is no longer "now-90d", so raw must not keep claiming it.
+      expect(sentRange.raw.from.valueOf()).toBe(
+        to - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+      expect(sentRange.raw.to).toBe("now");
+    });
+
     it("caps the supplied range for getTagKeysForMap on a long dashboard range", async () => {
       const { datasource, queryMock } = setupDataSourceMock({
         variables: [adHocTableVariable],
@@ -1064,7 +1122,11 @@ describe("HdxDataSource", () => {
       expect(sentRange.to.valueOf()).toBe(to);
     });
 
-    it("falls back to the template service range when tag-keys supplies none", async () => {
+    // The preload path deliberately does not read the undocumented
+    // `templateSrv.timeRange`: the declared floor is Grafana >=10.4
+    // (plugin.json) and `timeRange` on the tag options is "New in v10.3", so
+    // the version gap that would justify an off-contract read cannot occur.
+    it("ignores the template service range for tag-keys preload", async () => {
       const { datasource, queryMock, templateService } = setupDataSourceMock({
         variables: [adHocTableVariable],
       });
@@ -1077,19 +1139,19 @@ describe("HdxDataSource", () => {
 
       const to = 1_700_000_000_000;
       const from = to - 90 * 24 * 60 * 60 * 1000;
-      // Grafana omits timeRange from the tag-keys options before 10.3.
       (templateService as any).timeRange = makeRange(from, to);
 
       await datasource.getTagKeys({ filters: [] });
 
       const sentRange = queryMock.mock.calls[0][0].range;
-      expect(sentRange.from.valueOf()).toBe(
-        to - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
-      );
-      expect(sentRange.to.valueOf()).toBe(to);
+      expect(sentRange.to.valueOf()).not.toBe(to);
     });
 
-    it("uses the zero sentinel when no range is available at all", async () => {
+    // ZERO_TIME_RANGE means "this metadata query has no time macro". Both
+    // preload statements carry $__timeFilter(), so the sentinel would resolve
+    // to a 1970 window, return no rows, and silently erase the Map column from
+    // the dropdown. Neither preload path may reach it.
+    it("falls back to a trailing 24h window for getTagKeys with no range", async () => {
       const { datasource, queryMock } = setupDataSourceMock({
         variables: [adHocTableVariable],
       });
@@ -1100,9 +1162,44 @@ describe("HdxDataSource", () => {
       );
       queryMock.mockReturnValue(of({ data: [] }));
 
+      const before = Date.now();
       await datasource.getTagKeys({ filters: [] });
+      const after = Date.now();
 
-      expect(queryMock.mock.calls[0][0].range).toEqual(ZERO_TIME_RANGE);
+      const sentRange = queryMock.mock.calls[0][0].range;
+      expect(sentRange).not.toEqual(ZERO_TIME_RANGE);
+      expect(sentRange.to.valueOf()).toBeGreaterThanOrEqual(before);
+      expect(sentRange.to.valueOf()).toBeLessThanOrEqual(after);
+      expect(sentRange.to.valueOf() - sentRange.from.valueOf()).toBe(
+        AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+    });
+
+    it("falls back to a trailing 24h window for getTagValues with no range", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({
+        variables: [adHocTableVariable],
+      });
+      jest.spyOn(datasource.metadataProvider, "tableKeys").mockReturnValue(
+        Promise.resolve([
+          { text: "key1", value: "key1", type: "String" },
+        ] as AdHocFilterKeys[])
+      );
+      jest
+        .spyOn(datasource.metadataProvider, "primaryKey")
+        .mockReturnValue(Promise.resolve("ts"));
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const before = Date.now();
+      await datasource.getTagValues({ key: "key1", filters: [] } as any);
+      const after = Date.now();
+
+      const sentRange = queryMock.mock.calls[0][0].range;
+      expect(sentRange).not.toEqual(ZERO_TIME_RANGE);
+      expect(sentRange.to.valueOf()).toBeGreaterThanOrEqual(before);
+      expect(sentRange.to.valueOf()).toBeLessThanOrEqual(after);
+      expect(sentRange.to.valueOf() - sentRange.from.valueOf()).toBe(
+        AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
     });
   });
 });
