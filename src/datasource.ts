@@ -481,28 +481,52 @@ export class DataSource extends DataSourceWithBackend<
   }
 
   /**
-   * Time window for the ad-hoc key/value preload queries.
+   * Time window for the ad-hoc key/value preload queries. Resolution order is
+   * tag-keys options -> template service -> trailing lookback.
    *
-   * Grafana's signature makes the options object itself optional
-   * (`getTagKeys?(options?: DataSourceGetTagKeysOptions)`), so a caller can
-   * supply no time range at all. Both preload statements carry
-   * `$__timeFilter()`, while `ZERO_TIME_RANGE` — the sentinel `executeQuery`
-   * substitutes for a missing range — means "this metadata query has no time
-   * macro" and is only correct for the unfiltered `system.*` / `DESCRIBE`
-   * lookups. Letting it reach a filtered query resolves to a 1970 window that
-   * returns no rows and silently erases the column from the ad-hoc dropdown,
-   * so fall back to the same lookback the cap already enforces for long
-   * ranges. Never returns undefined, so `ZERO_TIME_RANGE` is unreachable here.
+   * Both preload statements carry `$__timeFilter()`, while `ZERO_TIME_RANGE` —
+   * the sentinel `executeQuery` substitutes for a missing range — means "this
+   * metadata query has no time macro" and is only correct for the unfiltered
+   * `system.*` / `DESCRIBE` lookups. Letting it reach a filtered query
+   * resolves to a 1970 window that returns no rows and silently erases the
+   * column from the ad-hoc dropdown. This never returns undefined, so the
+   * sentinel is unreachable from the preload path.
    */
   private adHocPreloadRange(timeRange?: TimeRange): TimeRange {
-    if (timeRange) {
-      return this.capPreloadTimeRange(timeRange);
+    const resolved = timeRange ?? this.templateServiceRange();
+    if (resolved) {
+      return this.capPreloadTimeRange(resolved);
     }
+    // Last resort: the same lookback the cap already enforces for long ranges.
     const to = dateTime();
     const from = dateTime(
       to.valueOf() - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
     );
     return { from, to, raw: { from, to } };
+  }
+
+  /**
+   * Grafana 10.4 — the floor `plugin.json` declares — does not populate
+   * `timeRange` on the tag-keys options, even though the field has existed on
+   * `DataSourceFilteringRequestOptions` since 10.3. On that version the
+   * dashboard window is reachable only through the template service, so this
+   * fallback is load-bearing, not defensive: without it
+   * `tests/adHocMapKeys.spec.ts` fails on 10.4.18 (map keys resolve against a
+   * now-relative window instead of the dashboard's, find no rows, and the Map
+   * column disappears from the dropdown) while passing on 11.6.1 / 12.0.2 /
+   * 13.0.1. Re-check against the CI matrix before removing it.
+   *
+   * `timeRange` is absent from the published `TemplateSrv` type — `runQuery`
+   * reads it the same way — so the value carries no type guarantee. Shape-guard
+   * it rather than letting a reshaped value throw out of
+   * `capPreloadTimeRange` and reject the whole `getTagKeys` promise.
+   */
+  private templateServiceRange(): TimeRange | undefined {
+    const range = (this.templateSrv as any).timeRange;
+    return Number.isFinite(range?.from?.valueOf?.()) &&
+      Number.isFinite(range?.to?.valueOf?.())
+      ? (range as TimeRange)
+      : undefined;
   }
 
   private capPreloadTimeRange(range: TimeRange): TimeRange {

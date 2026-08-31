@@ -11,7 +11,7 @@ import {
 } from "__mocks__/datasource";
 import { adHocTableVariable, fooVariable } from "./__mocks__/variable";
 import { AdHocFilterKeys, HdxQuery } from "./types";
-import { ZERO_TIME_RANGE } from "./editor/metadataProvider";
+import { DataSource } from "./datasource";
 import { AD_HOC_PRELOAD_LOOKBACK_SECONDS } from "./constants";
 
 describe("HdxDataSource", () => {
@@ -1122,20 +1122,23 @@ describe("HdxDataSource", () => {
       expect(sentRange.to.valueOf()).toBe(to);
     });
 
-    // The preload path deliberately does not read the undocumented
-    // `templateSrv.timeRange`: the declared floor is Grafana >=10.4
-    // (plugin.json) and `timeRange` on the tag options is "New in v10.3", so
-    // the version gap that would justify an off-contract read cannot occur.
-    it("ignores the template service range for tag-keys preload", async () => {
-      const { datasource, queryMock, templateService } = setupDataSourceMock({
-        variables: [adHocTableVariable],
-      });
-      jest.spyOn(datasource.metadataProvider, "tableKeys").mockReturnValue(
+    function setupMapKeysMock() {
+      const mock = setupDataSourceMock({ variables: [adHocTableVariable] });
+      jest.spyOn(mock.datasource.metadataProvider, "tableKeys").mockReturnValue(
         Promise.resolve([
           { text: "labels", value: "labels", type: "Map(String, String)" },
         ] as AdHocFilterKeys[])
       );
-      queryMock.mockReturnValue(of({ data: [] }));
+      mock.queryMock.mockReturnValue(of({ data: [] }));
+      return mock;
+    }
+
+    // Grafana 10.4 (the declared floor) does not populate `timeRange` on the
+    // tag-keys options, so the template service is the only route to the
+    // dashboard window there. Covered end-to-end by adHocMapKeys.spec.ts,
+    // which fails on 10.4.18 without this fallback.
+    it("falls back to the template service range for tag-keys preload", async () => {
+      const { datasource, queryMock, templateService } = setupMapKeysMock();
 
       const to = 1_700_000_000_000;
       const from = to - 90 * 24 * 60 * 60 * 1000;
@@ -1144,62 +1147,103 @@ describe("HdxDataSource", () => {
       await datasource.getTagKeys({ filters: [] });
 
       const sentRange = queryMock.mock.calls[0][0].range;
-      expect(sentRange.to.valueOf()).not.toBe(to);
+      expect(sentRange.to.valueOf()).toBe(to);
+      expect(sentRange.from.valueOf()).toBe(
+        to - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
     });
+
+    // The read is off-contract (`timeRange` is not on the published
+    // TemplateSrv type), so a reshaped value must be discarded rather than
+    // consumed. Both clauses of the guard need their own fixture: `&&`
+    // short-circuits, so a bad `from` alone never reaches the `to` check.
+    //
+    // The two fixtures fail differently, which is why the window assertion
+    // carries the test rather than `.resolves`:
+    //   - bad `from`: no `to` at all, so capPreloadTimeRange would throw on
+    //     `range.to.valueOf()` and reject the whole getTagKeys promise;
+    //   - bad `to`: arithmetic yields NaN instead of throwing, so the query
+    //     would silently go out with a NaN bound.
+    const malformedRanges: Array<[string, unknown]> = [
+      ["from is not a date", { from: "not-a-datetime" }],
+      [
+        "to is not a date",
+        { from: dateTime(1_700_000_000_000), to: "garbage" },
+      ],
+    ];
+
+    it.each(malformedRanges)(
+      "ignores a malformed template service range (%s)",
+      async (_label, malformed) => {
+        const { datasource, queryMock, templateService } = setupMapKeysMock();
+
+        (templateService as any).timeRange = malformed;
+
+        await expect(datasource.getTagKeys({ filters: [] })).resolves.toEqual(
+          expect.any(Array)
+        );
+
+        // Neither fixture is a usable window, so a clean 24h span is the proof
+        // that the fallback ran and the malformed value was not consumed.
+        const sentRange = queryMock.mock.calls[0][0].range;
+        expect(sentRange.to.valueOf() - sentRange.from.valueOf()).toBe(
+          AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+        );
+      }
+    );
 
     // ZERO_TIME_RANGE means "this metadata query has no time macro". Both
     // preload statements carry $__timeFilter(), so the sentinel would resolve
     // to a 1970 window, return no rows, and silently erase the Map column from
     // the dropdown. Neither preload path may reach it.
-    it("falls back to a trailing 24h window for getTagKeys with no range", async () => {
-      const { datasource, queryMock } = setupDataSourceMock({
-        variables: [adHocTableVariable],
-      });
-      jest.spyOn(datasource.metadataProvider, "tableKeys").mockReturnValue(
+    function setupNoRangeMock() {
+      const mock = setupDataSourceMock({ variables: [adHocTableVariable] });
+      // One setup serves both entry points: a Map column for key expansion and
+      // a scalar column (plus a primary key) for value lookup.
+      jest.spyOn(mock.datasource.metadataProvider, "tableKeys").mockReturnValue(
         Promise.resolve([
           { text: "labels", value: "labels", type: "Map(String, String)" },
-        ] as AdHocFilterKeys[])
-      );
-      queryMock.mockReturnValue(of({ data: [] }));
-
-      const before = Date.now();
-      await datasource.getTagKeys({ filters: [] });
-      const after = Date.now();
-
-      const sentRange = queryMock.mock.calls[0][0].range;
-      expect(sentRange).not.toEqual(ZERO_TIME_RANGE);
-      expect(sentRange.to.valueOf()).toBeGreaterThanOrEqual(before);
-      expect(sentRange.to.valueOf()).toBeLessThanOrEqual(after);
-      expect(sentRange.to.valueOf() - sentRange.from.valueOf()).toBe(
-        AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
-      );
-    });
-
-    it("falls back to a trailing 24h window for getTagValues with no range", async () => {
-      const { datasource, queryMock } = setupDataSourceMock({
-        variables: [adHocTableVariable],
-      });
-      jest.spyOn(datasource.metadataProvider, "tableKeys").mockReturnValue(
-        Promise.resolve([
           { text: "key1", value: "key1", type: "String" },
         ] as AdHocFilterKeys[])
       );
       jest
-        .spyOn(datasource.metadataProvider, "primaryKey")
+        .spyOn(mock.datasource.metadataProvider, "primaryKey")
         .mockReturnValue(Promise.resolve("ts"));
-      queryMock.mockReturnValue(of({ data: [] }));
+      mock.queryMock.mockReturnValue(of({ data: [] }));
+      return mock;
+    }
 
-      const before = Date.now();
-      await datasource.getTagValues({ key: "key1", filters: [] } as any);
-      const after = Date.now();
+    // Both entry points must keep the *fallback*, not just the cap: the capping
+    // tests above still pass when a call site bypasses adHocPreloadRange, so
+    // each entry point needs its own no-range case. Losing the fallback on one
+    // path is the regression that broke map-key discovery on Grafana 10.4.
+    const noRangeEntryPoints: Array<
+      [string, (ds: DataSource) => Promise<unknown>]
+    > = [
+      ["getTagKeys", (ds) => ds.getTagKeys({ filters: [] })],
+      [
+        "getTagValues",
+        (ds) => ds.getTagValues({ key: "key1", filters: [] } as any),
+      ],
+    ];
 
-      const sentRange = queryMock.mock.calls[0][0].range;
-      expect(sentRange).not.toEqual(ZERO_TIME_RANGE);
-      expect(sentRange.to.valueOf()).toBeGreaterThanOrEqual(before);
-      expect(sentRange.to.valueOf()).toBeLessThanOrEqual(after);
-      expect(sentRange.to.valueOf() - sentRange.from.valueOf()).toBe(
-        AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
-      );
-    });
+    it.each(noRangeEntryPoints)(
+      "falls back to a trailing 24h window for %s with no range",
+      async (_label, call) => {
+        const { datasource, queryMock, templateService } = setupNoRangeMock();
+        // Neither source offers a range: options carries none and the template
+        // service has none either.
+        expect((templateService as any).timeRange).toBeUndefined();
+
+        await call(datasource);
+
+        // A clean 24h span is the whole proof: with the fallback bypassed the
+        // range degrades to ZERO_TIME_RANGE, whose span is 0.
+        const sentRange = queryMock.mock.calls[0][0].range;
+        expect(sentRange.to.valueOf() - sentRange.from.valueOf()).toBe(
+          AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+        );
+      }
+    );
   });
 });
