@@ -47,6 +47,10 @@ arguments.
 - `adhoc-value-preload`: map-key discovery derives its time window and filters
   from the tag-keys options argument rather than from cached dashboard request
   state.
+- `annotations`: the two requirements that governed how annotation requests
+  interact with the cached `this.options` / `this.filters` fields are removed
+  with the fields themselves; the `app: 'annotation'` retag remains, reworded
+  to its surviving purpose (backend attribution).
 
 ## Impact
 

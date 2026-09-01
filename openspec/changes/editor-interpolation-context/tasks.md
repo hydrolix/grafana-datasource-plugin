@@ -95,3 +95,7 @@
       removes
 - [x] 7.4 Run `go vet ./...`, `golangci-lint run`, `go test -race ./...` in the
       dev container (no backend change expected — confirm green)
+- [x] 7.5 Add an `annotations` spec delta removing the two cached-state
+      requirements and rewording the retag rationale; at archive/sync, also
+      trim the "(ad-hoc filter cache, cached request options)" clause from the
+      synced spec's Purpose paragraph

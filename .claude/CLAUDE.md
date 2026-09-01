@@ -105,21 +105,32 @@ Host Go picks up the wrong toolchain. See `build-plugin`.
 
 ## Datasource specifics
 
-- `src/datasource.ts` `query()` caches request state on the instance:
-  - `this.options = request` — gated by `request.range !== ZERO_TIME_RANGE`.
-    Read later by `getTagKeysForMap` and `getInterpolatedQuery`.
-  - `this.filters = request.filters` — gated by `app === CoreApp.Dashboard`.
-    Same readers.
+- `src/datasource.ts` holds no per-request instance state — the old
+  `this.options` / `this.filters` request caching is gone. Callers pass
+  context explicitly: `InterpolationContext` (`src/types.ts` — `range`,
+  `interval`, `filters`) is built by `QueryEditor` and handed to
+  `interpolateQuery` / `getInterpolatedQuery`; the ad-hoc hooks
+  (`getTagKeys` / `getTagValues`) read range + filters from the options
+  argument Grafana passes them.
+- `adHocPreloadRange()` resolves the ad-hoc preload window:
+  options range → template-service range (load-bearing on Grafana 10.4,
+  which never populates `options.timeRange`) → trailing-24h lookback.
+  The result is capped to the trailing 24h
+  (`AD_HOC_PRELOAD_LOOKBACK_SECONDS`), and metadata queries snap endpoints
+  via `round: "5m"` so repeated dropdown opens issue identical SQL.
 - `ZERO_TIME_RANGE` is the sentinel `{from: 0, to: 0}` defined in
-  `src/editor/metadataProvider.ts`. Internal metadata queries use it so they
-  don't clobber the cached dashboard range.
+  `src/editor/metadataProvider.ts`. `executeQuery` substitutes it when no
+  range is passed; it means "this metadata query has no time macro" and is
+  only valid for the unfiltered `system.*` / `DESCRIBE` lookups — it must
+  never reach a query carrying `$__timeFilter()` (it resolves to a 1970
+  window that returns no rows).
 - Annotation queries (spec: `annotations`) arrive from Grafana with
   `app === CoreApp.Dashboard`. The plugin retags them at `query()` entry
-  to `app === 'annotation'` so the existing guard naturally skips the
-  filter cache assignment.
+  to `app === 'annotation'` (spread copy, detected via
+  `isAnnotationRequest`) so they reach the backend correctly attributed.
 - Macro expansion lives server-side via the `/interpolate` backend resource
   (`getInterpolatedQuery` in `datasource.ts`). The frontend ships SQL +
-  range + filters; do not duplicate macro logic on the frontend.
+  range + interval + filters; do not duplicate macro logic on the frontend.
 - `pkg/plugin/driver.go:421-467` attributes queries by `panelId` /
   `panelName` with an `"unknown"` fallback. Annotation queries arrive
   without these — the fallback is expected.
