@@ -41,6 +41,8 @@
  * Not covered here:
  *   - The Query Type Select dropdown change (react-select portal — better
  *     in e2e).
+ *   - The debounced interpolateQuery side-effect (timing-dependent;
+ *     covered indirectly by the datasource unit tests).
  *   - Format-query toolbar button (delegates to SQLEditor's render-prop;
  *     the stubbed formatQuery has nothing to verify).
  */
@@ -94,7 +96,30 @@ jest.mock("./ValidationBar", () => ({
   ValidationBar: () => <div data-testid="validation-bar-stub" />,
 }));
 
+// Availability is the gate for page-context registration and the explain
+// action. useProvidePageContext registers globally on mount, so "was the hook
+// called" is the observable form of "did anything register" — the property
+// mount-gating exists to guarantee on Assistant-less installs.
+jest.mock("@grafana/assistant", () => {
+  const React = require("react");
+  return {
+    useAssistant: jest.fn(() => ({ isAvailable: false })),
+    useProvidePageContext: jest.fn(() => jest.fn()),
+    createAssistantContextItem: jest.fn((type: string, params: any) => ({
+      node: { id: type, name: type, navigable: false, data: params?.data },
+      occurrences: [],
+    })),
+    OpenAssistantButton: ({ title }: any) => (
+      <div data-testid="explain-error-stub" data-title={title} />
+    ),
+    QueryWithAssistantButton: () => (
+      <div data-testid="query-with-assistant-stub" />
+    ),
+  };
+});
+
 // Imports must come after jest.mock calls so the mocks are applied.
+import { useAssistant, useProvidePageContext } from "@grafana/assistant";
 import { QueryEditor, Props } from "./QueryEditor";
 import { HdxQuery, QueryType } from "../types";
 import { deriveInterpolationInterval } from "../editor/timeRangeUtils";
@@ -114,6 +139,16 @@ function makeProps(
   // No cached request state on the mock: interpolation must work from props
   // alone, so a `datasource.options`-shaped field would be misleading here.
   const datasource: any = {
+    uid: "hdx-uid",
+    options: { jsonData: {} },
+    instanceSettings: { jsonData: { host: "cluster.example" } },
+    // Reached only by AssistantQueryContext's debounced publish; stubbed so an
+    // available-Assistant render has nothing live to hit.
+    getAst: jest.fn().mockResolvedValue([]),
+    metadataProvider: {
+      columns: jest.fn().mockResolvedValue([]),
+      primaryKey: jest.fn().mockResolvedValue("timestamp"),
+    },
     templateSrv: { getVariables: () => [] },
     interpolateQuery: jest.fn().mockResolvedValue({
       originalSql: query.rawSql,
@@ -327,5 +362,57 @@ describe("QueryEditor", () => {
       "data-show-sql",
       "false"
     );
+  });
+});
+
+describe("QueryEditor Assistant gating", () => {
+  const mockUseAssistant = useAssistant as unknown as jest.Mock;
+  const mockUseProvidePageContext =
+    useProvidePageContext as unknown as jest.Mock;
+
+  // A failed response for this editor's own refId — the precondition for the
+  // explain action, so its absence below is the gate and not a missing error.
+  const failedData: any = {
+    state: "Error",
+    series: [],
+    errors: [{ refId: "A", message: "boom" }],
+    timeRange: {},
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockUseAssistant.mockReturnValue({ isAvailable: false });
+    mockUseProvidePageContext.mockReturnValue(jest.fn());
+  });
+
+  it("registers no page context and renders no Assistant UI when Assistant is unavailable", () => {
+    const props = makeProps();
+    render(<QueryEditor {...props} data={failedData} />);
+
+    expect(mockUseProvidePageContext).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("explain-error-stub")).not.toBeInTheDocument();
+    // QueryWithAssistantButton self-gates inside the SDK, but the spec puts
+    // the availability decision on the plugin, so QueryEditor gates it too.
+    expect(
+      screen.queryByTestId("query-with-assistant-stub")
+    ).not.toBeInTheDocument();
+  });
+
+  it("registers page context and renders both Assistant surfaces when available", () => {
+    mockUseAssistant.mockReturnValue({ isAvailable: true });
+    const props = makeProps();
+    render(<QueryEditor {...props} data={failedData} />);
+
+    expect(mockUseProvidePageContext).toHaveBeenCalled();
+    expect(screen.getByTestId("explain-error-stub")).toBeInTheDocument();
+    expect(screen.getByTestId("query-with-assistant-stub")).toBeInTheDocument();
+  });
+
+  it("keeps the editor itself intact when Assistant is unavailable", () => {
+    const props = makeProps();
+    render(<QueryEditor {...props} />);
+
+    expect(screen.getByTestId("sql-editor")).toBeInTheDocument();
+    expect(screen.getByTestId("query-settings-stub")).toBeInTheDocument();
   });
 });

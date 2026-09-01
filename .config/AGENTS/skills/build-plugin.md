@@ -94,7 +94,22 @@ npm run build         # one-shot production bundle → dist/module.js (+ map, pl
 npm run dev           # webpack -w, development mode, rebuilds on save
 ```
 
-- Both are defined in `package.json` and resolve to `webpack -c ./.config/webpack/webpack.config.ts --env {production|development}` — note the config lives under `.config/`, so CWD must be the repo root.
+- Both are defined in `package.json` and resolve to `webpack -c ./webpack.config.ts --env {production|development}` — CWD must be the repo root.
+- **`webpack.config.ts` at the repo root is ours**; it wraps the scaffold's
+  `.config/webpack/webpack.config.ts` (the documented "extend configurations"
+  pattern) and exists for exactly one reason: to **un-externalize
+  `react/jsx-runtime` / `react/jsx-dev-runtime`**. Grafana only publishes those
+  to its SystemJS shared-dependency map from **12.3.0** onwards, but the
+  scaffold externalizes them unconditionally. `src/` compiles with the classic
+  JSX transform and never emits them — pre-built deps do (`@grafana/assistant`
+  ships JSX compiled with the automatic runtime). Leave one in the AMD
+  `define([...])` header and Grafana ≤ 12.2 requests `/react/jsx-runtime`, gets
+  a 404, and **fails the entire plugin load**: the datasource page renders as
+  "Type: undefined" with no config or query editor, and every e2e test dies.
+  Sanity check after any dependency bump: `head -c 200 dist/module.js` — the
+  `define([...])` list must contain only `@emotion/css`, `@grafana/data`,
+  `@grafana/runtime`, `@grafana/ui`, `module`, `react`, `rxjs`. Drop the
+  override once the minimum supported Grafana is ≥ 12.3.
 - `npm run dev` is the right default while iterating: leave it running in a side terminal; saved `.tsx`/`.ts` edits hit `dist/` in ~1–2 s and Grafana picks them up on the next page reload (no container restart).
 - Node ≥22 is required (`package.json` engines). Check with `node -v` if a build blows up unexpectedly.
 - Install/refresh deps with `npm ci` (not `npm install`) when `package-lock.json` changes — keeps the host's lockfile in lockstep with the playwright image.

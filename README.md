@@ -432,3 +432,13 @@ ORDER BY started_at
 Map `started_at` → **Time**, `ended_at` → **Time end**, `incident_name` → **Text**, `severity` → **Tags**.
 
 Ad hoc filters set on the dashboard apply to your panel queries; they do not affect annotation queries (annotation queries are intentionally insulated from the panel filter cache so refreshing one does not clobber the other).
+
+## Grafana Assistant
+
+Grafana Assistant cannot query Hydrolix through its built-in SQL tools — they match datasources against a hard-coded allowlist that does not include this plugin. Assistant support is provided instead by registering the [Hydrolix MCP server](https://github.com/hydrolix/mcp-hydrolix) as a custom MCP server and installing the Hydrolix skill.
+
+The plugin contributes query context — the datasource, cluster, SQL, time range, and the table's schema and primary time column — plus an Assistant button in the query editor. Without the MCP server, Assistant can write and explain Hydrolix SQL but cannot execute it.
+
+The skill document to install is [docs/assistant-skill.md](https://github.com/hydrolix/grafana-datasource-plugin/blob/main/docs/assistant-skill.md). Before registering the MCP server, note two things: queries through it bypass Grafana datasource permissions and per-user OAuth forwarding (the server authenticates with its own Hydrolix credential), and the server must be network-reachable from your Grafana instance — check that first by curling its `/mcp` endpoint, where an authentication failure is the expected reachable-server response.
+
+For the full procedure — reachability and same-cluster checks, the "Just me" versus "Everybody" scope trade-off, and provisioning the skill with the read-only tools auto-approved — see [docs/grafana-assistant.md](https://github.com/hydrolix/grafana-datasource-plugin/blob/main/docs/grafana-assistant.md).

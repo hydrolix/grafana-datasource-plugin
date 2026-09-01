@@ -203,7 +203,12 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
         : Promise.resolve(functions!);
     },
     primaryKey: (t: TableIdentifier) => {
-      return !primaryKeys[`${t.schema}.${t.table}`]
+      const key = `${t.schema}.${t.table}`;
+      // Presence check, not truthiness: a table with no primary key resolves
+      // to "" or undefined, and a truthiness test would treat that as "not
+      // fetched yet" and re-query the cluster on every call. Assistant
+      // publishes context on a 300ms debounce, so that is once per keystroke.
+      return !(key in primaryKeys)
         ? firstValueFrom(
             queryRunner(
               PK_SQL.replace(/\{schema}/, t?.schema!).replace(
@@ -212,10 +217,10 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
               )
             ).pipe(
               map((r) => transformResponse(r)[0]),
-              tap((v) => (primaryKeys[`${t.schema}.${t.table}`] = v))
+              tap((v) => (primaryKeys[key] = v))
             )
           )
-        : Promise.resolve(primaryKeys[`${t.schema}.${t.table}`]);
+        : Promise.resolve(primaryKeys[key]);
     },
     tableKeys: tableKeysFn,
     executeQuery: (

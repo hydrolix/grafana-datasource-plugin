@@ -43,6 +43,9 @@ import {
 import { css } from "@emotion/css";
 import allLabels from "../labels";
 import { QuerySettings } from "./QuerySettings";
+import { QueryWithAssistantButton, useAssistant } from "@grafana/assistant";
+import { AssistantQueryContext } from "../assistant/AssistantQueryContext";
+import { ExplainErrorButton } from "../assistant/ExplainErrorButton";
 
 export type Props = QueryEditorProps<
   DataSource,
@@ -61,6 +64,8 @@ export function QueryEditor(props: Props) {
   `;
   const onChange = props.onChange;
   const query = props.query;
+
+  const { isAvailable: assistantAvailable } = useAssistant();
 
   useEffect(() => {
     if (query.format === undefined) {
@@ -172,8 +177,22 @@ export function QueryEditor(props: Props) {
   );
   // eslint-disable-next-line eqeqeq
   let dirty = interpolationResult?.interpolationId != interpolationId;
+
+  // In a Mixed panel props.queries includes other datasources' queries; keep
+  // only ours before the cast. A query without a datasource ref can only
+  // belong to this editor's datasource.
+  const siblingQueries = (props.queries ?? [props.query]).filter(
+    (q) => !q.datasource?.uid || q.datasource.uid === props.datasource.uid
+  ) as HdxQuery[];
   return (
     <div>
+      {assistantAvailable && (
+        <AssistantQueryContext
+          datasource={props.datasource}
+          rawSql={props.query.rawSql}
+          range={props.range}
+        />
+      )}
       <SQLEditor
         query={props.query.rawSql}
         onChange={onQueryTextChange}
@@ -254,6 +273,30 @@ export function QueryEditor(props: Props) {
                     gap: 4,
                   }}
                 >
+                  {/* One gate for both toolbar surfaces: the spec requires the
+                      plugin to determine availability before rendering any
+                      Assistant UI. QueryWithAssistantButton also self-gates,
+                      but relying on that would make the guarantee the SDK's
+                      rather than ours. */}
+                  {assistantAvailable && (
+                    <>
+                      <ExplainErrorButton
+                        datasource={props.datasource}
+                        rawSql={props.query.rawSql}
+                        refId={props.query.refId}
+                        data={props.data}
+                      />
+                      <QueryWithAssistantButton<HdxQuery>
+                        currentQuery={props.query}
+                        queries={siblingQueries}
+                        dataSourceInstanceSettings={
+                          props.datasource.instanceSettings
+                        }
+                        datasourceApi={props.datasource}
+                        app={props.app}
+                      />
+                    </>
+                  )}
                   <ToolbarButton
                     tooltip={labels.formatQuery.tooltip}
                     onClick={formatQuery}
