@@ -6,12 +6,15 @@
 
 The preload paths (`getTagValues` and `getTagKeysForMap`) SHALL cap the time
 range passed to the metadata query: the effective `from` SHALL be
-`max(range.from, range.to − 86400s)` and `to` SHALL be unchanged. The base
-range SHALL come from the caller: `getTagValues` uses the time range Grafana
-passes in its options argument, and `getTagKeysForMap` uses the time range
-threaded from `getTagKeys`'s own options argument, falling back to the
-template service's current range when Grafana supplies none. Neither path
-SHALL read request state cached on the datasource instance. The
+`max(range.from, range.to − 86400s)` and `to` SHALL be unchanged. Both paths
+SHALL resolve the base range through the same shared helper, in this order:
+the time range Grafana passes in the hook's options argument (threaded from
+`getTagKeys`'s own options for map-key discovery); else the template
+service's current range (load-bearing on Grafana 10.4, which never populates
+the options range); else a synthesized trailing-24h window ending at now, so
+a preload query — which carries `$__timeFilter()` — can never execute against
+the `ZERO_TIME_RANGE` sentinel's 1970 window and silently return no values.
+Neither path SHALL read request state cached on the datasource instance. The
 metadata query target SHALL carry `round = "5m"` so the plugin backend's
 existing round mechanism snaps both endpoints to 5-minute boundaries before
 macro expansion, making the interpolated SQL text stable within a rounding
@@ -48,6 +51,23 @@ filter (no cap arithmetic in SQL).
 - **WHEN** map-key discovery runs
 - **THEN** the range passed to the map-key query SHALL be derived from the
   template service's current range, capped to the trailing 24h
+
+#### Scenario: Value preload falls back when no range is supplied
+
+- **GIVEN** a Grafana version that omits the time range from the tag-values
+  options argument
+- **WHEN** the value dropdown triggers a preload query
+- **THEN** the range passed to the metadata query SHALL be derived from the
+  template service's current range, capped to the trailing 24h
+
+#### Scenario: Last-resort window when even the template service has no range
+
+- **GIVEN** a preload or map-key discovery query where both the options
+  argument and the template service supply no usable range
+- **WHEN** the query executes
+- **THEN** the range passed to the metadata query SHALL be the trailing 24h
+  ending at the current time
+- **AND** the query SHALL NOT execute with the `ZERO_TIME_RANGE` sentinel
 
 #### Scenario: Metadata target requests 5-minute rounding
 
