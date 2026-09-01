@@ -1246,4 +1246,49 @@ describe("HdxDataSource", () => {
       }
     );
   });
+
+  describe("assistant support surface", () => {
+    it("getQueryDisplayText returns the raw SQL", () => {
+      const { datasource } = setupDataSourceMock({});
+      expect(
+        datasource.getQueryDisplayText({ rawSql: "SELECT 1" } as HdxQuery)
+      ).toBe("SELECT 1");
+    });
+
+    it("getQueryDisplayText returns an empty string when rawSql is unset", () => {
+      const { datasource } = setupDataSourceMock({});
+      expect(datasource.getQueryDisplayText({} as HdxQuery)).toBe("");
+    });
+
+    it("getAst returns the parsed tree from the /ast resource", async () => {
+      const { datasource } = setupDataSourceMock({});
+      const ast = [{ Select: {} }];
+      const postResource = jest
+        .spyOn(datasource, "postResource")
+        .mockResolvedValue({ error: false, data: ast });
+
+      await expect(datasource.getAst("SELECT 1")).resolves.toBe(ast);
+      expect(postResource).toHaveBeenCalledWith("ast", {
+        data: { query: "SELECT 1" },
+      });
+    });
+
+    it("getAst rejects with the backend message on a parse error", async () => {
+      const { datasource } = setupDataSourceMock({});
+      jest
+        .spyOn(datasource, "postResource")
+        .mockResolvedValue({ error: true, errorMessage: "syntax error" });
+
+      await expect(datasource.getAst("SELEC")).rejects.toThrow("syntax error");
+    });
+
+    it("getAst rejects with a fallback message when the backend gives none", async () => {
+      const { datasource } = setupDataSourceMock({});
+      jest.spyOn(datasource, "postResource").mockResolvedValue({ error: true });
+
+      await expect(datasource.getAst("SELEC")).rejects.toThrow(
+        "Unknown ast parsing error"
+      );
+    });
+  });
 });

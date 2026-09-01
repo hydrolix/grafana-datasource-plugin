@@ -1,7 +1,7 @@
 # hdx-assistant-skill Specification
 
 ## Purpose
-The Assistant Skill document contract: the Hydrolix dialect rules it must state, the macro and ad-hoc-filter translations it must carry, error triage, which MCP tools it auto-approves, and the operator documentation requirements. Delivered by change add-assistant-mcp-support.
+The Assistant Skill document contract: the Hydrolix dialect rules it must state, the macro and ad-hoc-filter translations it must carry, error triage, which MCP tools the operator is told to auto-approve, and the operator documentation requirements. Delivered by change add-assistant-mcp-support.
 ## Requirements
 
 ### Requirement: The Skill states the Hydrolix dialect rules
@@ -52,21 +52,25 @@ read and reason about saved panel queries. It SHALL cover at minimum
 - **WHEN** a user pastes a panel query containing `$__timeFilter(timestamp)` into Assistant
 - **THEN** the model can explain the query and produce an executable equivalent with literal bounds
 
-### Requirement: Read-only MCP tools are auto-approved
+### Requirement: Only read-only MCP tools are designated for auto-approval
 
-The Skill SHALL auto-approve the MCP server's read-only discovery tools —
-`list_databases`, `list_tables`, and `get_table_info` — and SHALL NOT
-auto-approve `run_select_query`, leaving that to the operator.
+Auto-approval is a property of the MCP/skill registration the Grafana admin
+configures, not of the Skill document itself — the Skill cannot rule that
+behavior. The operator documentation and the provisioning sample SHALL
+designate only the MCP server's read-only discovery tools —
+`list_databases`, `list_tables`, and `get_table_info` — for auto-approval,
+and SHALL NOT designate `run_select_query`, leaving query execution subject
+to the deployment's approval setting.
 
 #### Scenario: Discovery runs without prompting
 
-- **WHEN** the Skill is invoked and the model calls `list_tables`
+- **WHEN** the admin has registered the MCP server following the operator documentation and the model calls `list_tables`
 - **THEN** the call executes without a manual approval prompt
 
 #### Scenario: Query execution requires a decision
 
-- **WHEN** the model calls `run_select_query` under the Skill's default configuration
-- **THEN** the call is subject to the deployment's approval setting rather than being auto-approved by the Skill
+- **WHEN** the model calls `run_select_query` under a registration that follows the operator documentation
+- **THEN** the call is subject to the deployment's approval setting rather than being auto-approved
 
 ### Requirement: The Skill is provisionable and within platform limits
 
