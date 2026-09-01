@@ -34,19 +34,21 @@
  *   - Clicking the run toolbar button invokes props.onRunQuery.
  *   - QuerySettings receives the current querySettings array as a prop,
  *     and InterpolatedQuery receives showSQL=false by default.
+ *   - Showing the interpolated query calls interpolateQuery with context built
+ *     from props (range, derived interval, panel-request filters) and issues no
+ *     preparatory panel run.
  *
  * Not covered here:
  *   - The Query Type Select dropdown change (react-select portal — better
  *     in e2e).
- *   - The debounced interpolateQuery side-effect (timing-dependent;
- *     covered indirectly by the datasource unit tests).
  *   - Format-query toolbar button (delegates to SQLEditor's render-prop;
  *     the stubbed formatQuery has nothing to verify).
  */
 import React, { useState } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
+import { dateTime, makeTimeRange } from "@grafana/data";
 
 jest.mock("@grafana/plugin-ui", () => {
   const actual = jest.requireActual("@grafana/plugin-ui");
@@ -95,8 +97,12 @@ jest.mock("./ValidationBar", () => ({
 // Imports must come after jest.mock calls so the mocks are applied.
 import { QueryEditor, Props } from "./QueryEditor";
 import { HdxQuery, QueryType } from "../types";
+import { deriveInterpolationInterval } from "../editor/timeRangeUtils";
 
-function makeProps(overrides: Partial<HdxQuery> = {}): Props {
+function makeProps(
+  overrides: Partial<HdxQuery> = {},
+  propOverrides: Partial<Props> = {}
+): Props {
   const query: HdxQuery = {
     refId: "A",
     rawSql: "SELECT 1",
@@ -105,8 +111,9 @@ function makeProps(overrides: Partial<HdxQuery> = {}): Props {
     ...overrides,
   } as HdxQuery;
 
+  // No cached request state on the mock: interpolation must work from props
+  // alone, so a `datasource.options`-shaped field would be misleading here.
   const datasource: any = {
-    options: { jsonData: {} },
     templateSrv: { getVariables: () => [] },
     interpolateQuery: jest.fn().mockResolvedValue({
       originalSql: query.rawSql,
@@ -122,6 +129,7 @@ function makeProps(overrides: Partial<HdxQuery> = {}): Props {
     datasource,
     onChange: jest.fn(),
     onRunQuery: jest.fn(),
+    ...propOverrides,
   } as unknown as Props;
 }
 
@@ -235,6 +243,61 @@ describe("QueryEditor", () => {
     expect(
       screen.getByRole("button", { name: /Hide Interpolated Query/i })
     ).toBeInTheDocument();
+  });
+
+  it("interpolates from props on a panel with no completed run", async () => {
+    const to = 1_700_000_000_000;
+    const from = to - 6 * 60 * 60 * 1000;
+    const range = makeTimeRange(dateTime(from), dateTime(to));
+    const filters = [{ key: "status", operator: "=", value: "ok" }];
+    const props = makeProps(
+      { format: QueryType.Table },
+      {
+        range,
+        data: { request: { maxDataPoints: 1000, filters } } as any,
+      }
+    );
+    render(<QueryEditor {...props} />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Show Interpolated Query/i })
+    );
+
+    const interpolateQuery = (props.datasource as any).interpolateQuery;
+    await waitFor(() => expect(interpolateQuery).toHaveBeenCalled());
+
+    const context = interpolateQuery.mock.calls[0][2];
+    expect(context.range).toBe(range);
+    expect(context.filters).toBe(filters);
+    expect(context.interval).toBe(
+      deriveInterpolationInterval(range, 1000)
+    );
+
+    // No preparatory query: interpolation must not need a panel run to have
+    // populated anything first.
+    expect(props.onRunQuery).not.toHaveBeenCalled();
+  });
+
+  // `undefined` is dropped by JSON.stringify, so the backend would decode
+  // Interval as "" and time.ParseDuration("") fails the whole interpolate
+  // request. A parseable zero degrades cleanly instead.
+  it("sends a parseable zero interval when the panel has no range", async () => {
+    const props = makeProps(
+      { format: QueryType.Table },
+      { range: undefined, data: { request: { maxDataPoints: 1000 } } as any }
+    );
+    render(<QueryEditor {...props} />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Show Interpolated Query/i })
+    );
+
+    const interpolateQuery = (props.datasource as any).interpolateQuery;
+    await waitFor(() => expect(interpolateQuery).toHaveBeenCalled());
+
+    const context = interpolateQuery.mock.calls[0][2];
+    expect(context.range).toBeUndefined();
+    expect(context.interval).toBe("0ms");
   });
 
   it("calls onRunQuery when the run toolbar button is clicked", async () => {

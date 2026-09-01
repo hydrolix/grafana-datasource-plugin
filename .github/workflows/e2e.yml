@@ -49,6 +49,13 @@ jobs:
         env:
           E2E_GRAFANA_URL: http://localhost:3000
           PLAYWRIGHT_JUNIT_OUTPUT_FILE: junit_report.xml
+          # Playwright runs on the runner host here, not inside the compose
+          # network, so the `clickhouse-server` service name doesn't resolve
+          # for tests that talk to ClickHouse directly (system.query_log
+          # lookups). Only the published port is reachable. This is separate
+          # from CLICKHOUSE_HOSTNAME, which is the address Grafana uses from
+          # inside its container and must stay the service name.
+          E2E_CLICKHOUSE_HTTP_HOST: localhost
 
       - name: Upload test results
         uses: actions/upload-artifact@v7

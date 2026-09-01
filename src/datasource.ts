@@ -3,9 +3,11 @@ import {
   ConstantVariableModel,
   CoreApp,
   DataFrame,
+  dateTime,
   DataQueryError,
   DataQueryRequest,
   DataQueryResponse,
+  DataSourceGetTagKeysOptions,
   DataSourceGetTagValuesOptions,
   DataSourceInstanceSettings,
   Field,
@@ -14,6 +16,7 @@ import {
   MetricFindValue,
   ScopedVars,
   TestDataSourceResponse,
+  TimeRange,
 } from "@grafana/data";
 import {
   DataSourceWithBackend,
@@ -28,6 +31,7 @@ import {
   DEFAULT_QUERY,
   HdxDataSourceOptions,
   HdxQuery,
+  InterpolationContext,
   InterpolationResult,
   TableIdentifier,
   InterpolationResponse,
@@ -36,12 +40,16 @@ import {
 import { from, Observable, switchMap } from "rxjs";
 import { map } from "rxjs/operators";
 import { ErrorMessageBeautifier } from "./errors/errorBeautifier";
-import {
-  getMetadataProvider,
-  ZERO_TIME_RANGE,
-} from "./editor/metadataProvider";
+import { getMetadataProvider } from "./editor/metadataProvider";
 import { getColumnKeysForMapStatement, getColumnValuesStatement } from "./ast";
-import { MAP_KEY_REGEX, SYNTHETIC_EMPTY, SYNTHETIC_NULL } from "./constants";
+import {
+  AD_HOC_PRELOAD_LOOKBACK_SECONDS,
+  MAP_KEY_REGEX,
+  NULLABLE_MAP_TYPES,
+  NULLABLE_TYPES,
+  SYNTHETIC_EMPTY,
+  SYNTHETIC_NULL,
+} from "./constants";
 import { replace } from "./syntheticVariables";
 import { applyConditionalAll } from "./macros/macrosApplier";
 import { ErrorExposer } from "./errors/errorExposer";
@@ -58,8 +66,6 @@ export class DataSource extends DataSourceWithBackend<
 > {
   public readonly metadataProvider = getMetadataProvider(this);
   private readonly beautifier = new ErrorMessageBeautifier();
-  public options: DataQueryRequest<HdxQuery> | undefined;
-  public filters: AdHocVariableFilter[] | undefined;
   private errorExposer!: ErrorExposer;
 
   constructor(
@@ -98,17 +104,9 @@ export class DataSource extends DataSourceWithBackend<
     if (isAnnotationRequest(request)) {
       request = { ...request, app: "annotation" };
     }
-    if (request.range !== ZERO_TIME_RANGE) {
-      this.options = request;
-    }
-    if (request.app === CoreApp.Dashboard) {
-      this.filters = request.filters;
-    }
     let targets$ = from(
       Promise.all(
-        request.targets
-          .filter((t) => !(t.skipNextRun && t.skipNextRun()))
-          .map(async (t) => await this.prepareTarget(t, request))
+        request.targets.map(async (t) => await this.prepareTarget(t, request))
       )
     );
     return targets$.pipe(
@@ -210,7 +208,8 @@ export class DataSource extends DataSourceWithBackend<
 
   public async interpolateQuery(
     query: HdxQuery,
-    interpolationId: string
+    interpolationId: string,
+    context: InterpolationContext
   ): Promise<InterpolationResult> {
     let macroContext: Context = {
       templateVars: this.templateSrv.getVariables(),
@@ -229,10 +228,13 @@ export class DataSource extends DataSourceWithBackend<
       hasWarning: false,
     };
     try {
-      let interpolationResponse = await this.getInterpolatedQuery({
-        ...query,
-        rawSql: sql,
-      });
+      let interpolationResponse = await this.getInterpolatedQuery(
+        {
+          ...query,
+          rawSql: sql,
+        },
+        context
+      );
       if (interpolationResponse.error) {
         result = {
           ...result,
@@ -295,7 +297,9 @@ export class DataSource extends DataSourceWithBackend<
     };
   }
 
-  async getTagKeys(): Promise<MetricFindValue[]> {
+  async getTagKeys(
+    options?: DataSourceGetTagKeysOptions<HdxQuery>
+  ): Promise<MetricFindValue[]> {
     let table = this.adHocFilterTableName();
 
     if (table) {
@@ -305,7 +309,14 @@ export class DataSource extends DataSourceWithBackend<
           .filter((key) => key.type.includes("Map"))
           .map((key) => key.value?.toString())
           .filter((key) => !!key)
-          .map((column) => this.getTagKeysForMap(column!, table))
+          .map((column) =>
+            this.getTagKeysForMap(
+              column!,
+              table,
+              options?.timeRange,
+              options?.filters
+            )
+          )
       ).then((response: Array<{ key: string; val: string[] }>) =>
         response.reduce((map, obj) => {
           map[obj.key] = obj.val;
@@ -331,24 +342,29 @@ export class DataSource extends DataSourceWithBackend<
 
   async getTagKeysForMap(
     column: string,
-    table: string
+    table: string,
+    timeRange?: TimeRange,
+    filters?: AdHocVariableFilter[]
   ): Promise<{ key: string; val: string[] }> {
     const response = await this.metadataProvider.executeQuery(
       getColumnKeysForMapStatement(column, table),
-      this.options?.range,
-      this.filters
+      this.adHocPreloadRange(timeRange),
+      filters
     );
     let values: string[] = this.getValuesFromResponse(response);
     return { key: column, val: values.map((v) => `${column}['${v}']`) };
   }
 
-  async getInterpolatedQuery(query: HdxQuery): Promise<InterpolationResponse> {
+  async getInterpolatedQuery(
+    query: HdxQuery,
+    context: InterpolationContext
+  ): Promise<InterpolationResponse> {
     return this.postResource("interpolate", {
       data: {
         rawSql: query.rawSql,
-        range: this.options?.range,
-        interval: this.options?.interval,
-        filters: this.filters,
+        range: context.range,
+        interval: context.interval,
+        filters: context.filters,
         round: query.round,
       },
     }).then((a: any) => ({
@@ -412,6 +428,15 @@ export class DataSource extends DataSourceWithBackend<
       column = options.key;
     }
 
+    // For map-access keys (e.g. attrs['env']) the key list only carries the
+    // base map column, never the full accessor - resolve the base column's
+    // type and gate on the nullable Map(String, Nullable(...)) variant.
+    const nullGateType = isMapKey
+      ? keys.find((k) => k.value === options.key.split("['")[0])?.type
+      : type;
+    const nullableTypes = isMapKey ? NULLABLE_MAP_TYPES : NULLABLE_TYPES;
+    const isNullable = !!nullGateType && nullableTypes.includes(nullGateType);
+
     let timeFilter = await this.metadataProvider.primaryKey(
       this.getTableIdentifier(table)
     );
@@ -430,7 +455,7 @@ export class DataSource extends DataSourceWithBackend<
     }
     let response = await this.metadataProvider.executeQuery(
       sql,
-      options.timeRange,
+      this.adHocPreloadRange(options.timeRange),
       options.filters
     );
     let values: string[] = this.getValuesFromResponse(response);
@@ -440,9 +465,7 @@ export class DataSource extends DataSourceWithBackend<
         .filter((v) => ![SYNTHETIC_EMPTY, SYNTHETIC_NULL].includes(v)),
 
       values.filter((v) => v === "").length ? SYNTHETIC_EMPTY : null,
-      values.filter((v) => v === null || v === undefined).length
-        ? SYNTHETIC_NULL
-        : null,
+      isNullable ? SYNTHETIC_NULL : null,
     ]
       .filter((v) => v !== null)
       .map((n: string) => ({
@@ -455,6 +478,77 @@ export class DataSource extends DataSourceWithBackend<
       ? response.data[0].fields
       : [];
     return fields[0]?.values || [];
+  }
+
+  /**
+   * Time window for the ad-hoc key/value preload queries. Resolution order is
+   * tag-keys options -> template service -> trailing lookback.
+   *
+   * Both preload statements carry `$__timeFilter()`, while `ZERO_TIME_RANGE` —
+   * the sentinel `executeQuery` substitutes for a missing range — means "this
+   * metadata query has no time macro" and is only correct for the unfiltered
+   * `system.*` / `DESCRIBE` lookups. Letting it reach a filtered query
+   * resolves to a 1970 window that returns no rows and silently erases the
+   * column from the ad-hoc dropdown. This never returns undefined, so the
+   * sentinel is unreachable from the preload path.
+   */
+  private adHocPreloadRange(timeRange?: TimeRange): TimeRange {
+    const resolved = timeRange ?? this.templateServiceRange();
+    if (resolved) {
+      return this.capPreloadTimeRange(resolved);
+    }
+    // Last resort: the same lookback the cap already enforces for long ranges.
+    const to = dateTime();
+    const from = dateTime(
+      to.valueOf() - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+    );
+    return { from, to, raw: { from, to } };
+  }
+
+  /**
+   * Grafana 10.4 — the floor `plugin.json` declares — does not populate
+   * `timeRange` on the tag-keys options, even though the field has existed on
+   * `DataSourceFilteringRequestOptions` since 10.3. On that version the
+   * dashboard window is reachable only through the template service, so this
+   * fallback is load-bearing, not defensive: without it
+   * `tests/adHocMapKeys.spec.ts` fails on 10.4.18 (map keys resolve against a
+   * now-relative window instead of the dashboard's, find no rows, and the Map
+   * column disappears from the dropdown) while passing on 11.6.1 / 12.0.2 /
+   * 13.0.1. Re-check against the CI matrix before removing it.
+   *
+   * `timeRange` is absent from the published `TemplateSrv` type — `runQuery`
+   * reads it the same way — so the value carries no type guarantee. Shape-guard
+   * it rather than letting a reshaped value throw out of
+   * `capPreloadTimeRange` and reject the whole `getTagKeys` promise.
+   */
+  private templateServiceRange(): TimeRange | undefined {
+    const range = (this.templateSrv as any).timeRange;
+    return Number.isFinite(range?.from?.valueOf?.()) &&
+      Number.isFinite(range?.to?.valueOf?.())
+      ? (range as TimeRange)
+      : undefined;
+  }
+
+  private capPreloadTimeRange(range: TimeRange): TimeRange {
+    const lookbackFromMs =
+      range.to.valueOf() - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000;
+    if (range.from.valueOf() >= lookbackFromMs) {
+      // Already inside the lookback, so nothing to cap. Return the range
+      // untouched rather than rebuilding it: the rewrite below would freeze a
+      // relative `raw` (e.g. "now-6h") to an absolute instant for no gain.
+      return range;
+    }
+    // `raw` describes the same window in unresolved form, so it has to move
+    // with `from` — a capped window is no longer whatever the picker said
+    // (e.g. "now-90d"). `to` is untouched, so `raw.to` carries through.
+    return {
+      ...range,
+      from: dateTime(lookbackFromMs),
+      raw: {
+        ...range.raw,
+        from: dateTime(lookbackFromMs),
+      },
+    };
   }
 
   private adHocFilterTableName() {

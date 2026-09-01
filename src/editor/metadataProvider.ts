@@ -14,11 +14,15 @@ import {
   TableIdentifier,
 } from "@grafana/plugin-ui";
 import { DataSource } from "../datasource";
-import { AdHocFilterKeys } from "../types";
+import { AdHocFilterKeys, QuerySetting } from "../types";
 import {
   AD_HOC_KEY_QUERY,
+  AD_HOC_PRELOAD_ROUND_INTERVAL,
   COLUMNS_SQL,
   FUNCTIONS_SQL,
+  METADATA_QUERY_TIMEOUT_SETTING,
+  METADATA_QUERY_TIMEOUT_SETTING_ALIAS,
+  METADATA_QUERY_TIMEOUT_VALUE,
   NULLABLE_TYPES,
   SCHEMA_SQL,
   SUPPORTED_TYPES,
@@ -48,6 +52,28 @@ export const getQueryRunner = (
     timeRange?: TimeRange,
     filters?: AdHocVariableFilter[]
   ) => {
+    const dsLevelSettings = ds.instanceSettings.jsonData.querySettings ?? [];
+    // Min-wins: a DS-level value can only tighten the metadata breaker, never
+    // loosen it. Missing / non-numeric / <= 0 values (0 means "unlimited" on
+    // Hydrolix) are ignored, so the default stands.
+    const dsLevelBreakerValues = dsLevelSettings
+      .filter(
+        (s) =>
+          s.setting === METADATA_QUERY_TIMEOUT_SETTING ||
+          s.setting === METADATA_QUERY_TIMEOUT_SETTING_ALIAS
+      )
+      .map((s) => Number(s.value))
+      .filter((v) => Number.isFinite(v) && v > 0);
+    const breakerValue = Math.min(
+      Number(METADATA_QUERY_TIMEOUT_VALUE),
+      ...dsLevelBreakerValues
+    );
+    const querySettings: QuerySetting[] = [
+      {
+        setting: METADATA_QUERY_TIMEOUT_SETTING,
+        value: String(breakerValue),
+      },
+    ];
     return ds.query({
       requestId: v4(),
       interval: "0",
@@ -58,8 +84,8 @@ export const getQueryRunner = (
         {
           rawSql: sql,
           refId: "MD",
-          round: "",
-          querySettings: [],
+          round: AD_HOC_PRELOAD_ROUND_INTERVAL,
+          querySettings,
           filters,
         },
       ],

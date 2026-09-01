@@ -305,13 +305,42 @@ Ad hoc filters support two synthetic values to help identify and query rows with
 - `__null__`: matches rows where the column value is `NULL`.
 - `__empty__`: matches rows where the column value is an empty string.
 
-These synthetic values appear in the ad hoc filter suggestions only if the underlying data contains `NULL` or empty
-strings for the selected column during the current dashboard time range.
+`__empty__` appears in the suggestions only if the underlying data contains an empty string for the selected column
+during the current dashboard time range. `__null__` appears whenever the selected column's type is `Nullable`,
+regardless of whether any `NULL` was actually observed in that range — aggregate queries skip `NULL`s, so their
+presence can't be inferred from the returned values, but selecting `__null__` is always a valid filter for a nullable
+column.
 
 If the data contains literal values such as `__null__` or `__empty__`, those will also be matched by the corresponding
 filters.
 
 ![](https://raw.githubusercontent.com/hydrolix/grafana-datasource-plugin/refs/heads/main/docs/ad-hoc-filter-synthetic-values.gif)
+
+#### Value suggestion guardrails
+
+To keep the ad hoc filter value dropdown responsive on high-cardinality columns and long dashboard time ranges, value
+suggestions are computed by a bounded, best-effort query rather than an exhaustive scan:
+
+- **Trailing 24h window**: suggestions are computed over the trailing 24 hours of the dashboard's time range (rounded
+  to 5-minute boundaries). A value that last occurred earlier than that window will not appear in the suggestions, but
+  it can still be entered manually and used as a filter — the applied filter itself is unaffected.
+- **Approximate top values**: up to 100 of the most frequent values are returned using an approximate (`topK`)
+  aggregation, so inclusion and ordering near the cutoff are approximate rather than exact.
+- **Execution-time breaker**: every metadata query the plugin issues on its own behalf (value suggestions, map-key
+  discovery, schema/table/column lookups) carries a Hydrolix-native `hdx_query_max_execution_time = 10` query setting,
+  so a slow lookup is cancelled after 10 seconds instead of hanging. `hdx_query_max_execution_time` and Hydrolix's
+  `max_execution_time` are the same underlying setting; if either is also set at the data source level (**Query
+  Settings** subsection), the *smaller* of the two values wins — a data source-level value can lower the metadata
+  timeout below 10 seconds, but can never raise it above the 10-second default (a data source-level value of `0`,
+  meaning "unlimited" on Hydrolix, is ignored for this purpose). Note that a data source-level override of this
+  setting still applies to *all* queries from the data source, not only metadata lookups — it is only the metadata
+  breaker's own effective value that is capped at 10 seconds.
+- **Partial results on timeout**: the value-suggestion and map-key queries also carry
+  `SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000` in the SQL text. Where the engine
+  honors `timeout_overflow_mode = 'break'`, hitting the execution-time cap returns the top values computed over the
+  rows read so far instead of failing the query; if the cap is hit before any values are aggregated, the dropdown
+  simply shows no suggestions (manual value entry is always available). `hdx_query_max_timerange_sec` is a server-side
+  backstop for the trailing-24h window above and is not configurable from the data source settings.
 
 #### Wildcards
 

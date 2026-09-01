@@ -55,15 +55,49 @@ export async function pickOption(page: Page, name: string): Promise<void> {
 /**
  * Pick an option whose inner text starts with `prefix`. Use when the option's
  * accessible name varies by version (see file-level note).
+ *
+ * The anchor tolerates leading whitespace: 12.x indents the option's markup,
+ * so its raw text content starts with a newline and a bare `^` anchor matches
+ * nothing at all — the option is on screen and visible, but `hasText` reports
+ * zero matches.
  */
 export async function pickOptionByPrefix(
     page: Page,
     prefix: string,
 ): Promise<void> {
-    const re = new RegExp(`^${escapeRegex(prefix)}`);
+    const re = new RegExp(`^\\s*${escapeRegex(prefix)}`);
     await page
         .getByRole("option").filter({hasText: re})
         .or(page.getByRole("checkbox", {name: re}))
         .first()
         .click();
+}
+
+/**
+ * Locate an option by its exact *inner text*, ignoring the accessible name.
+ *
+ * Prefer this over {@link pickOption} whenever the option label is itself a
+ * prefix of another label in the same list (`status` vs `status_null`), or
+ * when the list is rendered by 10.x — there every option's accessible name is
+ * the constant "Select option", so name-based matching silently matches
+ * nothing. Values are regex-escaped, so labels containing metacharacters
+ * (`attrs['env']`) are safe to pass verbatim.
+ */
+export function optionByExactText(page: Page, text: string): Locator {
+    const re = new RegExp(`^\\s*${escapeRegex(text)}\\s*$`);
+    return page.getByRole("option").filter({hasText: re});
+}
+
+/** Click the option whose inner text is exactly `text`. */
+export async function pickOptionByExactText(
+    page: Page,
+    text: string,
+): Promise<void> {
+    await optionByExactText(page, text).first().click();
+}
+
+/** Trimmed inner text of every currently rendered option. */
+export async function visibleOptionTexts(page: Page): Promise<string[]> {
+    const texts = await page.getByRole("option").allTextContents();
+    return texts.map((t) => t.trim());
 }

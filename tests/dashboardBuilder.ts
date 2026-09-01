@@ -44,6 +44,12 @@ interface AnnotationOpts {
     enable?: boolean;
 }
 
+interface ConstantVariableOpts {
+    name: string;
+    /** Literal value the variable resolves to (e.g. a SQL fragment). */
+    value: string;
+}
+
 interface CreateResult {
     uid: string;
 }
@@ -127,7 +133,7 @@ export class DashboardBuilder {
      */
     addAdHocVariable(opts: AdHocVariableOpts): this {
         this.variables.push({
-            name: opts.name,
+            name: opts.name ?? "Filters",
             type: "adhoc",
             datasource: {type: this.datasource.type, uid: this.datasource.uid},
             filters: (opts.filters ?? []).map((f) => ({
@@ -142,6 +148,24 @@ export class DashboardBuilder {
                 ...(f.values ? {values: f.values} : {}),
                 condition: "",
             })),
+        });
+        return this;
+    }
+
+    /**
+     * A hidden "Constant" dashboard variable. Used to feed a literal SQL
+     * fragment into the datasource's `adHocConditionVariable` mechanism
+     * (`getAdHocFilterValueCondition` in `src/datasource.ts`), which appends
+     * the variable's `query` value verbatim after `$__adHocFilter()` in the
+     * ad-hoc value-preload template.
+     */
+    addConstantVariable(opts: ConstantVariableOpts): this {
+        this.variables.push({
+            name: opts.name,
+            type: "constant",
+            query: opts.value,
+            current: {value: opts.value, text: opts.value, selected: true},
+            hide: 2,
         });
         return this;
     }

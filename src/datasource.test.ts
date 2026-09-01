@@ -1,12 +1,18 @@
 import { firstValueFrom, of } from "rxjs";
-import { CoreApp, DataQueryRequest, toDataFrame } from "@grafana/data";
+import {
+  CoreApp,
+  DataQueryRequest,
+  dateTime,
+  toDataFrame,
+} from "@grafana/data";
 import {
   MockDataSourceInstanceSettings,
   setupDataSourceMock,
 } from "__mocks__/datasource";
 import { adHocTableVariable, fooVariable } from "./__mocks__/variable";
 import { AdHocFilterKeys, HdxQuery } from "./types";
-import { ZERO_TIME_RANGE } from "./editor/metadataProvider";
+import { DataSource } from "./datasource";
+import { AD_HOC_PRELOAD_LOOKBACK_SECONDS } from "./constants";
 
 describe("HdxDataSource", () => {
   beforeEach(() => {
@@ -146,7 +152,58 @@ describe("HdxDataSource", () => {
       expect(values).toEqual([100, 200].map((k) => ({ text: k, value: k })));
     });
 
-    it("should return null value", async () => {
+    it("should append synthetic null for a Nullable column type even without null rows", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve([
+          { text: "key1", value: "key1", type: "Nullable(String)" },
+          { text: "key2", value: "key2", type: "String" },
+          { text: "key3", value: "key3", type: "String" },
+        ] as AdHocFilterKeys[])
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["a", "b"] }],
+            }),
+          ],
+        })
+      );
+      let values = await datasource.getTagValues({ key: "key1", filters: [] });
+
+      expect(values).toEqual([
+        { text: "a", value: "a" },
+        { text: "b", value: "b" },
+        { text: "__null__", value: "__null__" },
+      ]);
+    });
+
+    it("should not append synthetic null for a non-Nullable column type", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve(
+          ["key1", "key2", "key3"].map(
+            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
+          )
+        )
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["a", "b"] }],
+            }),
+          ],
+        })
+      );
+      let values = await datasource.getTagValues({ key: "key1", filters: [] });
+
+      expect(values).toEqual([
+        { text: "a", value: "a" },
+        { text: "b", value: "b" },
+      ]);
+    });
+
+    it("should drop raw null entries from a non-Nullable column's value list", async () => {
       getKeysMock.mockReturnValue(
         Promise.resolve(
           ["key1", "key2", "key3"].map(
@@ -165,8 +222,23 @@ describe("HdxDataSource", () => {
       );
       let values = await datasource.getTagValues({ key: "key1", filters: [] });
 
-      expect(values).toEqual([{ text: "__null__", value: "__null__" }]);
+      expect(values).toEqual([]);
     });
+
+    it("should return an empty list without error for an empty successful response", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve(
+          ["key1", "key2", "key3"].map(
+            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
+          )
+        )
+      );
+      queryMock.mockReturnValue(of({ data: [] }));
+      let values = await datasource.getTagValues({ key: "key1", filters: [] });
+
+      expect(values).toEqual([]);
+    });
+
     it("should return empty value", async () => {
       getKeysMock.mockReturnValue(
         Promise.resolve(
@@ -210,13 +282,13 @@ describe("HdxDataSource", () => {
 
       expect(values).toEqual([{ text: "__empty__", value: "__empty__" }]);
     });
-    it("should return null and synthetic value", async () => {
+    it("should dedupe a raw '__null__' value against the type-gated synthetic null", async () => {
       getKeysMock.mockReturnValue(
-        Promise.resolve(
-          ["key1", "key2", "key3"].map(
-            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
-          )
-        )
+        Promise.resolve([
+          { text: "key1", value: "key1", type: "Nullable(String)" },
+          { text: "key2", value: "key2", type: "String" },
+          { text: "key3", value: "key3", type: "String" },
+        ] as AdHocFilterKeys[])
       );
       queryMock.mockReturnValue(
         of({
@@ -231,13 +303,13 @@ describe("HdxDataSource", () => {
 
       expect(values).toEqual([{ text: "__null__", value: "__null__" }]);
     });
-    it("should return empty, null and both synthetic values", async () => {
+    it("should return empty, null and both synthetic values for a Nullable column", async () => {
       getKeysMock.mockReturnValue(
-        Promise.resolve(
-          ["key1", "key2", "key3"].map(
-            (k) => ({ text: k, value: k, type: "String" } as AdHocFilterKeys)
-          )
-        )
+        Promise.resolve([
+          { text: "key1", value: "key1", type: "Nullable(String)" },
+          { text: "key2", value: "key2", type: "String" },
+          { text: "key3", value: "key3", type: "String" },
+        ] as AdHocFilterKeys[])
       );
       queryMock.mockReturnValue(
         of({
@@ -430,6 +502,65 @@ describe("HdxDataSource", () => {
         value: "metadata['key2']",
         type: "Map(String, Nullable(String))",
       });
+    });
+
+    it("should append synthetic null for a map key on a Map(String, Nullable(String)) column", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve([
+          {
+            text: "metadata",
+            value: "metadata",
+            type: "Map(String, Nullable(String))",
+          },
+        ] as AdHocFilterKeys[])
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["prod", "dev"] }],
+            }),
+          ],
+        })
+      );
+
+      let values = await datasource.getTagValues({
+        key: "metadata['env']",
+        filters: [],
+      });
+
+      expect(values).toEqual([
+        { text: "prod", value: "prod" },
+        { text: "dev", value: "dev" },
+        { text: "__null__", value: "__null__" },
+      ]);
+    });
+
+    it("should not append synthetic null for a map key on a Map(String, String) column", async () => {
+      getKeysMock.mockReturnValue(
+        Promise.resolve([
+          { text: "labels", value: "labels", type: "Map(String, String)" },
+        ] as AdHocFilterKeys[])
+      );
+      queryMock.mockReturnValue(
+        of({
+          data: [
+            toDataFrame({
+              fields: [{ values: ["prod", "dev"] }],
+            }),
+          ],
+        })
+      );
+
+      let values = await datasource.getTagValues({
+        key: "labels['env']",
+        filters: [],
+      });
+
+      expect(values).toEqual([
+        { text: "prod", value: "prod" },
+        { text: "dev", value: "dev" },
+      ]);
     });
   });
 
@@ -762,7 +893,7 @@ describe("HdxDataSource", () => {
       expect(queryMock.mock.calls[0][0].app).toBe(CoreApp.Dashboard);
     });
 
-    it("does not overwrite this.filters from an annotation request", async () => {
+    it("passes the request's filters straight through to super.query", async () => {
       const { datasource, queryMock } = setupDataSourceMock({});
       queryMock.mockReturnValue(of({ data: [] }));
 
@@ -770,51 +901,8 @@ describe("HdxDataSource", () => {
       await firstValueFrom(
         datasource.query(buildRequest([{}], { filters: panelFilters as any }))
       );
-      expect(datasource.filters).toEqual(panelFilters);
 
-      await firstValueFrom(
-        datasource.query(
-          buildRequest([{ source: "annotation" }], { filters: [] })
-        )
-      );
-      expect(datasource.filters).toEqual(panelFilters);
-    });
-
-    it("updates this.filters for a panel request (regression check)", async () => {
-      const { datasource, queryMock } = setupDataSourceMock({});
-      queryMock.mockReturnValue(of({ data: [] }));
-
-      const panelFilters = [{ key: "k2", operator: "=", value: "v2" }];
-      await firstValueFrom(
-        datasource.query(buildRequest([{}], { filters: panelFilters as any }))
-      );
-      expect(datasource.filters).toEqual(panelFilters);
-    });
-
-    it("updates this.options for an annotation request with a real range", async () => {
-      const { datasource, queryMock } = setupDataSourceMock({});
-      queryMock.mockReturnValue(of({ data: [] }));
-
-      const req = buildRequest([{ source: "annotation" }]);
-      await firstValueFrom(datasource.query(req));
-
-      expect(datasource.options?.range).toBe(realRange);
-      expect(datasource.options?.app).toBe("annotation");
-    });
-
-    it("leaves this.options unchanged for ZERO_TIME_RANGE", async () => {
-      const { datasource, queryMock } = setupDataSourceMock({});
-      queryMock.mockReturnValue(of({ data: [] }));
-
-      const prior = buildRequest([{}]);
-      await firstValueFrom(datasource.query(prior));
-      const snapshot = datasource.options;
-
-      const zero = buildRequest([{ source: "annotation" }], {
-        range: ZERO_TIME_RANGE as any,
-      });
-      await firstValueFrom(datasource.query(zero));
-      expect(datasource.options).toBe(snapshot);
+      expect(queryMock.mock.calls[0][0].filters).toEqual(panelFilters);
     });
 
     it("does not mutate the original DataQueryRequest", async () => {
@@ -830,5 +918,332 @@ describe("HdxDataSource", () => {
       expect(req.app).toBe(originalApp);
       expect(req.targets).toBe(originalTargets);
     });
+  });
+
+  describe("preload time range capping", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    function makeRange(fromMs: number, toMs: number) {
+      const from = dateTime(fromMs);
+      const to = dateTime(toMs);
+      return { from, to, raw: { from, to } };
+    }
+
+    it("caps a 90-day range to the trailing 24h for getTagValues", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({
+        variables: [adHocTableVariable],
+      });
+      jest.spyOn(datasource.metadataProvider, "tableKeys").mockReturnValue(
+        Promise.resolve([
+          { text: "key1", value: "key1", type: "String" },
+        ] as AdHocFilterKeys[])
+      );
+      jest
+        .spyOn(datasource.metadataProvider, "primaryKey")
+        .mockReturnValue(Promise.resolve("ts"));
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const to = 1_700_000_000_000;
+      const from = to - 90 * 24 * 60 * 60 * 1000;
+      await datasource.getTagValues({
+        key: "key1",
+        filters: [],
+        timeRange: makeRange(from, to) as any,
+      });
+
+      const sentRange = queryMock.mock.calls[0][0].range;
+      expect(sentRange.from.valueOf()).toBe(
+        to - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+      expect(sentRange.to.valueOf()).toBe(to);
+    });
+
+    it("leaves a 6-hour range untouched for getTagValues", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({
+        variables: [adHocTableVariable],
+      });
+      jest.spyOn(datasource.metadataProvider, "tableKeys").mockReturnValue(
+        Promise.resolve([
+          { text: "key1", value: "key1", type: "String" },
+        ] as AdHocFilterKeys[])
+      );
+      jest
+        .spyOn(datasource.metadataProvider, "primaryKey")
+        .mockReturnValue(Promise.resolve("ts"));
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const to = 1_700_000_000_000;
+      const from = to - 6 * 60 * 60 * 1000;
+      await datasource.getTagValues({
+        key: "key1",
+        filters: [],
+        timeRange: makeRange(from, to) as any,
+      });
+
+      const sentRange = queryMock.mock.calls[0][0].range;
+      expect(sentRange.from.valueOf()).toBe(from);
+      expect(sentRange.to.valueOf()).toBe(to);
+    });
+
+    // makeRange builds an absolute `raw`, so these two use relative
+    // expressions: the cap must only rewrite `raw` on ranges it actually caps.
+    function setupValuesMock() {
+      const mock = setupDataSourceMock({ variables: [adHocTableVariable] });
+      jest.spyOn(mock.datasource.metadataProvider, "tableKeys").mockReturnValue(
+        Promise.resolve([
+          { text: "key1", value: "key1", type: "String" },
+        ] as AdHocFilterKeys[])
+      );
+      jest
+        .spyOn(mock.datasource.metadataProvider, "primaryKey")
+        .mockReturnValue(Promise.resolve("ts"));
+      mock.queryMock.mockReturnValue(of({ data: [] }));
+      return mock;
+    }
+
+    it("preserves a relative raw range when nothing is capped", async () => {
+      const { datasource, queryMock } = setupValuesMock();
+
+      const to = 1_700_000_000_000;
+      const from = to - 6 * 60 * 60 * 1000;
+      await datasource.getTagValues({
+        key: "key1",
+        filters: [],
+        timeRange: {
+          from: dateTime(from),
+          to: dateTime(to),
+          raw: { from: "now-6h", to: "now" },
+        },
+      } as any);
+
+      const sentRange = queryMock.mock.calls[0][0].range;
+      expect(sentRange.raw).toEqual({ from: "now-6h", to: "now" });
+    });
+
+    it("rewrites raw.from to the capped instant on a capped range", async () => {
+      const { datasource, queryMock } = setupValuesMock();
+
+      const to = 1_700_000_000_000;
+      const from = to - 90 * 24 * 60 * 60 * 1000;
+      await datasource.getTagValues({
+        key: "key1",
+        filters: [],
+        timeRange: {
+          from: dateTime(from),
+          to: dateTime(to),
+          raw: { from: "now-90d", to: "now" },
+        },
+      } as any);
+
+      const sentRange = queryMock.mock.calls[0][0].range;
+      // The window is no longer "now-90d", so raw must not keep claiming it.
+      expect(sentRange.raw.from.valueOf()).toBe(
+        to - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+      expect(sentRange.raw.to).toBe("now");
+    });
+
+    it("caps the supplied range for getTagKeysForMap on a long dashboard range", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({
+        variables: [adHocTableVariable],
+      });
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const to = 1_700_000_000_000;
+      const from = to - 90 * 24 * 60 * 60 * 1000;
+      await datasource.getTagKeysForMap(
+        "labels",
+        "sample.table",
+        makeRange(from, to) as any
+      );
+
+      const sentRange = queryMock.mock.calls[0][0].range;
+      expect(sentRange.from.valueOf()).toBe(
+        to - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+      expect(sentRange.to.valueOf()).toBe(to);
+    });
+
+    it("caps range.raw.from alongside range.from for getTagValues", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({
+        variables: [adHocTableVariable],
+      });
+      jest.spyOn(datasource.metadataProvider, "tableKeys").mockReturnValue(
+        Promise.resolve([
+          { text: "key1", value: "key1", type: "String" },
+        ] as AdHocFilterKeys[])
+      );
+      jest
+        .spyOn(datasource.metadataProvider, "primaryKey")
+        .mockReturnValue(Promise.resolve("ts"));
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const to = 1_700_000_000_000;
+      const from = to - 90 * 24 * 60 * 60 * 1000;
+      await datasource.getTagValues({
+        key: "key1",
+        filters: [],
+        timeRange: makeRange(from, to) as any,
+      });
+
+      // `raw` is the unresolved form of the same window - leaving it at the
+      // uncapped bound makes the returned TimeRange self-contradictory.
+      const sentRange = queryMock.mock.calls[0][0].range;
+      expect(sentRange.raw.from.valueOf()).toBe(
+        to - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+      expect(sentRange.raw.to.valueOf()).toBe(to);
+    });
+
+    it("caps the tag-keys range supplied by Grafana for map-key discovery", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({
+        variables: [adHocTableVariable],
+      });
+      jest.spyOn(datasource.metadataProvider, "tableKeys").mockReturnValue(
+        Promise.resolve([
+          { text: "labels", value: "labels", type: "Map(String, String)" },
+        ] as AdHocFilterKeys[])
+      );
+      queryMock.mockReturnValue(of({ data: [] }));
+
+      const to = 1_700_000_000_000;
+      const from = to - 90 * 24 * 60 * 60 * 1000;
+      await datasource.getTagKeys({
+        filters: [],
+        timeRange: makeRange(from, to) as any,
+      });
+
+      const sentRange = queryMock.mock.calls[0][0].range;
+      expect(sentRange.from.valueOf()).toBe(
+        to - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+      expect(sentRange.to.valueOf()).toBe(to);
+    });
+
+    function setupMapKeysMock() {
+      const mock = setupDataSourceMock({ variables: [adHocTableVariable] });
+      jest.spyOn(mock.datasource.metadataProvider, "tableKeys").mockReturnValue(
+        Promise.resolve([
+          { text: "labels", value: "labels", type: "Map(String, String)" },
+        ] as AdHocFilterKeys[])
+      );
+      mock.queryMock.mockReturnValue(of({ data: [] }));
+      return mock;
+    }
+
+    // Grafana 10.4 (the declared floor) does not populate `timeRange` on the
+    // tag-keys options, so the template service is the only route to the
+    // dashboard window there. Covered end-to-end by adHocMapKeys.spec.ts,
+    // which fails on 10.4.18 without this fallback.
+    it("falls back to the template service range for tag-keys preload", async () => {
+      const { datasource, queryMock, templateService } = setupMapKeysMock();
+
+      const to = 1_700_000_000_000;
+      const from = to - 90 * 24 * 60 * 60 * 1000;
+      (templateService as any).timeRange = makeRange(from, to);
+
+      await datasource.getTagKeys({ filters: [] });
+
+      const sentRange = queryMock.mock.calls[0][0].range;
+      expect(sentRange.to.valueOf()).toBe(to);
+      expect(sentRange.from.valueOf()).toBe(
+        to - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+    });
+
+    // The read is off-contract (`timeRange` is not on the published
+    // TemplateSrv type), so a reshaped value must be discarded rather than
+    // consumed. Both clauses of the guard need their own fixture: `&&`
+    // short-circuits, so a bad `from` alone never reaches the `to` check.
+    //
+    // The two fixtures fail differently, which is why the window assertion
+    // carries the test rather than `.resolves`:
+    //   - bad `from`: no `to` at all, so capPreloadTimeRange would throw on
+    //     `range.to.valueOf()` and reject the whole getTagKeys promise;
+    //   - bad `to`: arithmetic yields NaN instead of throwing, so the query
+    //     would silently go out with a NaN bound.
+    const malformedRanges: Array<[string, unknown]> = [
+      ["from is not a date", { from: "not-a-datetime" }],
+      [
+        "to is not a date",
+        { from: dateTime(1_700_000_000_000), to: "garbage" },
+      ],
+    ];
+
+    it.each(malformedRanges)(
+      "ignores a malformed template service range (%s)",
+      async (_label, malformed) => {
+        const { datasource, queryMock, templateService } = setupMapKeysMock();
+
+        (templateService as any).timeRange = malformed;
+
+        await expect(datasource.getTagKeys({ filters: [] })).resolves.toEqual(
+          expect.any(Array)
+        );
+
+        // Neither fixture is a usable window, so a clean 24h span is the proof
+        // that the fallback ran and the malformed value was not consumed.
+        const sentRange = queryMock.mock.calls[0][0].range;
+        expect(sentRange.to.valueOf() - sentRange.from.valueOf()).toBe(
+          AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+        );
+      }
+    );
+
+    // ZERO_TIME_RANGE means "this metadata query has no time macro". Both
+    // preload statements carry $__timeFilter(), so the sentinel would resolve
+    // to a 1970 window, return no rows, and silently erase the Map column from
+    // the dropdown. Neither preload path may reach it.
+    function setupNoRangeMock() {
+      const mock = setupDataSourceMock({ variables: [adHocTableVariable] });
+      // One setup serves both entry points: a Map column for key expansion and
+      // a scalar column (plus a primary key) for value lookup.
+      jest.spyOn(mock.datasource.metadataProvider, "tableKeys").mockReturnValue(
+        Promise.resolve([
+          { text: "labels", value: "labels", type: "Map(String, String)" },
+          { text: "key1", value: "key1", type: "String" },
+        ] as AdHocFilterKeys[])
+      );
+      jest
+        .spyOn(mock.datasource.metadataProvider, "primaryKey")
+        .mockReturnValue(Promise.resolve("ts"));
+      mock.queryMock.mockReturnValue(of({ data: [] }));
+      return mock;
+    }
+
+    // Both entry points must keep the *fallback*, not just the cap: the capping
+    // tests above still pass when a call site bypasses adHocPreloadRange, so
+    // each entry point needs its own no-range case. Losing the fallback on one
+    // path is the regression that broke map-key discovery on Grafana 10.4.
+    const noRangeEntryPoints: Array<
+      [string, (ds: DataSource) => Promise<unknown>]
+    > = [
+      ["getTagKeys", (ds) => ds.getTagKeys({ filters: [] })],
+      [
+        "getTagValues",
+        (ds) => ds.getTagValues({ key: "key1", filters: [] } as any),
+      ],
+    ];
+
+    it.each(noRangeEntryPoints)(
+      "falls back to a trailing 24h window for %s with no range",
+      async (_label, call) => {
+        const { datasource, queryMock, templateService } = setupNoRangeMock();
+        // Neither source offers a range: options carries none and the template
+        // service has none either.
+        expect((templateService as any).timeRange).toBeUndefined();
+
+        await call(datasource);
+
+        // A clean 24h span is the whole proof: with the fallback bypassed the
+        // range degrades to ZERO_TIME_RANGE, whose span is 0.
+        const sentRange = queryMock.mock.calls[0][0].range;
+        expect(sentRange.to.valueOf() - sentRange.from.valueOf()).toBe(
+          AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+        );
+      }
+    );
   });
 });
