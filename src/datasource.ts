@@ -119,7 +119,6 @@ export class DataSource extends DataSourceWithBackend<
           .pipe(
             map((response: DataQueryResponse) => {
               const errors = response.errors?.map((error: DataQueryError) => {
-                console.error(error);
                 logError(
                   {
                     name: `DataQueryError with status ${error.statusText}`,
