@@ -104,7 +104,7 @@ export default {
           testId: "data-testid hdx_adHocTableVariable",
           label: "Ad hoc filter table variable name",
           description:
-            "Name of a dashboard variable that defines which table to use for retrieving ad hoc filter columns and values",
+            "Name of a dashboard variable that defines which table to use for retrieving ad hoc filter columns and values. Column and value suggestions are bounded (approximate top values over a trailing 24h window), so enable 'Allow custom values' on the ad hoc variable to let users filter on a key or value the dropdown does not list",
         },
         adHocConditionVariable: {
           testId: "data-testid hdx_adHocConditionVariable",

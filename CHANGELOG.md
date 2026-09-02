@@ -6,6 +6,7 @@
 - **Feature**: Support UUID, IPv4, and IPv6 column types (HDX-12151)
 - **Fix**: Dashboard ad-hoc filter value dropdown times out on high-cardinality columns — bounded `topK` preload with query guardrails (HDX-11854)
 - **Refactor**: Pass editor/ad-hoc interpolation context explicitly instead of caching request state on the datasource; the interpolated-query preview follows the current time-picker selection (HDX-11854)
+- **Docs**: Document that ad-hoc key/value suggestions are bounded, and recommend enabling the ad-hoc variable's *Allow custom values* option so unlisted keys/values can still be filtered on (HDX-11854)
 - **Chore**: Bind provenance to release tags via tag-driven channels (HDX-12163)
 - **Chore**: Update create-plugin scaffold to 7.10.0 and fix dependency CVEs from the Aikido report (HDX-12187)
 

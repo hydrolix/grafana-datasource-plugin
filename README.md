@@ -281,8 +281,18 @@ To enable ad hoc filters, both the data source and the dashboard must be configu
 
 2. In the target dashboard, create a variables using the exact name defined in the data source settings  **A variable for the table name**
 
+3. In the ad hoc variable's own settings, enable **Allow custom values** (recommended — see the note below).
+
 > **Note:** Ad hoc filters will not work unless both the data source and the dashboard are configured correctly. Be sure
 > to match variable names precisely.
+
+> **Recommended: enable _Allow custom values_ on the ad hoc variable.** Key and value suggestions are produced by
+> bounded, best-effort queries (see [Value suggestion guardrails](#value-suggestion-guardrails)), so a perfectly valid
+> key or value can be absent from the dropdown — most commonly a `Map` column key or a value that last occurred
+> outside the trailing 24-hour suggestion window. Grafana only accepts what the suggestion list offers unless
+> **Allow custom values** is enabled, so without it such a filter cannot be created at all: the typed key is rejected
+> and the filter never commits. With it enabled, a typed key or value is applied to the query exactly like a suggested
+> one.
 
 
 #### Limit ad hoc filter values
@@ -324,6 +334,9 @@ suggestions are computed by a bounded, best-effort query rather than an exhausti
 - **Trailing 24h window**: suggestions are computed over the trailing 24 hours of the dashboard's time range (rounded
   to 5-minute boundaries). A value that last occurred earlier than that window will not appear in the suggestions, but
   it can still be entered manually and used as a filter — the applied filter itself is unaffected.
+- **`Map` column keys**: for a `Map` column the key dropdown offers `column['key']` entries discovered by scanning the
+  same trailing 24-hour window, so a key that did not occur in that window is not offered and must be typed in. Keys
+  for plain (non-`Map`) columns come from `DESCRIBE` and are always listed in full.
 - **Approximate top values**: up to 100 of the most frequent values are returned using an approximate (`topK`)
   aggregation, so inclusion and ordering near the cutoff are approximate rather than exact.
 - **Execution-time breaker**: every metadata query the plugin issues on its own behalf (value suggestions, map-key
@@ -339,8 +352,13 @@ suggestions are computed by a bounded, best-effort query rather than an exhausti
   `SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000` in the SQL text. Where the engine
   honors `timeout_overflow_mode = 'break'`, hitting the execution-time cap returns the top values computed over the
   rows read so far instead of failing the query; if the cap is hit before any values are aggregated, the dropdown
-  simply shows no suggestions (manual value entry is always available). `hdx_query_max_timerange_sec` is a server-side
+  simply shows no suggestions. `hdx_query_max_timerange_sec` is a server-side
   backstop for the trailing-24h window above and is not configurable from the data source settings.
+
+Because of these bounds the dropdowns are a convenience, not the set of filters the plugin accepts — a key or value
+missing from a suggestion list still filters correctly once applied. Typing one in requires **Allow custom values** on
+the ad hoc variable (see [Configure ad hoc filters](#configure-ad-hoc-filters)); with that option off, Grafana will not
+commit anything the suggestion list did not offer.
 
 #### Wildcards
 
