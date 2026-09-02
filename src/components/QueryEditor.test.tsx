@@ -34,6 +34,9 @@
  *   - Clicking the run toolbar button invokes props.onRunQuery.
  *   - QuerySettings receives the current querySettings array as a prop,
  *     and InterpolatedQuery receives showSQL=false by default.
+ *   - Showing the interpolated query calls interpolateQuery with context built
+ *     from props (range, derived interval, panel-request filters) and issues no
+ *     preparatory panel run.
  *
  * Not covered here:
  *   - The Query Type Select dropdown change (react-select portal — better
@@ -44,9 +47,10 @@
  *     the stubbed formatQuery has nothing to verify).
  */
 import React, { useState } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
+import { dateTime, makeTimeRange } from "@grafana/data";
 
 jest.mock("@grafana/plugin-ui", () => {
   const actual = jest.requireActual("@grafana/plugin-ui");
@@ -92,11 +96,38 @@ jest.mock("./ValidationBar", () => ({
   ValidationBar: () => <div data-testid="validation-bar-stub" />,
 }));
 
+// Availability is the gate for page-context registration and the explain
+// action. useProvidePageContext registers globally on mount, so "was the hook
+// called" is the observable form of "did anything register" — the property
+// mount-gating exists to guarantee on Assistant-less installs.
+jest.mock("@grafana/assistant", () => {
+  const React = require("react");
+  return {
+    useAssistant: jest.fn(() => ({ isAvailable: false })),
+    useProvidePageContext: jest.fn(() => jest.fn()),
+    createAssistantContextItem: jest.fn((type: string, params: any) => ({
+      node: { id: type, name: type, navigable: false, data: params?.data },
+      occurrences: [],
+    })),
+    OpenAssistantButton: ({ title }: any) => (
+      <div data-testid="explain-error-stub" data-title={title} />
+    ),
+    QueryWithAssistantButton: () => (
+      <div data-testid="query-with-assistant-stub" />
+    ),
+  };
+});
+
 // Imports must come after jest.mock calls so the mocks are applied.
+import { useAssistant, useProvidePageContext } from "@grafana/assistant";
 import { QueryEditor, Props } from "./QueryEditor";
 import { HdxQuery, QueryType } from "../types";
+import { deriveInterpolationInterval } from "../editor/timeRangeUtils";
 
-function makeProps(overrides: Partial<HdxQuery> = {}): Props {
+function makeProps(
+  overrides: Partial<HdxQuery> = {},
+  propOverrides: Partial<Props> = {}
+): Props {
   const query: HdxQuery = {
     refId: "A",
     rawSql: "SELECT 1",
@@ -105,8 +136,19 @@ function makeProps(overrides: Partial<HdxQuery> = {}): Props {
     ...overrides,
   } as HdxQuery;
 
+  // No cached request state on the mock: interpolation must work from props
+  // alone, so a `datasource.options`-shaped field would be misleading here.
   const datasource: any = {
+    uid: "hdx-uid",
     options: { jsonData: {} },
+    instanceSettings: { jsonData: { host: "cluster.example" } },
+    // Reached only by AssistantQueryContext's debounced publish; stubbed so an
+    // available-Assistant render has nothing live to hit.
+    getAst: jest.fn().mockResolvedValue([]),
+    metadataProvider: {
+      columns: jest.fn().mockResolvedValue([]),
+      primaryKey: jest.fn().mockResolvedValue("timestamp"),
+    },
     templateSrv: { getVariables: () => [] },
     interpolateQuery: jest.fn().mockResolvedValue({
       originalSql: query.rawSql,
@@ -122,6 +164,7 @@ function makeProps(overrides: Partial<HdxQuery> = {}): Props {
     datasource,
     onChange: jest.fn(),
     onRunQuery: jest.fn(),
+    ...propOverrides,
   } as unknown as Props;
 }
 
@@ -237,6 +280,61 @@ describe("QueryEditor", () => {
     ).toBeInTheDocument();
   });
 
+  it("interpolates from props on a panel with no completed run", async () => {
+    const to = 1_700_000_000_000;
+    const from = to - 6 * 60 * 60 * 1000;
+    const range = makeTimeRange(dateTime(from), dateTime(to));
+    const filters = [{ key: "status", operator: "=", value: "ok" }];
+    const props = makeProps(
+      { format: QueryType.Table },
+      {
+        range,
+        data: { request: { maxDataPoints: 1000, filters } } as any,
+      }
+    );
+    render(<QueryEditor {...props} />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Show Interpolated Query/i })
+    );
+
+    const interpolateQuery = (props.datasource as any).interpolateQuery;
+    await waitFor(() => expect(interpolateQuery).toHaveBeenCalled());
+
+    const context = interpolateQuery.mock.calls[0][2];
+    expect(context.range).toBe(range);
+    expect(context.filters).toBe(filters);
+    expect(context.interval).toBe(
+      deriveInterpolationInterval(range, 1000)
+    );
+
+    // No preparatory query: interpolation must not need a panel run to have
+    // populated anything first.
+    expect(props.onRunQuery).not.toHaveBeenCalled();
+  });
+
+  // `undefined` is dropped by JSON.stringify, so the backend would decode
+  // Interval as "" and time.ParseDuration("") fails the whole interpolate
+  // request. A parseable zero degrades cleanly instead.
+  it("sends a parseable zero interval when the panel has no range", async () => {
+    const props = makeProps(
+      { format: QueryType.Table },
+      { range: undefined, data: { request: { maxDataPoints: 1000 } } as any }
+    );
+    render(<QueryEditor {...props} />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Show Interpolated Query/i })
+    );
+
+    const interpolateQuery = (props.datasource as any).interpolateQuery;
+    await waitFor(() => expect(interpolateQuery).toHaveBeenCalled());
+
+    const context = interpolateQuery.mock.calls[0][2];
+    expect(context.range).toBeUndefined();
+    expect(context.interval).toBe("0ms");
+  });
+
   it("calls onRunQuery when the run toolbar button is clicked", async () => {
     const props = makeProps({ format: QueryType.Table });
     render(<QueryEditor {...props} />);
@@ -264,5 +362,57 @@ describe("QueryEditor", () => {
       "data-show-sql",
       "false"
     );
+  });
+});
+
+describe("QueryEditor Assistant gating", () => {
+  const mockUseAssistant = useAssistant as unknown as jest.Mock;
+  const mockUseProvidePageContext =
+    useProvidePageContext as unknown as jest.Mock;
+
+  // A failed response for this editor's own refId — the precondition for the
+  // explain action, so its absence below is the gate and not a missing error.
+  const failedData: any = {
+    state: "Error",
+    series: [],
+    errors: [{ refId: "A", message: "boom" }],
+    timeRange: {},
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockUseAssistant.mockReturnValue({ isAvailable: false });
+    mockUseProvidePageContext.mockReturnValue(jest.fn());
+  });
+
+  it("registers no page context and renders no Assistant UI when Assistant is unavailable", () => {
+    const props = makeProps();
+    render(<QueryEditor {...props} data={failedData} />);
+
+    expect(mockUseProvidePageContext).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("explain-error-stub")).not.toBeInTheDocument();
+    // QueryWithAssistantButton self-gates inside the SDK, but the spec puts
+    // the availability decision on the plugin, so QueryEditor gates it too.
+    expect(
+      screen.queryByTestId("query-with-assistant-stub")
+    ).not.toBeInTheDocument();
+  });
+
+  it("registers page context and renders both Assistant surfaces when available", () => {
+    mockUseAssistant.mockReturnValue({ isAvailable: true });
+    const props = makeProps();
+    render(<QueryEditor {...props} data={failedData} />);
+
+    expect(mockUseProvidePageContext).toHaveBeenCalled();
+    expect(screen.getByTestId("explain-error-stub")).toBeInTheDocument();
+    expect(screen.getByTestId("query-with-assistant-stub")).toBeInTheDocument();
+  });
+
+  it("keeps the editor itself intact when Assistant is unavailable", () => {
+    const props = makeProps();
+    render(<QueryEditor {...props} />);
+
+    expect(screen.getByTestId("sql-editor")).toBeInTheDocument();
+    expect(screen.getByTestId("query-settings-stub")).toBeInTheDocument();
   });
 });

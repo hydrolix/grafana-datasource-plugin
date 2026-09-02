@@ -14,7 +14,6 @@ export interface HdxQuery extends DataQuery {
   queryFormat?: string;
   filters?: AdHocVariableFilter[];
   format?: number;
-  skipNextRun?: () => boolean;
   querySettings: QuerySetting[];
   oauthPassThru?: boolean;
   source?: HdxQuerySource;
@@ -112,6 +111,17 @@ export interface ResourceResponse<T> {
   error: boolean;
   errorMessage: string;
   data: T;
+}
+
+/**
+ * Render-time context the interpolation resource needs, supplied by whoever
+ * asks for interpolation rather than read back off the datasource instance.
+ * `interval` is a duration string the Go backend can parse.
+ */
+export interface InterpolationContext {
+  range?: TimeRange;
+  interval?: string;
+  filters?: AdHocVariableFilter[];
 }
 
 export interface InterpolationResult {

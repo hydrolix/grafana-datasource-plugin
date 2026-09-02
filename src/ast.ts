@@ -1,5 +1,42 @@
 import { AD_HOC_MAP_KEY_QUERY, AD_HOC_VALUE_QUERY } from "./constants";
 
+/**
+ * Yields every node of a parser AST depth-first, parents before children,
+ * descending through object values and array elements and stepping over
+ * falsy ones. `skipPredicate` prunes a node and its whole subtree.
+ *
+ * Lazy on purpose: a consumer that wants only the first match stops the walk
+ * by breaking out, so short-circuiting costs nothing, while a consumer that
+ * wants every match drains it. That is the difference between `traverseTree`
+ * and `collectTableRefs` in src/assistant/context.ts — both are strategies
+ * over this one traversal rather than two hand-rolled recursions.
+ */
+export function* walkNodes(
+  node: any,
+  skipPredicate?: (node: any) => boolean
+): Generator<any> {
+  if (skipPredicate && skipPredicate(node)) {
+    return;
+  }
+  yield node;
+  for (const key in node) {
+    if (node.hasOwnProperty(key) && node[key]) {
+      if (isObject(node[key])) {
+        yield* walkNodes(node[key], skipPredicate);
+      } else if (Array.isArray(node[key])) {
+        for (const el of node[key]) {
+          yield* walkNodes(el, skipPredicate);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * The first node satisfying `predicate`, or undefined. Returns null when
+ * `skipPredicate` rejects the root — preserved because callers rely only on
+ * falsiness, and collapsing the two would be a silent behavior change.
+ */
 export const traverseTree = (
   tree: any,
   predicate: (node: any) => boolean,
@@ -7,25 +44,10 @@ export const traverseTree = (
 ): any => {
   if (skipPredicate && skipPredicate(tree)) {
     return null;
-  } else if (predicate(tree)) {
-    return tree;
-  } else {
-    for (const key in tree) {
-      if (tree.hasOwnProperty(key) && tree[key]) {
-        if (isObject(tree[key])) {
-          const node = traverseTree(tree[key], predicate, skipPredicate);
-          if (node) {
-            return node;
-          }
-        } else if (Array.isArray(tree[key])) {
-          for (const el of tree[key]) {
-            const node = traverseTree(el, predicate, skipPredicate);
-            if (node) {
-              return node;
-            }
-          }
-        }
-      }
+  }
+  for (const node of walkNodes(tree, skipPredicate)) {
+    if (predicate(node)) {
+      return node;
     }
   }
 };
@@ -39,8 +61,6 @@ export function getColumnValuesStatement(
   timeColumn: string,
   condition: string
 ): string {
-  // return `SELECT DISTINCT ${column} FROM ${getTable(sql)} WHERE $__timeFilter(${timeColumn}) AND $__adHocFilter() LIMIT 100`;
-  // return `SELECT DISTINCT ${column}, COUNT(${column}) as count  FROM ${getTable(sql)} WHERE $__timeFilter(${timeColumn}) AND $__adHocFilter()  GROUP BY ${column} ORDER BY count DESC LIMIT 100`;
   return AD_HOC_VALUE_QUERY.replaceAll("${column}", column)
     .replaceAll("${table}", table)
     .replaceAll("${timeColumn}", timeColumn)

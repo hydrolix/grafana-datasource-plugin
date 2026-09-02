@@ -281,8 +281,18 @@ To enable ad hoc filters, both the data source and the dashboard must be configu
 
 2. In the target dashboard, create a variables using the exact name defined in the data source settings  **A variable for the table name**
 
+3. In the ad hoc variable's own settings, enable **Allow custom values** (recommended — see the note below).
+
 > **Note:** Ad hoc filters will not work unless both the data source and the dashboard are configured correctly. Be sure
 > to match variable names precisely.
+
+> **Recommended: enable _Allow custom values_ on the ad hoc variable.** Key and value suggestions are produced by
+> bounded, best-effort queries (see [Value suggestion guardrails](#value-suggestion-guardrails)), so a perfectly valid
+> key or value can be absent from the dropdown — most commonly a `Map` column key or a value that last occurred
+> outside the trailing 24-hour suggestion window. Grafana only accepts what the suggestion list offers unless
+> **Allow custom values** is enabled, so without it such a filter cannot be created at all: the typed key is rejected
+> and the filter never commits. With it enabled, a typed key or value is applied to the query exactly like a suggested
+> one.
 
 
 #### Limit ad hoc filter values
@@ -305,13 +315,50 @@ Ad hoc filters support two synthetic values to help identify and query rows with
 - `__null__`: matches rows where the column value is `NULL`.
 - `__empty__`: matches rows where the column value is an empty string.
 
-These synthetic values appear in the ad hoc filter suggestions only if the underlying data contains `NULL` or empty
-strings for the selected column during the current dashboard time range.
+`__empty__` appears in the suggestions only if the underlying data contains an empty string for the selected column
+during the current dashboard time range. `__null__` appears whenever the selected column's type is `Nullable`,
+regardless of whether any `NULL` was actually observed in that range — aggregate queries skip `NULL`s, so their
+presence can't be inferred from the returned values, but selecting `__null__` is always a valid filter for a nullable
+column.
 
 If the data contains literal values such as `__null__` or `__empty__`, those will also be matched by the corresponding
 filters.
 
 ![](https://raw.githubusercontent.com/hydrolix/grafana-datasource-plugin/refs/heads/main/docs/ad-hoc-filter-synthetic-values.gif)
+
+#### Value suggestion guardrails
+
+To keep the ad hoc filter value dropdown responsive on high-cardinality columns and long dashboard time ranges, value
+suggestions are computed by a bounded, best-effort query rather than an exhaustive scan:
+
+- **Trailing 24h window**: suggestions are computed over the trailing 24 hours of the dashboard's time range (rounded
+  to 5-minute boundaries). A value that last occurred earlier than that window will not appear in the suggestions, but
+  it can still be entered manually and used as a filter — the applied filter itself is unaffected.
+- **`Map` column keys**: for a `Map` column the key dropdown offers `column['key']` entries discovered by scanning the
+  same trailing 24-hour window, so a key that did not occur in that window is not offered and must be typed in. Keys
+  for plain (non-`Map`) columns come from `DESCRIBE` and are always listed in full.
+- **Approximate top values**: up to 100 of the most frequent values are returned using an approximate (`topK`)
+  aggregation, so inclusion and ordering near the cutoff are approximate rather than exact.
+- **Execution-time breaker**: every metadata query the plugin issues on its own behalf (value suggestions, map-key
+  discovery, schema/table/column lookups) carries a Hydrolix-native `hdx_query_max_execution_time = 10` query setting,
+  so a slow lookup is cancelled after 10 seconds instead of hanging. `hdx_query_max_execution_time` and Hydrolix's
+  `max_execution_time` are the same underlying setting; if either is also set at the data source level (**Query
+  Settings** subsection), the *smaller* of the two values wins — a data source-level value can lower the metadata
+  timeout below 10 seconds, but can never raise it above the 10-second default (a data source-level value of `0`,
+  meaning "unlimited" on Hydrolix, is ignored for this purpose). Note that a data source-level override of this
+  setting still applies to *all* queries from the data source, not only metadata lookups — it is only the metadata
+  breaker's own effective value that is capped at 10 seconds.
+- **Partial results on timeout**: the value-suggestion and map-key queries also carry
+  `SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000` in the SQL text. Where the engine
+  honors `timeout_overflow_mode = 'break'`, hitting the execution-time cap returns the top values computed over the
+  rows read so far instead of failing the query; if the cap is hit before any values are aggregated, the dropdown
+  simply shows no suggestions. `hdx_query_max_timerange_sec` is a server-side
+  backstop for the trailing-24h window above and is not configurable from the data source settings.
+
+Because of these bounds the dropdowns are a convenience, not the set of filters the plugin accepts — a key or value
+missing from a suggestion list still filters correctly once applied. Typing one in requires **Allow custom values** on
+the ad hoc variable (see [Configure ad hoc filters](#configure-ad-hoc-filters)); with that option off, Grafana will not
+commit anything the suggestion list did not offer.
 
 #### Wildcards
 
@@ -403,3 +450,13 @@ ORDER BY started_at
 Map `started_at` → **Time**, `ended_at` → **Time end**, `incident_name` → **Text**, `severity` → **Tags**.
 
 Ad hoc filters set on the dashboard apply to your panel queries; they do not affect annotation queries (annotation queries are intentionally insulated from the panel filter cache so refreshing one does not clobber the other).
+
+## Grafana Assistant
+
+Grafana Assistant cannot query Hydrolix through its built-in SQL tools — they match datasources against a hard-coded allowlist that does not include this plugin. Assistant support is provided instead by registering the [Hydrolix MCP server](https://github.com/hydrolix/mcp-hydrolix) as a custom MCP server and installing the Hydrolix skill.
+
+The plugin contributes query context — the datasource, cluster, SQL, time range, and the table's schema and primary time column — plus an Assistant button in the query editor. Without the MCP server, Assistant can write and explain Hydrolix SQL but cannot execute it.
+
+The skill document to install is [docs/assistant-skill.md](https://github.com/hydrolix/grafana-datasource-plugin/blob/main/docs/assistant-skill.md). Before registering the MCP server, note two things: queries through it bypass Grafana datasource permissions and per-user OAuth forwarding (the server authenticates with its own Hydrolix credential), and the server must be network-reachable from your Grafana instance — check that first by curling its `/mcp` endpoint, where an authentication failure is the expected reachable-server response.
+
+For the full procedure — reachability and same-cluster checks, the "Just me" versus "Everybody" scope trade-off, and provisioning the skill with the read-only tools auto-approved — see [docs/grafana-assistant.md](https://github.com/hydrolix/grafana-datasource-plugin/blob/main/docs/grafana-assistant.md).

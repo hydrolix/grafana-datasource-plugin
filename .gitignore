@@ -1,7 +1,6 @@
 dist/
 node_modules/
 playwright-report/
-playwright/
 test-results/
 coverage/
 hydrolix-hydrolix-datasource/
@@ -11,3 +10,7 @@ hydrolix-hydrolix-datasource/
 .bra.toml
 .DS_Store
 junit.xml
+dist_*/
+.cache/
+playwright/.auth
+

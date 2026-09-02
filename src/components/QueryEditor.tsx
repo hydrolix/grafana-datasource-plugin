@@ -11,6 +11,7 @@ import { DataSource } from "../datasource";
 import {
   HdxDataSourceOptions,
   HdxQuery,
+  InterpolationContext,
   InterpolationResult,
   QuerySetting,
   QueryType,
@@ -27,7 +28,10 @@ import {
   Select,
   ToolbarButton,
 } from "@grafana/ui";
-import { QUERY_DURATION_REGEX } from "../editor/timeRangeUtils";
+import {
+  deriveInterpolationInterval,
+  QUERY_DURATION_REGEX,
+} from "../editor/timeRangeUtils";
 import { InterpolatedQuery } from "./InterpolatedQuery";
 import { ValidationBar } from "./ValidationBar";
 import { useDebounce } from "react-use";
@@ -39,6 +43,9 @@ import {
 import { css } from "@emotion/css";
 import allLabels from "../labels";
 import { QuerySettings } from "./QuerySettings";
+import { QueryWithAssistantButton, useAssistant } from "@grafana/assistant";
+import { AssistantQueryContext } from "../assistant/AssistantQueryContext";
+import { ExplainErrorButton } from "../assistant/ExplainErrorButton";
 
 export type Props = QueryEditorProps<
   DataSource,
@@ -57,6 +64,8 @@ export function QueryEditor(props: Props) {
   `;
   const onChange = props.onChange;
   const query = props.query;
+
+  const { isAvailable: assistantAvailable } = useAssistant();
 
   useEffect(() => {
     if (query.format === undefined) {
@@ -96,7 +105,6 @@ export function QueryEditor(props: Props) {
   );
 
   const [showSql, setShowSql] = useState(false);
-  const [dryRunTriggered, setDryRunTriggered] = useState(false);
   const [interpolationResult, setInterpolationResult] =
     useState<InterpolationResult>({
       originalSql: props.query.rawSql,
@@ -106,22 +114,6 @@ export function QueryEditor(props: Props) {
     });
 
   let [monaco, setMonaco] = useState<Monaco | null>(null);
-
-  const dryRun = useCallback(() => {
-    if (!dryRunTriggered && props.query.rawSql) {
-      setDryRunTriggered(true);
-      let setDryRun = () => {
-        let dry = true;
-        return () => {
-          let r = dry;
-          dry = false;
-          return r;
-        };
-      };
-      props.onChange({ ...props.query, skipNextRun: setDryRun() });
-      props.onRunQuery();
-    }
-  }, [props, dryRunTriggered]);
 
   const onQueryTextChange = (queryText: string) => {
     props.onChange({ ...props.query, rawSql: queryText });
@@ -151,34 +143,56 @@ export function QueryEditor(props: Props) {
   if (interpolationId !== interpolationIdString) {
     setInterpolationId(interpolationIdString);
   }
+  // Everything interpolation needs comes from props, so it is available on the
+  // first render — no panel run has to have happened first.
+  const panelRequest = props.data?.request;
+  const interpolationContext = useMemo<InterpolationContext>(
+    () => ({
+      range: props.range,
+      // Not `undefined`: JSON.stringify drops the key, the backend decodes
+      // Interval as "" and time.ParseDuration("") fails the whole interpolate
+      // request before any macro runs. The interval macros floor at 1, so a
+      // zero interval degrades cleanly instead.
+      interval: props.range
+        ? deriveInterpolationInterval(props.range, panelRequest?.maxDataPoints)
+        : "0ms",
+      filters: panelRequest?.filters,
+    }),
+    [props.range, panelRequest]
+  );
+
   useDebounce(
     async () => {
       if (showSql || SHOW_VALIDATION_BAR) {
-        if (props.datasource.options) {
-          let interpolatedQuery = await props.datasource.interpolateQuery(
-            props.query,
-            interpolationId
-          );
-          setInterpolationResult(interpolatedQuery);
-        } else {
-          dryRun();
-        }
+        let interpolatedQuery = await props.datasource.interpolateQuery(
+          props.query,
+          interpolationId,
+          interpolationContext
+        );
+        setInterpolationResult(interpolatedQuery);
       }
     },
     300,
-    // `props.datasource.options` is mutated by `datasource.query()` (see
-    // dryRun() below). When the user clicks "Show Interpolated Query" on a
-    // freshly-opened panel, options is undefined → dryRun() runs onRunQuery
-    // which populates options, but without this dep the debounce never
-    // re-fires and the UI stays on "processing" forever. Including options
-    // here makes the React re-render triggered by setDryRunTriggered(true)
-    // re-arm the debounce, so the next pass takes the interpolate branch.
-    [showSql, interpolationId, props.datasource.options]
+    [showSql, interpolationId, interpolationContext]
   );
   // eslint-disable-next-line eqeqeq
   let dirty = interpolationResult?.interpolationId != interpolationId;
+
+  // In a Mixed panel props.queries includes other datasources' queries; keep
+  // only ours before the cast. A query without a datasource ref can only
+  // belong to this editor's datasource.
+  const siblingQueries = (props.queries ?? [props.query]).filter(
+    (q) => !q.datasource?.uid || q.datasource.uid === props.datasource.uid
+  ) as HdxQuery[];
   return (
     <div>
+      {assistantAvailable && (
+        <AssistantQueryContext
+          datasource={props.datasource}
+          rawSql={props.query.rawSql}
+          range={props.range}
+        />
+      )}
       <SQLEditor
         query={props.query.rawSql}
         onChange={onQueryTextChange}
@@ -259,6 +273,30 @@ export function QueryEditor(props: Props) {
                     gap: 4,
                   }}
                 >
+                  {/* One gate for both toolbar surfaces: the spec requires the
+                      plugin to determine availability before rendering any
+                      Assistant UI. QueryWithAssistantButton also self-gates,
+                      but relying on that would make the guarantee the SDK's
+                      rather than ours. */}
+                  {assistantAvailable && (
+                    <>
+                      <ExplainErrorButton
+                        datasource={props.datasource}
+                        rawSql={props.query.rawSql}
+                        refId={props.query.refId}
+                        data={props.data}
+                      />
+                      <QueryWithAssistantButton<HdxQuery>
+                        currentQuery={props.query}
+                        queries={siblingQueries}
+                        dataSourceInstanceSettings={
+                          props.datasource.instanceSettings
+                        }
+                        datasourceApi={props.datasource}
+                        app={props.app}
+                      />
+                    </>
+                  )}
                   <ToolbarButton
                     tooltip={labels.formatQuery.tooltip}
                     onClick={formatQuery}

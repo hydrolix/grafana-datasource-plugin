@@ -27,7 +27,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.node_version }}
           cache: 'npm'
@@ -40,7 +40,7 @@ jobs:
         run: ./.github/scripts/set-version.sh
 
       - name: Compatibility check
-        uses: grafana/plugin-actions/is-compatible@main
+        uses: grafana/plugin-actions/is-compatible@6a283a4015776c4becd1708906b59b2e78c221ae # is-compatible/v1.0.4
         with:
           module: "./src/module.ts"
           comment-pr: "yes"

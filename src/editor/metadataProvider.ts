@@ -14,11 +14,15 @@ import {
   TableIdentifier,
 } from "@grafana/plugin-ui";
 import { DataSource } from "../datasource";
-import { AdHocFilterKeys } from "../types";
+import { AdHocFilterKeys, QuerySetting } from "../types";
 import {
   AD_HOC_KEY_QUERY,
+  AD_HOC_PRELOAD_ROUND_INTERVAL,
   COLUMNS_SQL,
   FUNCTIONS_SQL,
+  METADATA_QUERY_TIMEOUT_SETTING,
+  METADATA_QUERY_TIMEOUT_SETTING_ALIAS,
+  METADATA_QUERY_TIMEOUT_VALUE,
   NULLABLE_TYPES,
   SCHEMA_SQL,
   SUPPORTED_TYPES,
@@ -48,6 +52,28 @@ export const getQueryRunner = (
     timeRange?: TimeRange,
     filters?: AdHocVariableFilter[]
   ) => {
+    const dsLevelSettings = ds.instanceSettings.jsonData.querySettings ?? [];
+    // Min-wins: a DS-level value can only tighten the metadata breaker, never
+    // loosen it. Missing / non-numeric / <= 0 values (0 means "unlimited" on
+    // Hydrolix) are ignored, so the default stands.
+    const dsLevelBreakerValues = dsLevelSettings
+      .filter(
+        (s) =>
+          s.setting === METADATA_QUERY_TIMEOUT_SETTING ||
+          s.setting === METADATA_QUERY_TIMEOUT_SETTING_ALIAS
+      )
+      .map((s) => Number(s.value))
+      .filter((v) => Number.isFinite(v) && v > 0);
+    const breakerValue = Math.min(
+      Number(METADATA_QUERY_TIMEOUT_VALUE),
+      ...dsLevelBreakerValues
+    );
+    const querySettings: QuerySetting[] = [
+      {
+        setting: METADATA_QUERY_TIMEOUT_SETTING,
+        value: String(breakerValue),
+      },
+    ];
     return ds.query({
       requestId: v4(),
       interval: "0",
@@ -58,8 +84,8 @@ export const getQueryRunner = (
         {
           rawSql: sql,
           refId: "MD",
-          round: "",
-          querySettings: [],
+          round: AD_HOC_PRELOAD_ROUND_INTERVAL,
+          querySettings,
           filters,
         },
       ],
@@ -177,7 +203,12 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
         : Promise.resolve(functions!);
     },
     primaryKey: (t: TableIdentifier) => {
-      return !primaryKeys[`${t.schema}.${t.table}`]
+      const key = `${t.schema}.${t.table}`;
+      // Presence check, not truthiness: a table with no primary key resolves
+      // to "" or undefined, and a truthiness test would treat that as "not
+      // fetched yet" and re-query the cluster on every call. Assistant
+      // publishes context on a 300ms debounce, so that is once per keystroke.
+      return !(key in primaryKeys)
         ? firstValueFrom(
             queryRunner(
               PK_SQL.replace(/\{schema}/, t?.schema!).replace(
@@ -186,10 +217,10 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
               )
             ).pipe(
               map((r) => transformResponse(r)[0]),
-              tap((v) => (primaryKeys[`${t.schema}.${t.table}`] = v))
+              tap((v) => (primaryKeys[key] = v))
             )
           )
-        : Promise.resolve(primaryKeys[`${t.schema}.${t.table}`]);
+        : Promise.resolve(primaryKeys[key]);
     },
     tableKeys: tableKeysFn,
     executeQuery: (

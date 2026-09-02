@@ -21,11 +21,33 @@ interface CustomVariableOpts {
     current?: string;
 }
 
+interface AdHocFilterOpts {
+    key: string;
+    /** Grafana ad-hoc operator: "=", "!=", "=~", "!~", "=|", "!=|", … */
+    operator: string;
+    /** Single-value operators read this. */
+    value?: string;
+    /** Multi-value operators ("=|", "!=|") read this instead. */
+    values?: string[];
+}
+
+interface AdHocVariableOpts {
+    name: string;
+    /** Filters the dashboard loads with already applied. */
+    filters?: AdHocFilterOpts[];
+}
+
 interface AnnotationOpts {
     name?: string;
     rawSql: string;
     iconColor?: string;
     enable?: boolean;
+}
+
+interface ConstantVariableOpts {
+    name: string;
+    /** Literal value the variable resolves to (e.g. a SQL fragment). */
+    value: string;
 }
 
 interface CreateResult {
@@ -90,6 +112,60 @@ export class DashboardBuilder {
             })),
             includeAll: false,
             multi: false,
+        });
+        return this;
+    }
+
+    /**
+     * Adds an ad-hoc filter variable bound to this datasource, optionally with
+     * filters already applied.
+     *
+     * Baking the filters into the JSON model rather than driving the on-page
+     * filter pill is deliberate: the pill's key/operator/value selects are
+     * three chained react-selects whose DOM has moved across Grafana 10–13,
+     * and the picker's *eligibility* logic (which columns are offered) is
+     * already unit-tested against SUPPORTED_TYPES in
+     * src/editor/metadataProvider.test.ts. What is untestable at that layer —
+     * and what these filters exercise — is the runtime path: Grafana hands the
+     * filters to applyTemplateVariables, the frontend ships them with the
+     * query, and the backend's $__adHocFilter() macro turns them into SQL that
+     * ClickHouse has to accept.
+     */
+    addAdHocVariable(opts: AdHocVariableOpts): this {
+        this.variables.push({
+            name: opts.name ?? "Filters",
+            type: "adhoc",
+            datasource: {type: this.datasource.type, uid: this.datasource.uid},
+            filters: (opts.filters ?? []).map((f) => ({
+                key: f.key,
+                operator: f.operator,
+                // Grafana treats a filter with an empty `value` as incomplete
+                // and drops it before handing filters to the datasource, even
+                // when `values` is populated. Its own multi-value state keeps
+                // `value` set to the first entry, so mirror that — otherwise a
+                // "=|" filter silently never reaches the plugin.
+                value: f.value ?? f.values?.[0] ?? "",
+                ...(f.values ? {values: f.values} : {}),
+                condition: "",
+            })),
+        });
+        return this;
+    }
+
+    /**
+     * A hidden "Constant" dashboard variable. Used to feed a literal SQL
+     * fragment into the datasource's `adHocConditionVariable` mechanism
+     * (`getAdHocFilterValueCondition` in `src/datasource.ts`), which appends
+     * the variable's `query` value verbatim after `$__adHocFilter()` in the
+     * ad-hoc value-preload template.
+     */
+    addConstantVariable(opts: ConstantVariableOpts): this {
+        this.variables.push({
+            name: opts.name,
+            type: "constant",
+            query: opts.value,
+            current: {value: opts.value, text: opts.value, selected: true},
+            hide: 2,
         });
         return this;
     }

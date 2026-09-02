@@ -3,6 +3,9 @@ package converters
 
 import (
 	"encoding/json"
+	"fmt"
+	"net"
+	"net/netip"
 	"reflect"
 	"regexp"
 	"time"
@@ -69,6 +72,107 @@ func jsonConverter(in interface{}) (interface{}, error) {
 
 	msg := json.RawMessage(bjson)
 	return &msg, nil
+}
+
+// IP address rendering is driven by the *column type*, not by the value, which
+// is what ClickHouse itself does: an IPv4 column always renders dotted-quad, and
+// an IPv6 column always renders in IPv6 notation — including the "::ffff:"
+// prefix for an IPv4-mapped address. Go's net.IP.String() is value-driven
+// instead and collapses a mapped 16-byte address to dotted-quad, which is why
+// the IPv6 path cannot simply call it.
+//
+// The registry pairs each type name with the matching renderer, so the mapping
+// holds regardless of how many bytes the driver happens to hand over.
+
+// ipv4Text renders a value from an IPv4 column in dotted-quad form. The driver
+// supplies 4 bytes, but net.ParseIP and friends yield the 16-byte IPv4-mapped
+// encoding, so normalise through To4 rather than assuming a length.
+func ipv4Text(ip net.IP) (string, error) {
+	v4 := ip.To4()
+	if v4 == nil {
+		return "", fmt.Errorf("expected an IPv4 address, got %d bytes (%v)", len(ip), ip)
+	}
+	return v4.String(), nil
+}
+
+// v4Compatible reports whether a 16-byte address is in the deprecated
+// IPv4-compatible form (RFC 4291 §2.5.5.1): the first 12 bytes zero, with the
+// low 32 bits carrying an IPv4 address. ClickHouse renders exactly this set
+// with a dotted-quad tail, so the predicate has to select exactly it.
+//
+// Requiring bytes 12-13 to be non-zero is what keeps "::", "::1", "::2",
+// "::100" and "::ffff" in hex. It mirrors ClickHouse's formatIPv6, which takes
+// the dotted-quad branch on `best.base == 0 && best.len == 6` — with words 0-5
+// zero, a non-zero word 6 is precisely what pins the best zero-run at 6.
+func v4Compatible(b []byte) bool {
+	for _, x := range b[:12] {
+		if x != 0 {
+			return false
+		}
+	}
+	return b[12] != 0 || b[13] != 0
+}
+
+// ipv6Text renders a value from an IPv6 column in IPv6 notation, matching
+// ClickHouse's own formatter. netip.Addr is used instead of net.IP because
+// AddrFrom16 never unmaps: an IPv4-mapped address stays "::ffff:1.2.3.4" where
+// net.IP.String() would print "1.2.3.4".
+//
+// netip alone is not enough, though: it prints the IPv4-compatible form in hex
+// ("::10.0.0.1" as "::a00:1") where ClickHouse prints the dotted-quad tail.
+// That gap is not cosmetic — "=~" compares toString(column) text, so a value
+// copied out of a panel cell would match no rows. The v4Compatible branch below
+// closes it.
+//
+// A 4-byte input (not something the driver produces for an IPv6 column, but
+// cheap to handle) is widened by To16 into its mapped form, which is exactly
+// how ClickHouse would store and render it in an IPv6 column.
+func ipv6Text(ip net.IP) (string, error) {
+	b := ip.To16()
+	if b == nil {
+		return "", fmt.Errorf("expected an IPv6 address, got %d bytes (%v)", len(ip), ip)
+	}
+	if v4Compatible(b) {
+		return "::" + net.IP(b[12:]).String(), nil
+	}
+	return netip.AddrFrom16([16]byte(b)).String(), nil
+}
+
+// ipConverter builds the ConverterFunc for a non-nullable IP column. The
+// clickhouse driver hands IP columns to database/sql as net.IP, which is not a
+// type data.Frame can hold, so the frame field is a plain string.
+func ipConverter(text func(net.IP) (string, error)) func(in interface{}) (interface{}, error) {
+	return func(in interface{}) (interface{}, error) {
+		ip, ok := in.(*net.IP)
+		if !ok {
+			return nil, fmt.Errorf("ip converter: expected *net.IP, got %T", in)
+		}
+		s, err := text(*ip)
+		if err != nil {
+			return nil, err
+		}
+		return s, nil
+	}
+}
+
+// nullableIPConverter is ipConverter for Nullable(IPv4)/Nullable(IPv6). NULL
+// arrives as a nil *net.IP and is passed on as a nil *string. The returned
+// pointer is freshly allocated so it never aliases the reused scan buffer.
+func nullableIPConverter(text func(net.IP) (string, error)) func(in interface{}) (interface{}, error) {
+	return func(in interface{}) (interface{}, error) {
+		ip, ok := in.(**net.IP)
+		if !ok {
+			return nil, fmt.Errorf("nullable ip converter: expected **net.IP, got %T", in)
+		}
+		if *ip == nil {
+			return (*string)(nil), nil
+		}
+		s, err := text(**ip)
+		if err != nil {
+			return nil, err
+		}
+		return &s, nil
+	}
 }
 
 // Map of plugin converters
@@ -172,6 +276,36 @@ var convertersMap = map[string]Converter{
 		matchRegex: regexp.MustCompile(`^Nullable\(String`),
 		fieldType:  data.FieldTypeNullableString,
 		scanType:   reflect.PointerTo(reflect.PointerTo(reflect.TypeOf(""))),
+	},
+	// uuid.UUID is a driver.Valuer that yields its textual form, so a UUID
+	// column already reaches database/sql as a string.
+	"UUID": {
+		fieldType: data.FieldTypeString,
+		scanType:  reflect.PointerTo(reflect.TypeOf("")),
+	},
+	"Nullable(UUID)": {
+		fieldType: data.FieldTypeNullableString,
+		scanType:  reflect.PointerTo(reflect.PointerTo(reflect.TypeOf(""))),
+	},
+	"IPv4": {
+		fieldType: data.FieldTypeString,
+		scanType:  reflect.PointerTo(reflect.TypeOf(net.IP{})),
+		convert:   ipConverter(ipv4Text),
+	},
+	"Nullable(IPv4)": {
+		fieldType: data.FieldTypeNullableString,
+		scanType:  reflect.PointerTo(reflect.PointerTo(reflect.TypeOf(net.IP{}))),
+		convert:   nullableIPConverter(ipv4Text),
+	},
+	"IPv6": {
+		fieldType: data.FieldTypeString,
+		scanType:  reflect.PointerTo(reflect.TypeOf(net.IP{})),
+		convert:   ipConverter(ipv6Text),
+	},
+	"Nullable(IPv6)": {
+		fieldType: data.FieldTypeNullableString,
+		scanType:  reflect.PointerTo(reflect.PointerTo(reflect.TypeOf(net.IP{}))),
+		convert:   nullableIPConverter(ipv6Text),
 	},
 	"Array()": {
 		matchRegex: regexp.MustCompile(`^Array\(.*\)`),

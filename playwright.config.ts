@@ -1,8 +1,6 @@
-import type { PluginOptions } from "@grafana/plugin-e2e";
-import { defineConfig, devices } from "@playwright/test";
-import { dirname } from "node:path";
-
-const pluginE2eAuth = `${dirname(require.resolve("@grafana/plugin-e2e"))}/auth`;
+import type { PluginOptions } from '@grafana/plugin-e2e';
+import {defineConfig, devices} from '@playwright/test';
+import baseConfig from './.config/playwright.config';
 
 /**
  * Read environment variables from file.
@@ -13,16 +11,9 @@ const pluginE2eAuth = `${dirname(require.resolve("@grafana/plugin-e2e"))}/auth`;
 /**
  * See https://playwright.dev/docs/test-configuration.
  */
-export default defineConfig<PluginOptions>({
-  testDir: "./tests",
-  /* Run tests in files in parallel */
-  fullyParallel: true,
-  /* Fail the build on CI if you accidentally left test.only in the source code. */
-  forbidOnly: !!process.env.CI,
-  /* Retry on CI only */
-  retries: process.env.CI ? 2 : 0,
-  /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-  reporter: "html",
+export default defineConfig<PluginOptions>(baseConfig, {
+  // Add your own configuration here.
+  // See https://grafana.com/developers/plugin-tools/how-to-guides/extend-configurations#extend-the-playwright-config for further info.
 
   /* test timeout */
   timeout: 60000,
@@ -30,32 +21,23 @@ export default defineConfig<PluginOptions>({
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL: process.env.E2E_GRAFANA_URL || "http://localhost:3000",
+    baseURL: process.env.E2E_GRAFANA_URL || 'http://localhost:3000',
 
-    /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
-    trace: "on-first-retry",
-
-    screenshot: "only-on-failure",
+    screenshot: 'only-on-failure',
   },
 
   /* Configure projects for major browsers */
   projects: [
-    // 1. Login to Grafana and store the cookie on disk for use in other tests.
-    {
-      name: "auth",
-      testDir: pluginE2eAuth,
-      testMatch: [/.*\.js/],
-    },
     // 2. Run tests in Google Chrome. Every test will start authenticated as admin user.
     {
-      name: "chromium",
+      name: 'chromium',
       use: {
-        ...devices["Desktop Chrome"],
-        storageState: "playwright/.auth/admin.json",
+        ...devices['Desktop Chrome'],
+        storageState: 'playwright/.auth/admin.json',
         viewport: { width: 1280, height: 1280 },
-        timezoneId: "UTC",
+        timezoneId: 'UTC',
       },
-      dependencies: ["auth"],
+      dependencies: ['auth'],
     },
   ],
 });

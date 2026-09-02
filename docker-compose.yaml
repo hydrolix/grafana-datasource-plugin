@@ -147,6 +147,12 @@ services:
       CLICKHOUSE_HOSTNAME:
       CLICKHOUSE_USERNAME:
       CLICKHOUSE_PASSWORD:
+      # Address the *test process* uses to reach ClickHouse's HTTP interface
+      # directly (system.query_log lookups), as opposed to CLICKHOUSE_HOSTNAME
+      # which is the address grafana uses. Inside this container both are the
+      # compose service name, so the default is fine; runners that execute the
+      # suite outside the compose network must set it (see .github/workflows/e2e.yml).
+      E2E_CLICKHOUSE_HTTP_HOST:
       HYDROLIX_USERNAME:
       HYDROLIX_PASSWORD:
 
