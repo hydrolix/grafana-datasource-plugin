@@ -7,14 +7,15 @@ on:
         description: "Node.js version to use"
         required: true
         type: string
+      attest:
+        description: "Create a build provenance attestation for the packaged ZIP"
+        required: false
+        type: boolean
+        default: false
     secrets:
       grafana_token:
         description: "Grafana access policy token for signing"
         required: true
-    outputs:
-      version:
-        description: "Plugin version"
-        value: ${{ jobs.package.outputs.version }}
 
 jobs:
   package:
@@ -24,8 +25,6 @@ jobs:
       contents: read
       id-token: write
       attestations: write
-    outputs:
-      version: ${{ steps.create.outputs.version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -33,7 +32,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.node_version }}
           cache: 'npm'
@@ -59,18 +58,16 @@ jobs:
           GRAFANA_ACCESS_POLICY_TOKEN: ${{ secrets.grafana_token }}
 
       - name: Create package
-        id: create
         run: |
           PLUGIN_NAME=$(npm pkg get name | tr -d '"')
           PLUGIN_VERSION=$(npm pkg get version | tr -d '"')
-          echo "version=$PLUGIN_VERSION" >> $GITHUB_OUTPUT
           ZIP_NAME=$PLUGIN_NAME-$PLUGIN_VERSION.zip
           chmod 0775 dist/gpx_*
-          mv dist/ $PLUGIN_NAME/
-          zip $ZIP_NAME $PLUGIN_NAME -r
+          mv dist/ "$PLUGIN_NAME"/
+          zip "$ZIP_NAME" "$PLUGIN_NAME" -r
 
       - name: Attest build provenance
-        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        if: inputs.attest
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: "*.zip"

@@ -17,7 +17,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        grafana_version: ["10.4.18", "11.6.1", "12.0.2", "13.0.1"]
+        grafana_version: ["10.4.19-security-01", "11.6.16", "12.4.10", "13.0.8", "13.1.5", "13.2.1"]
     env:
       GRAFANA_VERSION: ${{ matrix.grafana_version }}
     steps:
@@ -27,7 +27,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.node_version }}
           cache: 'npm'
@@ -40,7 +40,7 @@ jobs:
         run: ./.github/scripts/set-version.sh
 
       - name: Compatibility check
-        uses: grafana/plugin-actions/is-compatible@main
+        uses: grafana/plugin-actions/is-compatible@6a283a4015776c4becd1708906b59b2e78c221ae # is-compatible/v1.0.4
         with:
           module: "./src/module.ts"
           comment-pr: "yes"
