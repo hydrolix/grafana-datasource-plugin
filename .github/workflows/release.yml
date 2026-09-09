@@ -22,6 +22,7 @@ jobs:
       channel: ${{ steps.classify.outputs.channel }}
       tag: ${{ steps.classify.outputs.tag }}
       version: ${{ steps.classify.outputs.version }}
+      make_latest: ${{ steps.containment.outputs.make_latest }}
     steps:
       # fetch-depth: 0 gives full (unshallow) history for the checked-out
       # ref, but actions/checkout only maps that one ref — it does not
@@ -66,13 +67,16 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Every channel is a claim about process, not just tag shape: released
-      # code reached main, RC code sits on a release/hotfix branch, dev
-      # builds are merged to develop. Checked here, before anything builds
-      # or signs, so a tag pushed from an arbitrary commit cannot publish.
+      # code reached main (or is a maintenance release of an older series),
+      # RC code sits on a release/hotfix branch, dev builds are merged to
+      # develop. Checked here, before anything builds or signs, so a tag
+      # pushed from an arbitrary commit cannot publish.
       - name: Assert tag containment in its source branch
+        id: containment
         env:
           TAG: ${{ steps.classify.outputs.tag }}
           CHANNEL: ${{ steps.classify.outputs.channel }}
+          VERSION: ${{ steps.classify.outputs.version }}
         run: |
           # actions/checkout mapped only the tag ref above; fetch every
           # branch so main/develop/release/hotfix tips are all available.
@@ -87,11 +91,36 @@ jobs:
           COMMIT=$(git rev-parse "refs/tags/${TAG}^{commit}")
 
           CONTAINING_BRANCH=""
+          # Only a release off main is the repository's newest version, so
+          # only that one claims GitHub's "Latest release" badge. Emitted for
+          # every channel (false unless proven otherwise) because an empty
+          # value would make action-gh-release fall back to the API default,
+          # which is true.
+          MAKE_LATEST=false
           case "$CHANNEL" in
             release)
-              TARGET_DESC="origin/main"
+              TARGET_DESC="origin/main, or a release[/_-] or hotfix[/_-] branch named for v${VERSION}"
               if git merge-base --is-ancestor "$COMMIT" "$(git rev-parse origin/main)"; then
                 CONTAINING_BRANCH="origin/main"
+                MAKE_LATEST=true
+              else
+                # Maintenance line: an older series (release/v0.11.1 while
+                # main has moved on to 0.12.x) never reaches main, so
+                # containment in main cannot be the test. Requiring the
+                # branch to be named for exactly this version keeps GA
+                # publication deliberate — unlike the rc case below, a tag
+                # pointing into some unrelated release branch still fails.
+                # Dots are escaped so 0.11.1 cannot match a branch 0x11y1.
+                VERSION_RE="${VERSION//./\\.}"
+                while IFS= read -r ref; do
+                  short="${ref#origin/}"
+                  if [[ "$short" =~ ^(release|hotfix)[/_-]v?${VERSION_RE}$ ]]; then
+                    if git merge-base --is-ancestor "$COMMIT" "$(git rev-parse "$ref")"; then
+                      CONTAINING_BRANCH="$ref"
+                      break
+                    fi
+                  fi
+                done < <(git for-each-ref --format='%(refname:short)' refs/remotes/origin)
               fi
               ;;
             dev)
@@ -124,8 +153,10 @@ jobs:
           fi
 
           echo "tag $TAG at $COMMIT is contained in $CONTAINING_BRANCH"
+          echo "make_latest=$MAKE_LATEST" >> "$GITHUB_OUTPUT"
           {
             echo "- Containment: \`$COMMIT\` is contained in \`$CONTAINING_BRANCH\`"
+            echo "- Marks GitHub \"Latest release\": $MAKE_LATEST"
           } >> "$GITHUB_STEP_SUMMARY"
 
   build-frontend:
@@ -241,12 +272,22 @@ jobs:
             /tmp/plugin-package/*.zip
           fail_on_unmatched_files: true
           body: ${{ steps.parse.outputs.changelog }}
+          # Explicit: left unset, the GitHub API defaults to true, so
+          # publishing a maintenance release (0.11.1) after a newer one
+          # (0.12.1) would demote the newer release's "Latest" badge.
+          make_latest: ${{ needs.classify.outputs.make_latest }}
 
   publish-release:
     name: Publish Release to AWS S3
     uses: ./.github/workflows/s3_publish.yml
     needs: [classify, package, e2e, plugin-validator]
-    if: needs.classify.outputs.channel == 'release'
+    # The flat S3 layout is the current-distribution channel, so only a
+    # release off main goes there. A maintenance release of an older series
+    # (0.11.1 published after 0.12.1) still gets the full build, signature,
+    # attestation, gates and GitHub release — it is just not mirrored to S3.
+    # Derived rather than a workflow_dispatch input because pushing the tag
+    # fires this workflow automatically, where an input default would apply.
+    if: needs.classify.outputs.channel == 'release' && needs.classify.outputs.make_latest == 'true'
     secrets:
       aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
       aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -255,11 +296,18 @@ jobs:
     name: Verify Published Release
     runs-on: ubuntu-latest
     needs: [classify, create-github-release, publish-release]
+    # A skipped `needs` job would skip this one too, but attestation and
+    # source-ref verification do not depend on S3 and must still run when the
+    # mirror step was deliberately skipped. Only a genuine S3 failure, or a
+    # release that was never created, should stop the verification.
+    if: ${{ !cancelled() && needs.create-github-release.result == 'success' && needs.publish-release.result != 'failure' }}
     permissions:
       contents: read
     env:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ needs.classify.outputs.tag }}
+      # No S3 copy exists to compare against when the mirror was skipped.
+      SKIP_S3_CHECK: ${{ needs.publish-release.result == 'skipped' }}
     steps:
       # Needed so the verification script below can source the shared
       # bucket/URL config; this job otherwise has no checkout.

@@ -6,7 +6,10 @@
 #   2. `gh attestation verify` that downloaded asset.
 #   3. Compute its sha256 and compare against the S3 copy fetched over the
 #      public HTTPS URL (proves reachability, bucket policy, and URL
-#      encoding, not just that GitHub served the right bytes).
+#      encoding, not just that GitHub served the right bytes). Skipped when
+#      SKIP_S3_CHECK=true, for releases that are deliberately not mirrored
+#      (a maintenance release of an older series); every other step still
+#      runs, so provenance is verified either way.
 #   4. Only then assert the attestation's sourceRepositoryRef equals
 #      refs/tags/<tag> — deliberately last, so a PR-ref attestation still
 #      exercises (and proves) every earlier step before failing here.
@@ -70,14 +73,20 @@ echo "gh attestation verify succeeded"
 
 # --- 3. S3 digest comparison -------------------------------------------------
 DIGEST=$(sha256_of "$ZIP")
-S3_COPY="$WORKDIR/s3-copy.zip"
-curl -fsSL -o "$S3_COPY" "${S3_PUBLIC_BASE_URL}/grafana-datasource-plugin/${ZIP_NAME}"
-S3_DIGEST=$(sha256_of "$S3_COPY")
-if [[ "$S3_DIGEST" != "$DIGEST" ]]; then
-  echo "S3 copy sha256 \"$S3_DIGEST\" does not equal release asset sha256 \"$DIGEST\""
-  exit 1
+S3_VERIFIED=false
+if [[ "${SKIP_S3_CHECK:-false}" == "true" ]]; then
+  echo "SKIP_S3_CHECK=true: this release is not mirrored to S3, skipping the mirror comparison"
+else
+  S3_COPY="$WORKDIR/s3-copy.zip"
+  curl -fsSL -o "$S3_COPY" "${S3_PUBLIC_BASE_URL}/grafana-datasource-plugin/${ZIP_NAME}"
+  S3_DIGEST=$(sha256_of "$S3_COPY")
+  if [[ "$S3_DIGEST" != "$DIGEST" ]]; then
+    echo "S3 copy sha256 \"$S3_DIGEST\" does not equal release asset sha256 \"$DIGEST\""
+    exit 1
+  fi
+  echo "S3 copy matches: sha256=$DIGEST"
+  S3_VERIFIED=true
 fi
-echo "S3 copy matches: sha256=$DIGEST"
 
 # --- 4. Source-ref assertion (last, deliberately) ---------------------------
 SOURCE_REF=$(jq -r '.[0].verificationResult.signature.certificate.sourceRepositoryRef' "$ATTESTATION_JSON")
@@ -93,6 +102,10 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     echo "## Release verification"
     echo "- Verified source ref: \`$SOURCE_REF\`"
     echo "- Artifact digest: \`sha256:$DIGEST\`"
-    echo "- S3 copy digest matches the verified release asset"
+    if [[ "$S3_VERIFIED" == "true" ]]; then
+      echo "- S3 copy digest matches the verified release asset"
+    else
+      echo "- S3 mirror not published for this release; comparison skipped"
+    fi
   } >> "$GITHUB_STEP_SUMMARY"
 fi
