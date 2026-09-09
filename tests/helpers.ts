@@ -1,6 +1,6 @@
 // @ts-nocheck
 import {BrowserContext, Locator, Page, test} from "@playwright/test";
-import {DataSourceConfigPage, expect, PanelEditPage,} from "@grafana/plugin-e2e";
+import {DataSourceConfigPage, expect, Panel, PanelEditPage,} from "@grafana/plugin-e2e";
 import allLabels from "../src/labels";
 import {CreateDataSourcePageArgs} from "@grafana/plugin-e2e/dist/types";
 
@@ -291,6 +291,43 @@ export const queryTextSet = async (
     await editor.click();
     await page.ctx.page.keyboard.press("ControlOrMeta+KeyA");
     await page.ctx.page.keyboard.type(query);
+};
+
+/**
+ * Switches the panel editor into table view and re-points `page.panel` at a
+ * title-agnostic locator.
+ *
+ * plugin-e2e's own `toggleTableView()` rebuilds `panelEditPage.panel` from
+ * `Panels.Panel.title("")` but — unlike its constructor and
+ * `untoggleTableView()` — omits the `startsWith` flag
+ * (`PanelEditPage.js:49`). The locator is therefore the *exact*
+ * `[data-testid="data-testid Panel header "]` and only ever resolves a panel
+ * whose title is empty.
+ *
+ * Grafana 13.2 titles a freshly added panel "New panel", so `panel.fieldNames`
+ * and `panel.data` resolve zero elements and every table assertion times out
+ * while the table itself renders correctly. Up to 13.1 the title comes up
+ * empty often enough that the exact locator usually matches, which makes the
+ * break read as a flake instead.
+ *
+ * Rebuilding the Panel on the prefix locator is what the upstream constructor
+ * does, so it is version-correct and strictly more permissive; the panel
+ * header test id is not emitted by the visualization-suggestion previews in
+ * the options pane, so it still resolves the single edited panel.
+ *
+ * @param page PanelEditPage
+ */
+export const tableViewSet = async (
+    page: PanelEditPage
+): Promise<void> => {
+    await page.toggleTableView();
+    page.panel = new Panel(
+        page.ctx,
+        page.getByGrafanaSelector(
+            page.ctx.selectors.components.Panels.Panel.title(""),
+            {startsWith: true}
+        )
+    );
 };
 
 /**
