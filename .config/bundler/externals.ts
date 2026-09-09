@@ -24,7 +24,6 @@ export const externals: ExternalsType = [
   'rxjs',
   'i18next',
   'react-router',
-  'react-router-dom',
   'd3',
   'angular',
   /^@grafana\/ui/i,

@@ -50,13 +50,16 @@ services:
       GF_AUTH_SIGNOUT_REDIRECT_URL: "http://localhost:3000/login"
     build:
       args:
-        grafana_version: 13.0.1
+        grafana_version: 13.2.1
     #    grafana_version: 12.3.1
     #    grafana_version: 12.0.2
     #    grafana_version: 11.5.4
     #    grafana_version: 10.4.16
         development: true
         anonymous_auth_enabled: "true"
+        # Must be >= the `go` directive in go.mod, otherwise mage inside the
+        # container has to GOTOOLCHAIN-download a newer toolchain on every build.
+        GO_VERSION: 1.26.8
 
 
   clickhouse-server:

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.1
+
+- **Fix**: Plugin fails to load on Grafana ≥ 13.2 (React 19) — replace the bundled React 18 `jsx-runtime` with a version-agnostic shim built on `React.createElement`, so a single bundle works on React 16–19 / Grafana 10.4–13.2
+- **Fix**: Drop `console.error` from the query error path; errors are reported via `@grafana/runtime` `logError`
+- **Security**: Bump `grpc` (1.83.2), `fast-uri`, and `js-yaml` (4.3.2 / 3.15.2) to clear osv-scanner high-severity findings
+- **Chore**: Pin Go to 1.26.8 (same security backports as 1.27.1) so Grafana's govulncheck source scan can run — its govulncheck is still built with Go 1.26
+- **Chore**: Extend the compatibility-check matrix to current Grafana patch releases, including 13.1 and 13.2
+
 ## 0.11.0
 
 - **Feature**: Add Grafana annotations support (HDX-11579)
