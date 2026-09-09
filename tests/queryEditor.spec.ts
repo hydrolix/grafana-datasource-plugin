@@ -6,6 +6,7 @@ import {
   closeWhatsNewDialog,
   ConfigPageSteps,
   queryTextSet,
+  tableViewSet,
 } from "./helpers";
 import { DashboardBuilder } from "./dashboardBuilder";
 import { QueryEditorRow } from "./queryEditorRow";
@@ -437,7 +438,7 @@ test("runs a SELECT and renders fixture rows in the table panel", async ({
   await closeWhatsNewDialog(page);
   const panelEditPage = await dashboardPage.addPanel();
   await panelEditPage.datasource.set("queryEditor run-and-render");
-  await panelEditPage.toggleTableView();
+  await tableViewSet(panelEditPage);
 
   await queryTextSet(
     "A",

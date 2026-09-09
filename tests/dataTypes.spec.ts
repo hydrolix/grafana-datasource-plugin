@@ -1,6 +1,6 @@
 import { test, expect, PanelEditPage } from "@grafana/plugin-e2e";
 // @ts-ignore
-import { closeWhatsNewDialog, ConfigPageSteps, queryTextSet } from "./helpers";
+import { closeWhatsNewDialog, ConfigPageSteps, queryTextSet, tableViewSet } from "./helpers";
 
 /**
  * Runs sequentially in order to avoid multiple datasource creation.
@@ -29,7 +29,7 @@ test.beforeEach(async ({ dashboardPage, createDataSourceConfigPage, page }) => {
   await closeWhatsNewDialog(page);
   panelEditPage = await dashboardPage.addPanel();
   await panelEditPage.datasource.set("dataTypes tests");
-  await panelEditPage.toggleTableView();
+  await tableViewSet(panelEditPage);
 });
 
 /**

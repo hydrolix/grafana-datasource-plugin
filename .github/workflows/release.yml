@@ -140,7 +140,7 @@ jobs:
     uses: ./.github/workflows/build-backend.yml
     needs: classify
     with:
-      go_version: '1.26.5'
+      go_version: '1.26.8'
 
   package:
     name: Package Plugin
