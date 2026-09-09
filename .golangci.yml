@@ -7,9 +7,14 @@ linters:
       # SA1019: data.FieldTypeNullableJSON -> data.FieldTypeJSON is a field-type
       # behavior change (null handling for JSON columns). Deferred until it can
       # be validated against real JSON columns rather than blind-swapped.
+      #
+      # The symbol is matched unqualified-or-qualified: staticcheck as bundled in
+      # golangci-lint >= 2.13 reports the full import path
+      # ("github.com/grafana/grafana-plugin-sdk-go/data.FieldTypeNullableJSON"),
+      # older versions reported just "data.FieldTypeNullableJSON".
       - linters:
           - staticcheck
-        text: 'SA1019: data.FieldTypeNullableJSON is deprecated'
+        text: 'SA1019: (\S+/)?data\.FieldTypeNullableJSON is deprecated'
       # ST1005: these capitalized error strings are user-facing. The "Code: ..."
       # ClickHouse error in driver.go is matched by ErrorMessageBeautifier and
       # e2e assertions; lowercasing would change observable behavior. Deferred.
