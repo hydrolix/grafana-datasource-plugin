@@ -20,6 +20,11 @@ services:
       - GF_LOG_LEVEL=debug
       - GF_DATAPROXY_LOGGING=1
       - GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=hydrolix-hydrolix-datasource
+      # Luxon-backed datetime layer (lands in Grafana 13.3, default-off).
+      # Unknown toggles are ignored, so this is a no-op on tagged versions
+      # and only takes effect on the nightly matrix entry — catching strict
+      # Luxon datetime breakage before Grafana flips the default.
+      - GF_FEATURE_TOGGLES_ENABLE=datetime.useLuxon
     networks:
       - grafana
 
