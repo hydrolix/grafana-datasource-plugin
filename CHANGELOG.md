@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.2
+
+- **Fix**: Plugin fails to import on Grafana builds with the Luxon-backed datetime layer (`datetime.useLuxon` feature toggle, Grafana Cloud / upcoming 13.3) — `dateTime().subtract("5m")` in the default ad-hoc time range used an invalid argument that Moment silently ignored but Luxon rejects at module load
+- **Fix**: An invalid round interval (query editor and datasource default) is now reset to empty when the field loses focus, instead of being saved and silently skipped by the backend; field descriptions now list the actually supported units (s, m, h — `ms` was never accepted)
+
 ## 0.12.1
 
 - **Fix**: Plugin fails to load on Grafana ≥ 13.2 (React 19) — replace the bundled React 18 `jsx-runtime` with a version-agnostic shim built on `React.createElement`, so a single bundle works on React 16–19 / Grafana 10.4–13.2
