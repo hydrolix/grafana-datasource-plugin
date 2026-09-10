@@ -128,6 +128,12 @@ export function QueryEditor(props: Props) {
     invalidDuration.current = !QUERY_DURATION_REGEX.test(round);
     props.onChange({ ...props.query, round: round });
   };
+  const onRoundBlur = () => {
+    if (invalidDuration.current) {
+      invalidDuration.current = false;
+      props.onChange({ ...props.query, round: "" });
+    }
+  };
 
   // track values change and refresh interpolated query
   const [interpolationId, setInterpolationId] = useState<string>("");
@@ -245,6 +251,7 @@ export function QueryEditor(props: Props) {
                     width={10}
                     data-testid="data-testid round input"
                     onChange={onRoundChange}
+                    onBlur={onRoundBlur}
                     value={props.query.round}
                   />
                 </InlineField>

@@ -116,7 +116,7 @@ export default {
           testId: "data-testid hdx_defaultRound",
           label: "Default round",
           description:
-            "Automatically rounds $from and $to timestamps to the nearest multiple of a default value (e.g., 1m rounds to the nearest whole minute). Used when no specific round value is provided in the query. Supported time units: ms, s, m, h. No value or a value of 0 means no rounding is applied",
+            "Automatically rounds $from and $to timestamps to the nearest multiple of a default value (e.g., 1m rounds to the nearest whole minute). Used when no specific round value is provided in the query. Supported time units: s, m, h. No value or a value of 0 means no rounding is applied",
         },
         additionalSettings: {
           testId: "data-testid hdx_additionalSection",
@@ -163,7 +163,7 @@ export default {
         round: {
           label: "Round",
           tooltip:
-            "Round $from and $to timestamps to the nearest multiple of the specified value (1m rounds to the nearest whole minute). Supports time units: ms, s, m, h. No value means that the default round value will be used. A value of 0 means no rounding is applied",
+            "Round $from and $to timestamps to the nearest multiple of the specified value (1m rounds to the nearest whole minute). Supports time units: s, m, h. No value means that the default round value will be used. A value of 0 means no rounding is applied",
         },
         showInterpolatedQuery: {
           label: "Show Interpolated Query",

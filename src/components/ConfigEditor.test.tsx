@@ -59,6 +59,42 @@ describe("ConfigEditor", () => {
     );
   }
 
+  it("resets an invalid default round to '' and clears the error on blur", () => {
+    const onOptionsChange = jest.fn();
+    const props = getDefaultProps({ defaultRound: "" });
+    render(<ConfigEditor {...props} onOptionsChange={onOptionsChange} />);
+    expandAdditionalSettings();
+    const round = screen
+      .getByTestId(labels.defaultRound.testId)
+      .querySelector("input")!;
+    fireEvent.change(round, { target: { value: "5x" } });
+    expect(screen.getByText("invalid duration")).toBeInTheDocument();
+    expect(onOptionsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        jsonData: expect.objectContaining({ defaultRound: "5x" }),
+      })
+    );
+    fireEvent.blur(round);
+    expect(onOptionsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        jsonData: expect.objectContaining({ defaultRound: "" }),
+      })
+    );
+    expect(screen.queryByText("invalid duration")).not.toBeInTheDocument();
+  });
+
+  it("keeps a valid default round on blur", () => {
+    const onOptionsChange = jest.fn();
+    const props = getDefaultProps({ defaultRound: "5m" });
+    render(<ConfigEditor {...props} onOptionsChange={onOptionsChange} />);
+    expandAdditionalSettings();
+    const round = screen
+      .getByTestId(labels.defaultRound.testId)
+      .querySelector("input")!;
+    fireEvent.blur(round);
+    expect(onOptionsChange).not.toHaveBeenCalled();
+  });
+
   // it('port input is enabled', () => {
   //     let component = render(<ConfigEditor {...getDefaultProps({})} />);
   //     expect(component.container.querySelector('#config-editor-port')?.getAttribute("disabled")).toBeNull();
