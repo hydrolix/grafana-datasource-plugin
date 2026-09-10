@@ -133,7 +133,7 @@ jobs:
     uses: ./.github/workflows/build-frontend.yml
     needs: classify
     with:
-      node_version: '22'
+      node_version: '24'
 
   build-backend:
     name: Build Backend
@@ -151,7 +151,7 @@ jobs:
       id-token: write
       attestations: write
     with:
-      node_version: '22'
+      node_version: '24'
       attest: ${{ needs.classify.outputs.channel == 'release' }}
     secrets:
       grafana_token: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
@@ -168,7 +168,7 @@ jobs:
     needs: [classify, package]
     if: needs.classify.outputs.channel == 'rc' || needs.classify.outputs.channel == 'release'
     with:
-      node_version: '22'
+      node_version: '24'
 
   create-github-release:
     name: Create GitHub Release

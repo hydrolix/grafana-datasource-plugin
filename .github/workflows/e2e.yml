@@ -27,6 +27,17 @@ jobs:
         with:
           persist-credentials: false
 
+      # This job had no Node setup and silently used the runner's default,
+      # which drifted to Node 22 / npm 10 — below the `engines` floor and
+      # unable to `npm ci` a lockfile written by npm 11. Pin to .nvmrc so
+      # every job resolves the same toolchain.
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
       - name: Download GitHub artifact
         uses: actions/download-artifact@v8
         with:
