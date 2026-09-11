@@ -43,9 +43,10 @@ export default defineConfig([
       '**/openspec/',
       '**/.claude/',
       '**/.codex/',
-      // CI helpers: Node CommonJS, not plugin source. The React/TS ruleset
-      // misreads `module.exports = async ({ github, context, core }) => ...`
-      // as a component (react/display-name) because of the destructured arg.
+      // CI helpers: Node CommonJS, not plugin source. react/display-name
+      // misreads report-nightly-failure.js as a component -- it takes both a
+      // destructured props-like argument AND a `return null` (a valid render
+      // result) to trip it; neither alone does.
       '.github/scripts/'
     ],
   },

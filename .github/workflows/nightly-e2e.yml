@@ -4,8 +4,11 @@ name: Nightly E2E Tests
 #
 # e2e.yml already covers version × nightly, but runs only on PR/release and
 # pins the toggle always-on — so nothing is scheduled, and the default
-# non-Luxon path is never exercised. Otherwise a near-duplicate of e2e.yml:
-# keep the shared steps in sync.
+# non-Luxon path is never exercised.
+#
+# Largely mirrors e2e.yml. Deliberate divergences: the luxon axis, step-level
+# tolerance on the nightly rung, a stricter health gate, and the toggle /
+# digest steps. e2e.yml is canonical for everything else.
 
 on:
   workflow_call:
@@ -21,6 +24,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # `datetime.useLuxon` ships in Grafana 13.3. On older versions the
+        # toggle does not exist, and /api/frontend/settings echoes the env var
+        # back verbatim regardless -- so a luxon=true cell there runs identical
+        # Grafana behaviour to luxon=false while reporting the toggle as
+        # enabled. Varying it on released versions would produce duplicate
+        # cells that certify themselves green, so the axis is confined to the
+        # versions that implement it. Add 13.3.x to `include` when it ships.
         grafana_version:
           - "10.4.19-security-01"
           - "11.6.16"
@@ -28,14 +38,21 @@ jobs:
           - "13.0.8"
           - "13.1.5"
           - "13.2.1"
-          # Grafana's unstable channel. Not `grafana/grafana-dev`, which
-          # stopped publishing in 2026 and can no longer see an unreleased
-          # line. Floats by design; the digest step records what actually ran.
-          - "nightly"
-        luxon: [false, true]
-    # Without this a hang sits on the 360-minute default and ends `cancelled`,
-    # which evades `if: failure()` reporting.
-    timeout-minutes: 45
+        luxon: [false]
+        include:
+          # Grafana's unstable channel (currently the 13.3 line), the only rung
+          # where the toggle is real. Not `grafana/grafana-dev`, which stopped
+          # publishing in 2026. Floats by design; the digest step records what
+          # actually ran.
+          - grafana_version: "nightly"
+            luxon: false
+          - grafana_version: "nightly"
+            luxon: true
+    # The measured nightly rung runs ~34 min when failing (retries are the slow
+    # path), so this is a backstop, not a budget. The suite has its own tighter
+    # step-level timeout below -- a hung *step* is covered by the same tolerance
+    # as any other e2e failure, whereas a job timeout is not.
+    timeout-minutes: 60
     env:
       GRAFANA_VERSION: ${{ matrix.grafana_version }}
       # Must be set-but-empty (not unset) to disable: the compose file's
@@ -83,8 +100,10 @@ jobs:
           npx playwright install
 
       - name: Wait for Grafana
-        # `-f` matters: without it curl exits 0 on the 503 Grafana returns
-        # while still starting, and the gate clears too early.
+        # `-f` guards the 503 Grafana returns when its DB is failing; the
+        # startup path itself gives connection errors (curl 52), which a bare
+        # `curl -s` already catches. `>/dev/null` keeps the health JSON out of
+        # the log on every poll, which e2e.yml still does.
         run: |
           timeout 120s bash -c 'until curl -sf http://localhost:3000/api/health >/dev/null; do sleep 2; done' || {
             echo "::error::Grafana ${GRAFANA_VERSION} never became healthy within 120s."
@@ -99,26 +118,35 @@ jobs:
 
       - name: Run E2E tests
         id: e2e
-        # Tolerance belongs on the step, not the job: a tolerated *job* reports
-        # success, which skips report-failure and leaves the nightly × luxon
-        # cell — the one reproducing the incident — green and silent.
+        # Step-level, so the job stays in a success state and the flag / log /
+        # artifact steps below still run. Job-level tolerance fails the job,
+        # which skips `Flag tolerated nightly failure` (bare `if:` carries an
+        # implicit success()) and leaves the cell green *and* silent. Either
+        # way `report-failure` is skipped -- intended for the advisory rung.
         continue-on-error: ${{ matrix.grafana_version == 'nightly' }}
+        timeout-minutes: 45
         run: npx playwright test --reporter=junit
         env:
-          # plugin-e2e parses this as a semver; "nightly" yields NaN and every
-          # version branch takes its oldest path. Blank it so it reads
-          # bootData instead. See e2e.yml for the full explanation.
+          # The job-level GRAFANA_VERSION is a docker image *tag* and compose
+          # needs it verbatim -- do not hoist this blanking to the job env.
+          # plugin-e2e parses the same name as a semver, so "nightly" yields
+          # NaN and every version branch takes its oldest path. Blanking it
+          # here makes it read bootData. See e2e.yml for the full explanation.
           GRAFANA_VERSION: ""
           E2E_GRAFANA_URL: http://localhost:3000
           PLAYWRIGHT_JUNIT_OUTPUT_FILE: junit_report.xml
           # Tests run on the runner host, outside the compose network, so only
           # the published port resolves. Distinct from CLICKHOUSE_HOSTNAME,
-          # which Grafana uses from inside its container.
+          # which Grafana uses from inside its container and must stay the
+          # service name.
           E2E_CLICKHOUSE_HTTP_HOST: localhost
 
       - name: Flag tolerated nightly failure
-        # Only reachable on the nightly rung; leaves a record instead of a
-        # green square.
+        # Deliberately a bare `if:` -- the implicit success() is what confines
+        # this to the tolerated rung (on any other rung the job has already
+        # failed, so the step is skipped). Do not normalise it to the
+        # `!cancelled()` form used by the next step, or genuinely blocking
+        # failures get labelled "advisory".
         if: steps.e2e.outcome == 'failure'
         run: |
           MSG="Grafana ${GRAFANA_VERSION} luxon=${{ matrix.luxon }} failed (advisory, non-blocking)"

@@ -13,14 +13,15 @@
 
 const LABEL = 'nightly-compat-failure';
 
-// `failure` alone misses timeouts, cancellations and startup failures, which
-// produced issues naming zero jobs.
-const BAD_CONCLUSIONS = ['failure', 'timed_out', 'cancelled', 'startup_failure', 'action_required'];
+// A deny-list, not an allow-list: an unlisted conclusion (neutral, stale, or
+// whatever GitHub adds next) must not silently drop a job from the report.
+// `null` means still running, which this job itself is.
+const OK_CONCLUSIONS = ['success', 'skipped', null];
 
-// Reusable-workflow jobs carry the caller's name as a prefix, e.g.
-// "Nightly E2E Tests / E2E - Grafana nightly (luxon=true)". These rungs track
-// Grafana main, so a break is advisory rather than a plugin regression.
-const ADVISORY_RE = /Grafana nightly \(luxon=/;
+// The only step tolerated by continue-on-error (nightly-e2e.yml). A job that
+// succeeded *because* this step was tolerated is advisory; a nightly job that
+// failed anywhere else is infrastructure and stays blocking.
+const TOLERATED_STEP = 'Run E2E tests';
 
 module.exports = async ({ github, context, core }) => {
   const { owner, repo } = context.repo;
@@ -37,26 +38,31 @@ module.exports = async ({ github, context, core }) => {
       { owner, repo, run_id: context.runId, per_page: 100 }
     );
 
-    // A job tolerated by continue-on-error still reports "failure" here —
-    // only the *run* conclusion is tolerated. So advisory rungs must be
-    // separated by name, not by conclusion.
-    const bad = jobs
-      .filter((j) => BAD_CONCLUSIONS.includes(j.conclusion))
+    // Tolerance is step-level, so a tolerated e2e failure leaves the JOB
+    // reporting success — it never appears in a conclusion-based filter.
+    // Classify by step outcome instead: that is what makes the advisory
+    // bucket reachable, and what stops an infrastructure failure on the
+    // nightly rung being excused as "unreleased Grafana".
+    blocking = jobs
+      .filter((j) => !OK_CONCLUSIONS.includes(j.conclusion))
       .map((j) => `${j.name} (${j.conclusion})`)
       .sort();
 
-    blocking = bad.filter((n) => !ADVISORY_RE.test(n));
-    advisory = bad.filter((n) => ADVISORY_RE.test(n));
+    advisory = jobs
+      .filter((j) => OK_CONCLUSIONS.includes(j.conclusion))
+      .filter((j) => (j.steps || []).some(
+        (st) => st.name === TOLERATED_STEP && st.conclusion === 'failure'))
+      .map((j) => `${j.name} (tolerated ${TOLERATED_STEP} failure)`)
+      .sort();
   } catch (err) {
     attributionError = err.message;
     core.warning(`Could not list jobs for run ${context.runId}: ${err.message}`);
   }
 
-  // Reached when this job runs on a green run.
-  if (!blocking.length && !advisory.length && !attributionError) {
-    core.notice('Nightly run reported no failing jobs; nothing to report.');
-    return null;
-  }
+  // Deliberately no early return for "nothing found": the caller gates this
+  // job on a failed or cancelled run, so being invoked means something went
+  // wrong. Returning silently here is how a skipped-`needs` cascade or an
+  // unclassifiable conclusion produced no notification at all.
 
   // --- body ----------------------------------------------------------------
   const lines = [
@@ -98,9 +104,9 @@ module.exports = async ({ github, context, core }) => {
     );
   } else if (!blocking.length && !advisory.length) {
     lines.push(
-      '- :warning: **No job could be attributed.** The run failed but every job',
-      '  reported success or was skipped. Likely a cancelled run, a timeout, or',
-      '  a failure tolerated by `continue-on-error`. Open the run directly.',
+      '- :warning: **No job could be attributed.** The run did not succeed, but',
+      '  every job reported success or was skipped. Likely a cancelled run or a',
+      '  dependency that never started. Open the run directly.',
       ''
     );
   }

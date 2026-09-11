@@ -226,7 +226,7 @@ necessarily the mounted folder. See "Two live-mode traps" above.
 ```yaml
 build:
   args:
-    grafana_version: 13.0.1
+    grafana_version: 13.2.1
 #    grafana_version: 12.3.1
 #    grafana_version: 12.0.2
 #    grafana_version: 11.5.4

@@ -30,14 +30,27 @@ echo '{"featureToggles": {}}'              > "$FIXTURE_DIR/empty-toggles.json"
 echo '{"message": "Unauthorized"}'         > "$FIXTURE_DIR/error-body.json"
 echo '{"featureToggles": "not-an-object"}' > "$FIXTURE_DIR/wrong-type.json"
 echo 'not json at all'                     > "$FIXTURE_DIR/malformed.json"
+# Larger than the 64 KB pipe buffer. A real settings body is hundreds of KB,
+# and `echo "$SETTINGS" | head -c` on one exits 141 (SIGPIPE under pipefail)
+# instead of the documented 1.
+python3 -c "import json;print(json.dumps({'featureToggles':'not-an-object','pad':'x'*200000}))" \
+  > "$FIXTURE_DIR/big-degenerate.json"
+printf '{"featureToggles":{"a":true}}\n{"featureToggles":{"a":true}}\n' \
+  > "$FIXTURE_DIR/multi-doc.json"
 
 # expect_exit <desc> <want-exit> <fixture> <EXPECT> [TOGGLE] [substring...]
 expect_exit() {
-  local desc=$1 want=$2 settings=$3 expect=$4 toggle=${5:-datetime.useLuxon}
+  local desc=$1 want=$2 settings=$3 expect=$4 toggle=${5:-}
   shift 5 2>/dev/null || shift 4
   local out got
-  out=$(EXPECT="$expect" TOGGLE="$toggle" GRAFANA_SETTINGS_FILE="$FIXTURE_DIR/$settings" \
-    "$VERIFY" 2>&1)
+  # TOGGLE is exported only when the caller passed one, so the script's own
+  # default is the value under test in every other case — re-declaring it
+  # here would test the test instead of the code that ships.
+  if [[ -n "$toggle" ]]; then
+    out=$(EXPECT="$expect" TOGGLE="$toggle" GRAFANA_SETTINGS_FILE="$FIXTURE_DIR/$settings" "$VERIFY" 2>&1)
+  else
+    out=$(EXPECT="$expect" GRAFANA_SETTINGS_FILE="$FIXTURE_DIR/$settings" "$VERIFY" 2>&1)
+  fi
   got=$?
 
   if [[ "$got" -ne "$want" ]]; then
@@ -76,6 +89,8 @@ expect_exit "non-object featureToggles is not 'off'" 1 wrong-type.json false
 expect_exit "malformed JSON is not 'off'"         1 malformed.json     false
 # ...and must not certify "on" either.
 expect_exit "missing featureToggles is not 'on'"  1 no-toggles.json    true
+expect_exit "a >64KB degenerate body still exits 1, not 141" 1 big-degenerate.json false
+expect_exit "a multi-document body is rejected by the shape guard" 1 multi-doc.json false datetime.useLuxon "no usable .featureToggles"
 
 # --- TOGGLE is honoured, not hardcoded --------------------------------------
 expect_exit "honours a non-default TOGGLE (on)"  0 on.json  true  someOther
@@ -93,6 +108,45 @@ if grep -q "^datetime.useLuxon$" <<<"$OUT"; then
 else
   echo "ok   - diagnostic omits the disabled toggle"
 fi
+
+# --- the production path: curl, via a PATH shim -----------------------------
+SHIM_DIR="$FIXTURE_DIR/bin"
+mkdir -p "$SHIM_DIR"
+make_curl_shim() {  # $1 = http status, $2 = body, $3 = exit code
+  cat > "$SHIM_DIR/curl" <<SHIM
+#!/bin/bash
+# Emulate: curl -s -o <file> -w '%{http_code}' ...
+out=""
+while [[ \$# -gt 0 ]]; do
+  [[ "\$1" == "-o" ]] && { out="\$2"; shift 2; continue; }
+  shift
+done
+[[ -n "\$out" ]] && printf '%s' '$2' > "\$out"
+printf '%s' '$1'
+exit $3
+SHIM
+  chmod +x "$SHIM_DIR/curl"
+}
+
+curl_case() {  # desc, want-exit, status, body, curl-exit, EXPECT, [substring]
+  local desc=$1 want=$2 status=$3 body=$4 cexit=$5 expect=$6 needle=${7:-}
+  make_curl_shim "$status" "$body" "$cexit"
+  local out got
+  out=$(PATH="$SHIM_DIR:$PATH" EXPECT="$expect" "$VERIFY" 2>&1); got=$?
+  if [[ "$got" -ne "$want" ]]; then
+    echo "FAIL - $desc (wanted exit $want, got $got)"; FAILURES=$((FAILURES + 1)); return
+  fi
+  if [[ -n "$needle" ]] && ! grep -qF -- "$needle" <<<"$out"; then
+    echo "FAIL - $desc (output missing \"$needle\")"; FAILURES=$((FAILURES + 1)); return
+  fi
+  echo "ok   - $desc"
+}
+
+curl_case "200 with the toggle on"              0 200 '{"featureToggles":{"datetime.useLuxon":true}}' 0 true
+curl_case "403 exits 1 and echoes the body"     1 403 '{"message":"Forbidden"}'                       0 false "HTTP 403"
+curl_case "500 exits 1"                         1 500 'upstream error'                                0 false "HTTP 500"
+curl_case "curl transport failure exits 1"      1 000 ''                                              7 false "Could not reach"
+rm -f "$SHIM_DIR/curl"
 
 if [[ "$FAILURES" -gt 0 ]]; then
   echo "$FAILURES test(s) failed"

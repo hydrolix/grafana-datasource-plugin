@@ -22,6 +22,11 @@ IMAGE=$(docker inspect --format='{{.Config.Image}}' "$CONTAINER" 2>/dev/null | h
 IMAGE="${IMAGE//[$'\n\r']/}"
 if [[ -z "$IMAGE" ]]; then
   IMAGE="$GRAFANA_REPO:$GRAFANA_VERSION"
+  # The digest lookup below usually still succeeds against this reconstructed
+  # name, producing a confident but possibly wrong record -- worse than
+  # "unresolved", which at least looks wrong. A failed container inspect also
+  # means the stack is broken, which is worth saying out loud.
+  echo "::warning title=Grafana image name is a guess::Could not inspect container '${CONTAINER}'; reconstructed '${IMAGE}', which may not match .github/e2e-docker-compose.yml."
 fi
 
 # `docker inspect` emits a blank line before failing on a missing image, so

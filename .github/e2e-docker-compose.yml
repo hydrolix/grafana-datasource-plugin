@@ -21,9 +21,10 @@ services:
       - GF_DATAPROXY_LOGGING=1
       - GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=hydrolix-hydrolix-datasource
       # Luxon-backed datetime layer (lands in Grafana 13.3, default-off).
-      # Unknown toggles are ignored, so this is a no-op on tagged versions
-      # and only takes effect on the nightly matrix entry — catching strict
-      # Luxon datetime breakage before Grafana flips the default.
+      # Pre-13.3 the toggle has no *behavioural* effect, but Grafana still
+      # echoes it back in /api/frontend/settings — which is why
+      # nightly-e2e.yml varies this axis only on versions that implement it,
+      # and overrides this value per matrix cell.
       #
       # Single dash, not `:-`: substitutes only when *unset*, so nightly-e2e.yml
       # can pass an explicit empty string to turn the toggle off. `:-` would

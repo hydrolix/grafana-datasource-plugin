@@ -6,12 +6,14 @@
  */
 
 const assert = require('assert');
+
+const LABEL_NAME = 'nightly-compat-failure';
 const report = require('./report-nightly-failure.js');
 
 let failures = 0;
 
 function stubs({ jobs = [], openIssues = [], throwOn = {}, createdLabels = [LABEL_NAME] } = {}) {
-  const calls = { created: [], commented: [], labels: [], notices: [], warnings: [], failed: [] };
+  const calls = { created: [], commented: [], labels: [], listed: [], notices: [], warnings: [], failed: [] };
   const maybeThrow = (name) => {
     if (throwOn[name]) {
       const e = new Error(throwOn[name].message || 'boom');
@@ -24,7 +26,7 @@ function stubs({ jobs = [], openIssues = [], throwOn = {}, createdLabels = [LABE
     rest: {
       actions: { listJobsForWorkflowRun: 'listJobsForWorkflowRun' },
       issues: {
-        listForRepo: async () => { maybeThrow('listForRepo'); return { data: openIssues }; },
+        listForRepo: async (a) => { maybeThrow('listForRepo'); calls.listed.push(a); return { data: openIssues }; },
         createComment: async (a) => { maybeThrow('createComment'); calls.commented.push(a); },
         createLabel: async (a) => { maybeThrow('createLabel'); calls.labels.push(a); },
         create: async (a) => {
@@ -47,8 +49,10 @@ function stubs({ jobs = [], openIssues = [], throwOn = {}, createdLabels = [LABE
   return { github, core, context, calls };
 }
 
-const LABEL_NAME = 'nightly-compat-failure';
-const job = (name, conclusion) => ({ name, conclusion });
+const job = (name, conclusion, steps = []) => ({ name, conclusion, steps });
+// A nightly rung whose e2e step failed but was tolerated: the JOB reports
+// success, which is the only shape the real API can now produce.
+const tolerated = (name) => job(name, 'success', [{ name: 'Run E2E tests', conclusion: 'failure' }]);
 const RELEASED = 'Nightly E2E Tests / E2E - Grafana 13.2.1 (luxon=false)';
 const NIGHTLY = 'Nightly E2E Tests / E2E - Grafana nightly (luxon=true)';
 
@@ -70,6 +74,15 @@ async function t(desc, fn) {
     assert.strictEqual(s.calls.created.length, 1);
     assert.match(s.calls.created[0].body, /Blocking failures \(1\)/);
     assert.match(s.calls.created[0].body, /13\.2\.1 \(luxon=false\)/);
+    // The run URL is the most actionable line in the issue.
+    assert.match(s.calls.created[0].body, /actions\/runs\/999/);
+    // The de-dup label must actually be requested, or tomorrow's lookup
+    // misses this issue and files another.
+    assert.ok(s.calls.created[0].labels.includes(LABEL_NAME));
+    // ...and the lookup must be scoped to it, or it comments on an
+    // unrelated open issue every night.
+    assert.strictEqual(s.calls.listed[0].labels, LABEL_NAME);
+    assert.strictEqual(s.calls.listed[0].state, 'open');
   });
 
   await t('comments on an existing open issue instead of filing a duplicate', async () => {
@@ -78,6 +91,9 @@ async function t(desc, fn) {
     assert.strictEqual(n, 9);
     assert.strictEqual(s.calls.created.length, 0);
     assert.strictEqual(s.calls.commented.length, 1);
+    // The comment body is the common case; an empty one would pass a
+    // length-only assertion.
+    assert.match(s.calls.commented[0].body, /13\.2\.1 \(luxon=false\)/);
   });
 
   await t('ignores a pull request carrying the label', async () => {
@@ -90,20 +106,42 @@ async function t(desc, fn) {
     assert.strictEqual(s.calls.commented.length, 0);
   });
 
-  await t('separates advisory nightly rungs from blocking failures', async () => {
-    const s = stubs({ jobs: [job(RELEASED, 'failure'), job(NIGHTLY, 'failure')] });
+  await t('a tolerated e2e step failure is advisory, not blocking', async () => {
+    const s = stubs({ jobs: [job(RELEASED, 'failure'), tolerated(NIGHTLY)] });
     await report(s);
     const body = s.calls.created[0].body;
     assert.match(body, /Blocking failures \(1\)/);
     assert.match(body, /Advisory — unreleased Grafana \(1\)/);
+    assert.match(body, /tolerated Run E2E tests failure/);
   });
 
-  await t('does nothing on a clean run', async () => {
-    const s = stubs({ jobs: [job(RELEASED, 'success')] });
+  await t('a nightly job failing OUTSIDE the tolerated step stays blocking', async () => {
+    // Compose bring-up, the health gate or the toggle check failing on the
+    // nightly rung is infrastructure — excusing it as "unreleased Grafana"
+    // would bury the highest-value signal the canary produces.
+    const s = stubs({ jobs: [job(NIGHTLY, 'failure')] });
+    await report(s);
+    const body = s.calls.created[0].body;
+    assert.match(body, /Blocking failures \(1\)/);
+    assert.doesNotMatch(body, /Advisory/);
+  });
+
+  await t('files an unattributable issue rather than returning silently', async () => {
+    // The caller gates on a failed run, so "nothing found" still means
+    // something broke. Returning null here filed no notification at all.
+    const s = stubs({ jobs: [job(RELEASED, 'success'), job('Package Plugin', 'skipped')] });
     const n = await report(s);
-    assert.strictEqual(n, null);
-    assert.strictEqual(s.calls.created.length, 0);
-    assert.strictEqual(s.calls.commented.length, 0);
+    assert.strictEqual(n, 42);
+    assert.match(s.calls.created[0].body, /No job could be attributed/);
+  });
+
+  await t('an unlisted conclusion is still reported (deny-list, not allow-list)', async () => {
+    const s = stubs({ jobs: [job(RELEASED, 'neutral'), job(NIGHTLY, 'stale')] });
+    await report(s);
+    const body = s.calls.created[0].body;
+    assert.match(body, /neutral/);
+    assert.match(body, /stale/);
+    assert.doesNotMatch(body, /No job could be attributed/);
   });
 
   await t('counts timed_out and cancelled, not just failure', async () => {

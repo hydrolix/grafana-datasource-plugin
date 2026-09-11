@@ -16,7 +16,8 @@ permissions:
 
 jobs:
   script-tests:
-    # Seconds, against ~30 min of wasted runners if a helper is broken.
+    # Gates the e2e matrix (see `needs` below); the build/package jobs run
+    # regardless. Seconds against a matrix that runs up to an hour.
     name: Script Tests
     runs-on: ubuntu-latest
     steps:
@@ -65,8 +66,10 @@ jobs:
 
   report-failure:
     name: Report Failure
-    # Also covers a build that never reached the matrix.
-    if: failure()
+    # Not bare `failure()`: that is false when a dependency is CANCELLED, so a
+    # rung that hangs to its job timeout would go entirely unreported. The
+    # `!cancelled()` guard keeps a human cancelling the whole run quiet.
+    if: ${{ !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
     needs: [script-tests, build-frontend, build-backend, package, nightly-e2e]
     runs-on: ubuntu-latest
     permissions:
