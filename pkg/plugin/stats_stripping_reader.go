@@ -2,7 +2,9 @@ package plugin
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/binary"
+	"fmt"
 	"io"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
@@ -116,6 +118,41 @@ func (s *statsStrippingReader) Read(p []byte) (int, error) {
 
 func (s *statsStrippingReader) Close() error {
 	return s.r.Close()
+}
+
+// newDecompressReader returns an io.ReadCloser that decompresses a
+// gzip-encoded body. If Content-Encoding is not "gzip" the original
+// reader is returned as-is.
+func newDecompressReader(body io.ReadCloser, encoding string) (io.ReadCloser, error) {
+	if encoding != "gzip" {
+		return body, nil
+	}
+
+	gz, err := gzip.NewReader(body)
+	if err != nil {
+		return nil, fmt.Errorf("gzip reader: %w", err)
+	}
+
+	return &decompressReader{
+		gz:   gz,
+		body: body,
+	}, nil
+}
+
+// decompressReader wraps a gzip stream and ensures both the gzip
+// reader and the underlying body are closed properly.
+type decompressReader struct {
+	gz   *gzip.Reader
+	body io.ReadCloser // original body, kept for Close
+}
+
+func (d *decompressReader) Read(p []byte) (int, error) {
+	return d.gz.Read(p)
+}
+
+func (d *decompressReader) Close() error {
+	_ = d.gz.Close()
+	return d.body.Close()
 }
 
 // findStatsIndex returns the index within data where the trailing
