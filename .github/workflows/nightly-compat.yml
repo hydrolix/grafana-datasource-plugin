@@ -1,0 +1,159 @@
+name: Nightly Compatibility
+
+# Scheduled entry point for the two-dimensional compatibility canary
+# (HDX-12393). Builds the plugin exactly the way ci.yml does, then hands the
+# packaged artifact to nightly-e2e.yml, which runs the full Playwright suite
+# against every supported Grafana version with `datetime.useLuxon` both on
+# and off.
+#
+# This workflow is additive: it reuses build-frontend.yml, build-backend.yml
+# and package.yml unchanged, and does not alter ci.yml, e2e.yml or
+# compatibility-check.yml in any way.
+
+on:
+  schedule:
+    # 03:40 UTC daily. Late enough that Grafana's `nightly` image has been
+    # republished (observed ~00:20-01:30 UTC), and off both the top of the
+    # hour and peak Actions load, where scheduled runs queue longest.
+    - cron: '40 3 * * *'
+  # Manual trigger for development and for re-running after a fix. Runs
+  # against the default branch, the same ref the schedule uses.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-frontend:
+    name: Build Frontend
+    uses: ./.github/workflows/build-frontend.yml
+    with:
+      node_version: '24'
+
+  build-backend:
+    name: Build Backend
+    uses: ./.github/workflows/build-backend.yml
+    with:
+      # Keep in step with ci.yml and the `go` directive in go.mod; a lower
+      # value makes the toolchain re-download on every build.
+      go_version: '1.26.8'
+
+  package:
+    name: Package Plugin
+    uses: ./.github/workflows/package.yml
+    needs: [build-frontend, build-backend]
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    with:
+      node_version: '24'
+    secrets:
+      grafana_token: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
+
+  nightly-e2e:
+    name: Nightly E2E Tests
+    uses: ./.github/workflows/nightly-e2e.yml
+    needs: [package]
+
+  report-failure:
+    name: Report Failure
+    # `failure()` covers a broken build as well as a broken matrix
+    # combination -- a nightly that never got as far as running the suite is
+    # itself worth surfacing.
+    if: failure()
+    needs: [build-frontend, build-backend, package, nightly-e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      # Read this run's per-job results so the report can name the exact
+      # failing version + toggle combinations.
+      actions: read
+      issues: write
+    steps:
+      - name: Open or update tracking issue
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const LABEL = 'nightly-compat-failure';
+
+            const jobs = await github.paginate(
+              github.rest.actions.listJobsForWorkflowRun,
+              { owner: context.repo.owner, repo: context.repo.repo,
+                run_id: context.runId, per_page: 100 }
+            );
+            const failed = jobs
+              .filter(j => j.conclusion === 'failure')
+              .map(j => j.name)
+              .sort();
+
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              `Nightly compatibility run failed on \`${context.ref.replace('refs/heads/', '')}\`.`,
+              '',
+              `**Run:** ${runUrl}`,
+              `**Failing jobs (${failed.length}):**`,
+              '',
+              ...failed.map(n => `- \`${n}\``),
+              '',
+              'Each E2E job name carries the Grafana version and the `datetime.useLuxon`',
+              'state. Download the matching `e2e-results-<version>-luxon-<bool>` artifact',
+              'for the Playwright report, Grafana log, and the resolved image digest.',
+            ].join('\n');
+
+            // Reuse one open issue rather than filing a new one every night:
+            // a persistently broken combination should accumulate comments,
+            // not inboxes full of duplicates.
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: LABEL, per_page: 1,
+            });
+
+            if (existing.data.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.data[0].number, body,
+              });
+              core.notice(`Commented on existing issue #${existing.data[0].number}`);
+            } else {
+              // Create the label on first use; harmless if it already exists.
+              await github.rest.issues.createLabel({
+                owner: context.repo.owner, repo: context.repo.repo,
+                name: LABEL, color: 'B60205',
+                description: 'Nightly Grafana version/feature-toggle compatibility failure',
+              }).catch(() => {});
+
+              const created = await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title: `Nightly compatibility failure (${new Date().toISOString().slice(0, 10)})`,
+                labels: [LABEL], body,
+              });
+              core.notice(`Opened issue #${created.data.number}`);
+            }
+
+      # DECISION NEEDED -- Slack notification is intentionally not wired up.
+      #
+      # This repo currently holds only AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+      # and GRAFANA_ACCESS_POLICY_TOKEN, so there is no Slack credential to use
+      # and no established channel for this plugin's CI. Guessing one would
+      # page the wrong people.
+      #
+      # The org pattern to copy once a channel and a bot token are agreed is
+      # hydrolix/turbine's .github/workflows/on_schedule_nightly_ui_smoke.yaml,
+      # which calls .github/scripts/send-slack-job-status.js through
+      # actions/github-script using secrets.SLACK_ALPHA_BOT_TOKEN.
+      # hydrolix/hydrolix-console/.github/workflows/slack-ship-notify.yml is a
+      # second, simpler reference.
+      #
+      # To enable: add a bot token secret, then uncomment and set the channel.
+      # Note the env indirection on the `if:` -- the `secrets` context is not
+      # available in a step-level conditional, so guard on `env` instead.
+      #
+      # - name: Notify Slack
+      #   env:
+      #     SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      #     SLACK_CHANNEL: '#TBD'
+      #   if: env.SLACK_BOT_TOKEN != ''
+      #   uses: actions/github-script@v9
+      #   with:
+      #     script: |
+      #       // see hydrolix/turbine .github/scripts/send-slack-job-status.js

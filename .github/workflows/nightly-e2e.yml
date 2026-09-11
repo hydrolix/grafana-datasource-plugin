@@ -1,0 +1,205 @@
+name: Nightly E2E Tests
+
+# Two-dimensional compatibility canary: every supported Grafana version
+# crossed with the `datetime.useLuxon` feature toggle both ON and OFF.
+#
+# Why this exists (HDX-12393): on 2026-09-09 a managed Grafana Cloud instance
+# was upgraded to an unreleased Grafana 13.3.0 build with `datetime.useLuxon`
+# enabled, breaking every dashboard that used this plugin.
+#
+# How this differs from e2e.yml, which already covers version × nightly:
+#   1. e2e.yml runs only on a pull request. Nothing was scheduled, so a
+#      Grafana-side change could land any night without anyone finding out
+#      until the next PR.
+#   2. e2e.yml pins `GF_FEATURE_TOGGLES_ENABLE=datetime.useLuxon` always-on.
+#      That proves the plugin works *with* Luxon but can no longer prove it
+#      still works *without* it, so a regression in the default (non-Luxon)
+#      path on a released Grafana would slip through. This workflow varies
+#      the toggle instead of fixing it.
+#
+# This file is a deliberate near-duplicate of e2e.yml. Keep the shared steps
+# in sync; the differences are the `luxon` axis, the scheduling entry point
+# (nightly-compat.yml), the toggle assertion, and the digest record.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  nightly-e2e-test:
+    # Both matrix axes appear in the job name so a red square in the Actions
+    # UI identifies the broken combination without having to open it.
+    name: E2E - Grafana ${{ matrix.grafana_version }} (luxon=${{ matrix.luxon }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Each version × toggle pair is an independent compatibility signal;
+      # one failure must not cancel the rest. e2e.yml sets this too.
+      fail-fast: false
+      matrix:
+        grafana_version:
+          - "10.4.19-security-01"
+          - "11.6.16"
+          - "12.4.10"
+          - "13.0.8"
+          - "13.1.5"
+          - "13.2.1"
+          # Grafana's unstable channel, rebuilt daily (~00:20-01:30 UTC).
+          #
+          # `grafana/grafana-dev` is deliberately NOT used: its newest tag is
+          # 13.1.0-25957875840 from 2026-05-16, so it can no longer detect a
+          # break in an unreleased release line -- the exact class of failure
+          # this workflow exists to catch. `grafana-enterprise:nightly`
+          # currently resolves to the 13.3.0 line.
+          #
+          # The tag floats by design; pinning it would defeat the point of a
+          # canary. The "Record Grafana image digest" step captures which
+          # build a given run actually tested, so a red job stays
+          # reproducible after the tag has moved on.
+          - "nightly"
+        luxon: [false, true]
+    # The nightly image tracks Grafana main, so a failure there is an early
+    # warning about an unreleased Grafana, not a plugin regression -- it must
+    # not turn the whole scheduled run red and open an issue every night.
+    # As of 2026-09-11 the nightly rung genuinely fails (14/30 in CI, all
+    # locator timeouts) for reasons unrelated to Luxon; that is tracked
+    # separately. Released versions remain blocking.
+    continue-on-error: ${{ matrix.grafana_version == 'nightly' }}
+    env:
+      # Docker image *tag*, consumed verbatim by the compose file. Note the
+      # deliberate re-blanking of this same name for the test process below.
+      GRAFANA_VERSION: ${{ matrix.grafana_version }}
+      # Consumed by the grafana service in .github/e2e-docker-compose.yml,
+      # whose default is always-on. The empty string is meaningful here: that
+      # compose entry uses `${GF_FEATURE_TOGGLES_ENABLE-...}` (single dash,
+      # substitutes only when *unset*), so an explicit empty value disables
+      # the toggle rather than falling back to the default.
+      GF_FEATURE_TOGGLES_ENABLE: ${{ matrix.luxon && 'datetime.useLuxon' || '' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Without this the job inherits the runner's default Node, which has
+      # drifted to Node 22 / npm 10 -- below the `engines` floor (node >=24)
+      # and unable to `npm ci` a lockfile written by npm 11.
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Download GitHub artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: plugin-package
+
+      - name: Extract and prepare plugin
+        run: |
+          unzip hydrolix-hydrolix-datasource*.zip
+          chmod +x hydrolix-hydrolix-datasource/gpx*
+
+      - name: Install and run Docker Compose
+        uses: hoverkraft-tech/compose-action@ee6af68587292d72db67743171809c19787df4c9
+        with:
+          compose-file: '.github/e2e-docker-compose.yml'
+
+      - name: Record Grafana image digest
+        # `nightly` is a moving tag, so the tag alone does not identify what
+        # was tested. Resolving it to an immutable digest is what keeps a
+        # failure reproducible: re-run against
+        # grafana/grafana-enterprise@<digest> to reproduce byte-for-byte.
+        run: |
+          IMAGE="grafana/grafana-enterprise:${GRAFANA_VERSION}"
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE" 2>/dev/null || echo "unresolved")
+          {
+            echo "grafana_image=$IMAGE"
+            echo "grafana_digest=$DIGEST"
+            echo "feature_toggles=${GF_FEATURE_TOGGLES_ENABLE:-(none)}"
+          } | tee grafana-image.txt
+          {
+            echo "### Grafana ${GRAFANA_VERSION} (luxon=${{ matrix.luxon }})"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Image | \`$IMAGE\` |"
+            echo "| Digest | \`$DIGEST\` |"
+            echo "| Feature toggles | \`${GF_FEATURE_TOGGLES_ENABLE:-(none)}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install Playwright
+        run: |
+          npm ci --prefer-offline --no-audit --fund=false
+          npx playwright install
+
+      - name: Wait for Grafana
+        run: |
+          timeout 60s bash -c 'until curl -s http://localhost:3000/api/health; do sleep 2; done'
+
+      - name: Verify feature toggle state
+        # Without this the toggle axis is unfalsifiable: if the env var never
+        # reached Grafana, the luxon=true jobs would silently re-run the
+        # luxon=false configuration and the matrix would look green while
+        # testing half of what it claims to. An unset toggle is *absent* from
+        # the response rather than `false`, hence the `// false` default.
+        env:
+          EXPECT_LUXON: ${{ matrix.luxon }}
+        run: |
+          SETTINGS=$(curl -sf -u admin:admin http://localhost:3000/api/frontend/settings)
+          ACTUAL=$(echo "$SETTINGS" | jq -r '.featureToggles["datetime.useLuxon"] // false')
+          echo "datetime.useLuxon: expected=$EXPECT_LUXON actual=$ACTUAL"
+          if [ "$ACTUAL" != "$EXPECT_LUXON" ]; then
+            echo "::error::datetime.useLuxon is '$ACTUAL' but the matrix asked for '$EXPECT_LUXON'."
+            echo "GF_FEATURE_TOGGLES_ENABLE did not reach the Grafana container as expected."
+            echo "Enabled toggles reported by Grafana:"
+            echo "$SETTINGS" | jq -r '.featureToggles | to_entries[] | select(.value == true) | .key' | sort
+            exit 1
+          fi
+
+      - name: Run E2E tests
+        run: npx playwright test --reporter=junit
+        env:
+          # The job-level GRAFANA_VERSION is a docker image *tag*, and compose
+          # needs it verbatim. plugin-e2e reads the same variable as a semver
+          # (`process.env.GRAFANA_VERSION || bootData.version`) and branches on
+          # it inside its page models. Its comparator parses with parseInt, so
+          # a non-semver tag like "nightly" yields NaN and every gte/lt returns
+          # false -- each of those ~45 branches silently takes its oldest path.
+          # Blanking the variable here makes plugin-e2e read the running
+          # Grafana's real version from bootData. Correct for every matrix
+          # entry, not just nightly. (Kept identical to e2e.yml.)
+          GRAFANA_VERSION: ""
+          E2E_GRAFANA_URL: http://localhost:3000
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: junit_report.xml
+          # Playwright runs on the runner host here, not inside the compose
+          # network, so the `clickhouse-server` service name doesn't resolve
+          # for tests that talk to ClickHouse directly (system.query_log
+          # lookups). Only the published port is reachable. This is separate
+          # from CLICKHOUSE_HOSTNAME, which is the address Grafana uses from
+          # inside its container and must stay the service name.
+          E2E_CLICKHOUSE_HTTP_HOST: localhost
+
+      - name: Collect Grafana logs
+        if: failure()
+        # A plugin-load failure -- the incident's signature -- shows up in
+        # Grafana's own log, not in the Playwright report.
+        run: docker logs grafana > grafana.log 2>&1 || true
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          # Both axes in the artifact name, matching the job name, so a
+          # downloaded bundle is attributable without cross-referencing.
+          name: e2e-results-${{ matrix.grafana_version }}-luxon-${{ matrix.luxon }}
+          path: |
+            test-results/**/*.png
+            test-results/**/*.zip
+            junit_report.xml
+            grafana-image.txt
+            grafana.log
+          retention-days: 7
+          if-no-files-found: ignore

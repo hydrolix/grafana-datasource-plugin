@@ -242,7 +242,55 @@ docker compose up -d --no-deps grafana    # --no-deps skips keycloak (already up
 until curl -sf http://localhost:3000/api/health >/dev/null; do sleep 2; done
 ```
 
-Verified supported: 10.4.16, 11.5.4, 12.0.2, 12.3.1, 13.0.1. CI matrix uses 10.4.18, 11.6.1, 12.0.2, 13.0.1 (latest patch within each minor).
+Verified supported: 10.4.16, 11.5.4, 12.0.2, 12.3.1, 13.0.1. The CI matrix uses
+the latest patch within each minor — 10.4.19-security-01, 11.6.16, 12.4.10,
+13.0.8, 13.1.5, 13.2.1 — plus `nightly`.
+
+`GRAFANA_VERSION` / `GRAFANA_IMAGE` are read by the scaffold-owned base file,
+but the root `docker-compose.yaml` pins `grafana_version` in its own
+`build.args`, which wins over the base. So **setting `GRAFANA_VERSION=` in the
+shell does nothing here** — edit the active line above instead.
+
+## Enabling Grafana feature toggles
+
+`GF_FEATURE_TOGGLES_ENABLE` passes through from the host shell to the grafana
+service (declared in the repo-root `docker-compose.yaml`, not the scaffold-owned
+base). It takes a comma-separated list of toggle names:
+
+```sh
+GF_FEATURE_TOGGLES_ENABLE=datetime.useLuxon npm run server
+GF_FEATURE_TOGGLES_ENABLE=datetime.useLuxon,dashboardNewLayouts npm run server
+```
+
+Unlike the version, this is a **runtime** env var — no `docker compose build`
+needed, just recreate the container:
+
+```sh
+GF_FEATURE_TOGGLES_ENABLE=datetime.useLuxon \
+  docker compose up -d --no-deps --force-recreate grafana
+```
+
+Confirm it actually landed — an unset toggle is silently **absent** from the
+response, not `false`:
+
+```sh
+curl -s http://localhost:3000/api/frontend/settings \
+  | jq '.featureToggles["datetime.useLuxon"] // false'
+```
+
+The dev stack defaults to **empty** (stock Grafana behaviour, opt in when you
+want a toggle). Note this differs from `.github/e2e-docker-compose.yml`, which
+defaults `datetime.useLuxon` **on** — see the CI workflow notes in
+`.claude/CLAUDE.md`.
+
+**Why this matters.** `datetime.useLuxon` is the experimental toggle behind the
+2026-09-09 incident (HDX-12393): a managed Cloud instance running an unreleased
+Grafana 13.3.0 with the toggle on broke every dashboard using this plugin.
+`.github/workflows/nightly-e2e.yml` runs the suite against every supported
+version with the toggle both on and off; use the commands above to reproduce a
+red nightly job locally. To match the nightly rung, point the stack at
+`grafana/grafana-enterprise:nightly` (currently the 13.3.0 line) — note
+`grafana/grafana-dev` is stale, its newest tag being 13.1.0 from 2026-05-16.
 
 ## Inspecting / debugging the stack
 
