@@ -25,6 +25,16 @@ services:
       # and only takes effect on the nightly matrix entry — catching strict
       # Luxon datetime breakage before Grafana flips the default.
       - GF_FEATURE_TOGGLES_ENABLE=datetime.useLuxon
+      # plugin-e2e logs in once and freezes the grafana_session cookie into
+      # playwright/.auth/admin.json; every test and both workers replay that
+      # one snapshot and never follow a Set-Cookie rotation. Grafana keeps a
+      # single "previous token" slot, so two rotations evict the frozen token
+      # and every later request 401s with "user token not found" — the whole
+      # suite then sits on the login page. Verified locally against 13.3:
+      # at a 1-minute interval the frozen cookie dies after ~130s (two
+      # cycles); at 60 minutes it survives. 60 comfortably outlasts a run
+      # (~5 min healthy) without disabling rotation outright.
+      - GF_AUTH_TOKEN_ROTATION_INTERVAL_MINUTES=60
     networks:
       - grafana
 
