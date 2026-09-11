@@ -1,13 +1,11 @@
 name: Nightly Compatibility
 
 # Scheduled entry point for the compatibility canary (HDX-12393). Builds the
-# plugin the way ci.yml does, then runs nightly-e2e.yml. Additive: the reused
-# workflows and ci.yml/e2e.yml are unchanged.
+# plugin the way ci.yml does, then runs nightly-e2e.yml.
 
 on:
   schedule:
-    # After Grafana republishes the nightly image (~00:20-01:30 UTC), off the
-    # top of the hour where scheduled runs queue longest.
+    # After Grafana republishes the nightly image (~00:20-01:30 UTC).
     - cron: '40 3 * * *'
   workflow_dispatch:
 
@@ -16,8 +14,7 @@ permissions:
 
 jobs:
   script-tests:
-    # Gates the e2e matrix (see `needs` below); the build/package jobs run
-    # regardless. Seconds against a matrix that runs up to an hour.
+    # Gates the e2e matrix (see `needs` below) — seconds against an hour.
     name: Script Tests
     runs-on: ubuntu-latest
     steps:
@@ -40,7 +37,7 @@ jobs:
     name: Build Backend
     uses: ./.github/workflows/build-backend.yml
     with:
-      # Keep in step with ci.yml and go.mod, or the toolchain re-downloads.
+      # Match ci.yml and go.mod, or the toolchain re-downloads.
       go_version: '1.26.8'
 
   package:
@@ -63,15 +60,15 @@ jobs:
 
   report-failure:
     name: Report Failure
-    # Not bare `failure()`: that is false when a dependency is CANCELLED, so a
-    # rung that hangs to its job timeout would go entirely unreported. The
-    # `!cancelled()` guard keeps a human cancelling the whole run quiet.
+    # Not bare `failure()`: it is false when a dependency is CANCELLED, so a
+    # rung hanging to its timeout would go unreported. `!cancelled()` keeps a
+    # human cancelling the run quiet.
     if: ${{ !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
     needs: [script-tests, build-frontend, build-backend, package, nightly-e2e]
     runs-on: ubuntu-latest
     permissions:
       # A job-level block replaces the workflow default, so contents: read
-      # must be listed for the checkout below.
+      # is required by the checkout below.
       contents: read
       actions: read
       issues: write
@@ -88,11 +85,10 @@ jobs:
             const report = require('./.github/scripts/report-nightly-failure.js');
             await report({ github, context, core });
 
-      # DECISION NEEDED — Slack is not wired up: this repo has no Slack
-      # credential and no agreed channel for the plugin's CI. To enable, add a
-      # bot token and copy hydrolix/turbine's send-slack-job-status.js. Guard
-      # on `env`, not `secrets` — the secrets context is unavailable in a
-      # step-level `if:`.
+      # DECISION NEEDED — no Slack credential or agreed channel for this
+      # repo's CI. To enable: add a bot token and copy hydrolix/turbine's
+      # send-slack-job-status.js. Guard on `env`, not `secrets` — the secrets
+      # context is unavailable in a step-level `if:`.
       #
       # - name: Notify Slack
       #   env:

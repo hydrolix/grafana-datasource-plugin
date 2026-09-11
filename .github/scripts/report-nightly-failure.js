@@ -1,26 +1,20 @@
 /**
- * Report a failed nightly compatibility run as a GitHub issue.
+ * Report a failed nightly compatibility run as a GitHub issue, reusing one
+ * open labelled issue so a persistent break accumulates comments instead of
+ * duplicates. Called from nightly-compat.yml via actions/github-script.
  *
- *   const report = require('./.github/scripts/report-nightly-failure.js');
- *   await report({ github, context, core });
- *
- * Reuses one open labelled issue so a persistently broken combination
- * accumulates comments rather than duplicate issues.
- *
- * This runs only when the nightly is already broken, so enrichment (naming
- * the failing cells) must never take down the notification.
+ * Runs only when the nightly is already broken, so enrichment (naming the
+ * failing cells) must never take down the notification.
  */
 
 const LABEL = 'nightly-compat-failure';
 
-// A deny-list, not an allow-list: an unlisted conclusion (neutral, stale, or
-// whatever GitHub adds next) must not silently drop a job from the report.
-// `null` means still running, which this job itself is.
+// A deny-list: an unlisted conclusion must not silently drop a job from the
+// report. `null` means still running, which this job itself is.
 const OK_CONCLUSIONS = ['success', 'skipped', null];
 
 // The only step tolerated by continue-on-error (nightly-e2e.yml). A job that
-// succeeded *because* this step was tolerated is advisory; a nightly job that
-// failed anywhere else is infrastructure and stays blocking.
+// succeeded *because* of it is advisory; failing anywhere else is blocking.
 const TOLERATED_STEP = 'Run E2E tests';
 
 module.exports = async ({ github, context, core }) => {
@@ -39,10 +33,9 @@ module.exports = async ({ github, context, core }) => {
     );
 
     // Tolerance is step-level, so a tolerated e2e failure leaves the JOB
-    // reporting success — it never appears in a conclusion-based filter.
-    // Classify by step outcome instead: that is what makes the advisory
-    // bucket reachable, and what stops an infrastructure failure on the
-    // nightly rung being excused as "unreleased Grafana".
+    // reporting success and never appears in a conclusion-based filter.
+    // Classifying by step outcome is what keeps the advisory bucket
+    // reachable without excusing infrastructure failures.
     blocking = jobs
       .filter((j) => !OK_CONCLUSIONS.includes(j.conclusion))
       .map((j) => `${j.name} (${j.conclusion})`)
@@ -59,10 +52,9 @@ module.exports = async ({ github, context, core }) => {
     core.warning(`Could not list jobs for run ${context.runId}: ${err.message}`);
   }
 
-  // Deliberately no early return for "nothing found": the caller gates this
-  // job on a failed or cancelled run, so being invoked means something went
-  // wrong. Returning silently here is how a skipped-`needs` cascade or an
-  // unclassifiable conclusion produced no notification at all.
+  // No early return for "nothing found": the caller only invokes this on a
+  // failed or cancelled run, so returning silently is how a skipped-`needs`
+  // cascade produced no notification at all.
 
   // --- body ----------------------------------------------------------------
   const lines = [
@@ -157,8 +149,7 @@ module.exports = async ({ github, context, core }) => {
     });
 
     // ...GitHub silently drops `labels` for a token without push access, and
-    // an unlabelled issue is invisible to tomorrow's lookup — so the script
-    // would file a fresh issue every night.
+    // an unlabelled issue is invisible to tomorrow's lookup.
     const got = (created.data.labels || []).map((l) => (typeof l === 'string' ? l : l.name));
     if (!got.includes(LABEL)) {
       core.warning(
