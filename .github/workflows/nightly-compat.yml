@@ -29,6 +29,9 @@ jobs:
       - name: Run verify-feature-toggle tests
         run: ./.github/scripts/verify-feature-toggle.test.sh
 
+      - name: Run record-grafana-image tests
+        run: ./.github/scripts/record-grafana-image.test.sh
+
       # Plain node — jest.config.js is scoped to src/.
       - name: Run report-nightly-failure tests
         run: node .github/scripts/report-nightly-failure.test.js
