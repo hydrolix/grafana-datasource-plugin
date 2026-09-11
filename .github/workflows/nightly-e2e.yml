@@ -8,10 +8,11 @@ name: Nightly E2E Tests
 # enabled, breaking every dashboard that used this plugin.
 #
 # How this differs from e2e.yml, which already covers version × nightly:
-#   1. e2e.yml runs only on a pull request. Nothing was scheduled, so a
-#      Grafana-side change could land any night without anyone finding out
-#      until the next PR.
-#   2. e2e.yml pins `GF_FEATURE_TOGGLES_ENABLE=datetime.useLuxon` always-on.
+#   1. e2e.yml runs only on a pull request or a release (ci.yml, release.yml).
+#      Nothing was scheduled, so a Grafana-side change could land any night
+#      without anyone finding out until the next PR.
+#   2. The e2e path pins `GF_FEATURE_TOGGLES_ENABLE=datetime.useLuxon`
+#      always-on (in .github/e2e-docker-compose.yml, which e2e.yml invokes).
 #      That proves the plugin works *with* Luxon but can no longer prove it
 #      still works *without* it, so a regression in the default (non-Luxon)
 #      path on a released Grafana would slip through. This workflow varies
@@ -59,13 +60,9 @@ jobs:
           # reproducible after the tag has moved on.
           - "nightly"
         luxon: [false, true]
-    # The nightly image tracks Grafana main, so a failure there is an early
-    # warning about an unreleased Grafana, not a plugin regression -- it must
-    # not turn the whole scheduled run red and open an issue every night.
-    # As of 2026-09-11 the nightly rung genuinely fails (14/30 in CI, all
-    # locator timeouts) for reasons unrelated to Luxon; that is tracked
-    # separately. Released versions remain blocking.
-    continue-on-error: ${{ matrix.grafana_version == 'nightly' }}
+    # A hung Playwright run would otherwise sit on the 360-minute default and
+    # end up `cancelled`, which evades the `if: failure()` reporting path.
+    timeout-minutes: 45
     env:
       # Docker image *tag*, consumed verbatim by the compose file. Note the
       # deliberate re-blanking of this same name for the test process below.
@@ -75,6 +72,9 @@ jobs:
       # compose entry uses `${GF_FEATURE_TOGGLES_ENABLE-...}` (single dash,
       # substitutes only when *unset*), so an explicit empty value disables
       # the toggle rather than falling back to the default.
+      # The scheme also depends on Actions materialising this as *set-but-empty*
+      # rather than unset when luxon=false -- that is what makes the compose
+      # side's single-dash default fall through to "" instead of the default.
       GF_FEATURE_TOGGLES_ENABLE: ${{ matrix.luxon && 'datetime.useLuxon' || '' }}
     steps:
       - name: Checkout code
@@ -120,8 +120,16 @@ jobs:
           npx playwright install
 
       - name: Wait for Grafana
+        # `curl -s` without `-f` exits 0 on ANY response, including the 503
+        # Grafana returns while still starting -- so the gate would clear the
+        # moment the port accepts a connection. The next step then fails with
+        # an opaque curl error and looks like a compatibility problem.
         run: |
-          timeout 60s bash -c 'until curl -s http://localhost:3000/api/health; do sleep 2; done'
+          timeout 120s bash -c 'until curl -sf http://localhost:3000/api/health >/dev/null; do sleep 2; done' || {
+            echo "::error::Grafana ${GRAFANA_VERSION} never became healthy within 120s."
+            docker logs grafana 2>&1 | tail -100
+            exit 1
+          }
 
       - name: Verify feature toggle state
         # Guards the toggle axis against silently collapsing -- see
@@ -131,6 +139,18 @@ jobs:
         run: ./.github/scripts/verify-feature-toggle.sh
 
       - name: Run E2E tests
+        id: e2e
+        # Tolerance sits on the STEP, not the job. Job-level continue-on-error
+        # would make the job report success, skip `report-failure` entirely,
+        # and leave the one cell that reproduces the 2026-09-09 incident
+        # (nightly x luxon=true) green and silent -- a canary that cannot
+        # report is worse than none, because people trust it.
+        #
+        # The nightly rung tracks Grafana main and is red today for unrelated
+        # locator timeouts (14 of 59 tests in CI), so it must not turn the
+        # scheduled run red and file an issue every night. Step-level keeps
+        # the run green while the step below makes the outcome visible.
+        continue-on-error: ${{ matrix.grafana_version == 'nightly' }}
         run: npx playwright test --reporter=junit
         env:
           # The job-level GRAFANA_VERSION is a docker image *tag*, and compose
@@ -141,7 +161,8 @@ jobs:
           # false -- each of those ~45 branches silently takes its oldest path.
           # Blanking the variable here makes plugin-e2e read the running
           # Grafana's real version from bootData. Correct for every matrix
-          # entry, not just nightly. (Kept identical to e2e.yml.)
+          # entry, not just nightly. (Condensed from e2e.yml; see there for the
+          # addPanel / resolveSelectors detail.)
           GRAFANA_VERSION: ""
           E2E_GRAFANA_URL: http://localhost:3000
           PLAYWRIGHT_JUNIT_OUTPUT_FILE: junit_report.xml
@@ -153,11 +174,28 @@ jobs:
           # inside its container and must stay the service name.
           E2E_CLICKHOUSE_HTTP_HOST: localhost
 
+      - name: Flag tolerated nightly failure
+        if: steps.e2e.outcome == 'failure'
+        # Only reachable on the nightly rung (every other rung fails the job
+        # outright). Emits a run-page annotation and a summary line so a
+        # tolerated failure leaves a durable, greppable record instead of a
+        # green square.
+        run: |
+          MSG="Grafana ${GRAFANA_VERSION} luxon=${{ matrix.luxon }} failed (advisory, non-blocking)"
+          echo "::warning title=Nightly rung failed::${MSG} -- see artifact e2e-results-${GRAFANA_VERSION}-luxon-${{ matrix.luxon }}"
+          echo "**ADVISORY FAILURE** — ${MSG}" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Collect Grafana logs
-        if: failure()
-        # A plugin-load failure -- the incident's signature -- shows up in
-        # Grafana's own log, not in the Playwright report.
-        run: docker logs grafana > grafana.log 2>&1 || true
+        # `!cancelled()` rather than `failure()`: a tolerated nightly failure
+        # leaves the job green, and a cancelled job (timeout) is exactly when
+        # the log matters most. A plugin-load failure -- the incident's
+        # signature -- shows up in Grafana's own log, not the Playwright report.
+        if: ${{ !cancelled() && steps.e2e.outcome != 'success' }}
+        run: |
+          if ! docker logs grafana > grafana.log 2>&1; then
+            echo "::warning title=Grafana logs unavailable::docker logs grafana failed; grafana.log holds the docker error, not Grafana output."
+            docker ps -a --format '{{.Names}}\t{{.Status}}\t{{.Image}}'
+          fi
 
       - name: Upload test results
         uses: actions/upload-artifact@v7
@@ -173,4 +211,3 @@ jobs:
             grafana-image.txt
             grafana.log
           retention-days: 7
-          if-no-files-found: ignore

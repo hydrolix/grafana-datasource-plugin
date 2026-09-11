@@ -13,50 +13,92 @@ trap 'rm -rf "$FIXTURE_DIR"' EXIT
 FAILURES=0
 
 # The two shapes Grafana actually returns: an enabled toggle is present and
-# true; a disabled one is absent entirely, never present-and-false.
+# true; a disabled one is absent entirely, never present-and-false. (Verified
+# against 13.3.0 — zero of ~68 reported toggles carry the value false.)
 cat > "$FIXTURE_DIR/on.json" <<'JSON'
 {"featureToggles": {"datetime.useLuxon": true, "someOther": true}}
 JSON
 cat > "$FIXTURE_DIR/off.json" <<'JSON'
-{"featureToggles": {"someOther": true}}
+{"featureToggles": {"someOther": true, "third": true}}
 JSON
 # Defensive: some builds may report it explicitly false.
 cat > "$FIXTURE_DIR/explicit-false.json" <<'JSON'
-{"featureToggles": {"datetime.useLuxon": false}}
+{"featureToggles": {"datetime.useLuxon": false, "someOther": true}}
 JSON
+# Degenerate shapes. Each of these once read as "toggle is off" and passed
+# every luxon=false job vacuously — the failure this script exists to prevent.
+echo '{}'                                  > "$FIXTURE_DIR/no-toggles.json"
+echo '{"featureToggles": {}}'              > "$FIXTURE_DIR/empty-toggles.json"
+echo '{"message": "Unauthorized"}'         > "$FIXTURE_DIR/error-body.json"
+echo '{"featureToggles": "not-an-object"}' > "$FIXTURE_DIR/wrong-type.json"
+echo 'not json at all'                     > "$FIXTURE_DIR/malformed.json"
 
+# expect_exit <desc> <want-exit> <fixture> <EXPECT> [TOGGLE] [substring...]
+# Trailing substrings are asserted against combined output, matching the
+# shape of run_case in set-version.test.sh.
 expect_exit() {
-  local desc=$1 want=$2 settings=$3 expect=$4
-  EXPECT="$expect" GRAFANA_SETTINGS_FILE="$FIXTURE_DIR/$settings" \
-    "$VERIFY" >/dev/null 2>&1
-  local got=$?
-  if [[ "$got" -eq "$want" ]]; then
-    echo "ok   - $desc"
-  else
+  local desc=$1 want=$2 settings=$3 expect=$4 toggle=${5:-datetime.useLuxon}
+  shift 5 2>/dev/null || shift 4
+  local out got
+  out=$(EXPECT="$expect" TOGGLE="$toggle" GRAFANA_SETTINGS_FILE="$FIXTURE_DIR/$settings" \
+    "$VERIFY" 2>&1)
+  got=$?
+
+  if [[ "$got" -ne "$want" ]]; then
     echo "FAIL - $desc (wanted exit $want, got $got)"
     FAILURES=$((FAILURES + 1))
+    return
   fi
+  local needle
+  for needle in "$@"; do
+    if ! grep -qF -- "$needle" <<<"$out"; then
+      echo "FAIL - $desc (output missing \"$needle\")"
+      FAILURES=$((FAILURES + 1))
+      return
+    fi
+  done
+  echo "ok   - $desc"
 }
 
-expect_exit "toggle on, expected on"                0 on.json             true
-expect_exit "toggle absent, expected off"           0 off.json            false
-expect_exit "explicit false, expected off"          0 explicit-false.json false
-expect_exit "toggle on but expected off"            1 on.json             false
-expect_exit "toggle absent but expected on"         1 off.json            true
-expect_exit "explicit false but expected on"        1 explicit-false.json true
+# --- matching / mismatching -------------------------------------------------
+expect_exit "toggle on, expected on"           0 on.json             true
+expect_exit "toggle absent, expected off"      0 off.json            false
+expect_exit "explicit false, expected off"     0 explicit-false.json false
+expect_exit "toggle on but expected off"       1 on.json             false
+expect_exit "toggle absent but expected on"    1 off.json            true
+expect_exit "explicit false but expected on"   1 explicit-false.json true
 
-# A malformed EXPECT must be a usage error (2), distinct from a genuine
-# mismatch (1) -- otherwise a typo in the matrix would read as a real failure.
-expect_exit "invalid EXPECT value"                  2 on.json             yes
+# --- usage errors must be exit 2, never 1 -----------------------------------
+# A workflow typo must stay distinguishable from a real compatibility finding.
+expect_exit "invalid EXPECT value"             2 on.json             yes
+expect_exit "empty EXPECT is a usage error"    2 on.json             ""
 
-# The failure path must name the enabled toggles, so a red job says what the
-# container actually had rather than only what it lacked.
-OUT=$(EXPECT=false GRAFANA_SETTINGS_FILE="$FIXTURE_DIR/on.json" "$VERIFY" 2>&1)
-if echo "$OUT" | grep -q "someOther"; then
-  echo "ok   - mismatch output lists enabled toggles"
-else
-  echo "FAIL - mismatch output should list enabled toggles"
+# --- degenerate responses must never certify "off" --------------------------
+# Each of these would otherwise pass vacuously for the luxon=false half.
+expect_exit "missing featureToggles is not 'off'" 1 no-toggles.json    false
+expect_exit "empty featureToggles is not 'off'"   1 empty-toggles.json false
+expect_exit "error body is not 'off'"             1 error-body.json    false
+expect_exit "non-object featureToggles is not 'off'" 1 wrong-type.json false
+expect_exit "malformed JSON is not 'off'"         1 malformed.json     false
+# ...and must not certify "on" either.
+expect_exit "missing featureToggles is not 'on'"  1 no-toggles.json    true
+
+# --- TOGGLE is honoured, not hardcoded --------------------------------------
+expect_exit "honours a non-default TOGGLE (on)"  0 on.json  true  someOther
+expect_exit "honours a non-default TOGGLE (off)" 1 off.json false someOther
+
+# --- diagnostics on the failure path ----------------------------------------
+expect_exit "mismatch lists enabled toggles" 1 on.json false datetime.useLuxon "someOther"
+expect_exit "mismatch emits a GitHub error annotation" 1 on.json false datetime.useLuxon "::error::"
+# Only *enabled* toggles belong in the diagnostic; listing disabled ones as if
+# enabled would send a debugger the wrong way.
+expect_exit "diagnostic excludes disabled toggles" 1 explicit-false.json true datetime.useLuxon "someOther"
+OUT=$(EXPECT=true GRAFANA_SETTINGS_FILE="$FIXTURE_DIR/explicit-false.json" "$VERIFY" 2>&1)
+if grep -q "^datetime.useLuxon$" <<<"$OUT"; then
+  echo "FAIL - diagnostic listed a disabled toggle as enabled"
   FAILURES=$((FAILURES + 1))
+else
+  echo "ok   - diagnostic omits the disabled toggle"
 fi
 
 if [[ "$FAILURES" -gt 0 ]]; then

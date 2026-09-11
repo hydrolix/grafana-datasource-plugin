@@ -16,8 +16,8 @@ on:
     # republished (observed ~00:20-01:30 UTC), and off both the top of the
     # hour and peak Actions load, where scheduled runs queue longest.
     - cron: '40 3 * * *'
-  # Manual trigger for development and for re-running after a fix. Runs
-  # against the default branch, the same ref the schedule uses.
+  # Manual trigger for development and for re-running after a fix. Defaults
+  # to the default branch, the ref the schedule uses, but accepts any branch.
   workflow_dispatch:
 
 permissions:
@@ -25,8 +25,8 @@ permissions:
 
 jobs:
   script-tests:
-    # Gates the 14-job matrix on its own helper scripts being sane -- a few
-    # seconds against ~30 minutes of wasted runners. ci.yml has an equivalent
+    # Gates the version × toggle matrix on its own helper scripts being sane
+    # -- a few seconds against ~30 min of wasted runners. ci.yml has an equivalent
     # "Script Tests" job for set-version.sh; these scripts are consumed only
     # by nightly-e2e.yml, so they are exercised here instead.
     name: Script Tests
@@ -39,6 +39,12 @@ jobs:
 
       - name: Run verify-feature-toggle tests
         run: ./.github/scripts/verify-feature-toggle.test.sh
+
+      # report-nightly-failure.js runs only when the nightly is already
+      # broken, so an untested defect there surfaces at exactly the moment
+      # the alerting is needed. Plain node -- jest.config.js is scoped to src/.
+      - name: Run report-nightly-failure tests
+        run: node .github/scripts/report-nightly-failure.test.js
 
   build-frontend:
     name: Build Frontend
@@ -81,6 +87,11 @@ jobs:
     needs: [script-tests, build-frontend, build-backend, package, nightly-e2e]
     runs-on: ubuntu-latest
     permissions:
+      # A job-level block REPLACES the workflow default, so every scope this
+      # job needs must be listed. `contents: read` is required by the
+      # checkout below; without it the clone breaks the moment the repo goes
+      # private -- in the one job whose purpose is to report the breakage.
+      contents: read
       # Read this run's per-job results so the report can name the exact
       # failing version + toggle combinations.
       actions: read
