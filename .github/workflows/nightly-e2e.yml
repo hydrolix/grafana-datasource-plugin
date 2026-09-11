@@ -108,27 +108,11 @@ jobs:
           compose-file: '.github/e2e-docker-compose.yml'
 
       - name: Record Grafana image digest
-        # `nightly` is a moving tag, so the tag alone does not identify what
-        # was tested. Resolving it to an immutable digest is what keeps a
-        # failure reproducible: re-run against
-        # grafana/grafana-enterprise@<digest> to reproduce byte-for-byte.
-        run: |
-          IMAGE="grafana/grafana-enterprise:${GRAFANA_VERSION}"
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE" 2>/dev/null || echo "unresolved")
-          {
-            echo "grafana_image=$IMAGE"
-            echo "grafana_digest=$DIGEST"
-            echo "feature_toggles=${GF_FEATURE_TOGGLES_ENABLE:-(none)}"
-          } | tee grafana-image.txt
-          {
-            echo "### Grafana ${GRAFANA_VERSION} (luxon=${{ matrix.luxon }})"
-            echo ""
-            echo "| Field | Value |"
-            echo "| --- | --- |"
-            echo "| Image | \`$IMAGE\` |"
-            echo "| Digest | \`$DIGEST\` |"
-            echo "| Feature toggles | \`${GF_FEATURE_TOGGLES_ENABLE:-(none)}\` |"
-          } >> "$GITHUB_STEP_SUMMARY"
+        # See .github/scripts/record-grafana-image.sh for why a floating tag
+        # still needs to be pinned after the fact.
+        env:
+          LUXON: ${{ matrix.luxon }}
+        run: ./.github/scripts/record-grafana-image.sh
 
       - name: Install Playwright
         run: |
@@ -140,24 +124,11 @@ jobs:
           timeout 60s bash -c 'until curl -s http://localhost:3000/api/health; do sleep 2; done'
 
       - name: Verify feature toggle state
-        # Without this the toggle axis is unfalsifiable: if the env var never
-        # reached Grafana, the luxon=true jobs would silently re-run the
-        # luxon=false configuration and the matrix would look green while
-        # testing half of what it claims to. An unset toggle is *absent* from
-        # the response rather than `false`, hence the `// false` default.
+        # Guards the toggle axis against silently collapsing -- see
+        # .github/scripts/verify-feature-toggle.sh (and its .test.sh).
         env:
-          EXPECT_LUXON: ${{ matrix.luxon }}
-        run: |
-          SETTINGS=$(curl -sf -u admin:admin http://localhost:3000/api/frontend/settings)
-          ACTUAL=$(echo "$SETTINGS" | jq -r '.featureToggles["datetime.useLuxon"] // false')
-          echo "datetime.useLuxon: expected=$EXPECT_LUXON actual=$ACTUAL"
-          if [ "$ACTUAL" != "$EXPECT_LUXON" ]; then
-            echo "::error::datetime.useLuxon is '$ACTUAL' but the matrix asked for '$EXPECT_LUXON'."
-            echo "GF_FEATURE_TOGGLES_ENABLE did not reach the Grafana container as expected."
-            echo "Enabled toggles reported by Grafana:"
-            echo "$SETTINGS" | jq -r '.featureToggles | to_entries[] | select(.value == true) | .key' | sort
-            exit 1
-          fi
+          EXPECT: ${{ matrix.luxon }}
+        run: ./.github/scripts/verify-feature-toggle.sh
 
       - name: Run E2E tests
         run: npx playwright test --reporter=junit

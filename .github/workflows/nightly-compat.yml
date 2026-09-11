@@ -24,6 +24,22 @@ permissions:
   contents: read
 
 jobs:
+  script-tests:
+    # Gates the 14-job matrix on its own helper scripts being sane -- a few
+    # seconds against ~30 minutes of wasted runners. ci.yml has an equivalent
+    # "Script Tests" job for set-version.sh; these scripts are consumed only
+    # by nightly-e2e.yml, so they are exercised here instead.
+    name: Script Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Run verify-feature-toggle tests
+        run: ./.github/scripts/verify-feature-toggle.test.sh
+
   build-frontend:
     name: Build Frontend
     uses: ./.github/workflows/build-frontend.yml
@@ -54,7 +70,7 @@ jobs:
   nightly-e2e:
     name: Nightly E2E Tests
     uses: ./.github/workflows/nightly-e2e.yml
-    needs: [package]
+    needs: [package, script-tests]
 
   report-failure:
     name: Report Failure
@@ -62,7 +78,7 @@ jobs:
     # combination -- a nightly that never got as far as running the suite is
     # itself worth surfacing.
     if: failure()
-    needs: [build-frontend, build-backend, package, nightly-e2e]
+    needs: [script-tests, build-frontend, build-backend, package, nightly-e2e]
     runs-on: ubuntu-latest
     permissions:
       # Read this run's per-job results so the report can name the exact
@@ -70,65 +86,19 @@ jobs:
       actions: read
       issues: write
     steps:
+      # Required: the script step below `require`s a file from the repo, so
+      # the working directory must actually contain it.
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
       - name: Open or update tracking issue
         uses: actions/github-script@v9
         with:
           script: |
-            const LABEL = 'nightly-compat-failure';
-
-            const jobs = await github.paginate(
-              github.rest.actions.listJobsForWorkflowRun,
-              { owner: context.repo.owner, repo: context.repo.repo,
-                run_id: context.runId, per_page: 100 }
-            );
-            const failed = jobs
-              .filter(j => j.conclusion === 'failure')
-              .map(j => j.name)
-              .sort();
-
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body = [
-              `Nightly compatibility run failed on \`${context.ref.replace('refs/heads/', '')}\`.`,
-              '',
-              `**Run:** ${runUrl}`,
-              `**Failing jobs (${failed.length}):**`,
-              '',
-              ...failed.map(n => `- \`${n}\``),
-              '',
-              'Each E2E job name carries the Grafana version and the `datetime.useLuxon`',
-              'state. Download the matching `e2e-results-<version>-luxon-<bool>` artifact',
-              'for the Playwright report, Grafana log, and the resolved image digest.',
-            ].join('\n');
-
-            // Reuse one open issue rather than filing a new one every night:
-            // a persistently broken combination should accumulate comments,
-            // not inboxes full of duplicates.
-            const existing = await github.rest.issues.listForRepo({
-              owner: context.repo.owner, repo: context.repo.repo,
-              state: 'open', labels: LABEL, per_page: 1,
-            });
-
-            if (existing.data.length > 0) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner, repo: context.repo.repo,
-                issue_number: existing.data[0].number, body,
-              });
-              core.notice(`Commented on existing issue #${existing.data[0].number}`);
-            } else {
-              // Create the label on first use; harmless if it already exists.
-              await github.rest.issues.createLabel({
-                owner: context.repo.owner, repo: context.repo.repo,
-                name: LABEL, color: 'B60205',
-                description: 'Nightly Grafana version/feature-toggle compatibility failure',
-              }).catch(() => {});
-
-              const created = await github.rest.issues.create({
-                owner: context.repo.owner, repo: context.repo.repo,
-                title: `Nightly compatibility failure (${new Date().toISOString().slice(0, 10)})`,
-                labels: [LABEL], body,
-              });
-              core.notice(`Opened issue #${created.data.number}`);
-            }
+            const report = require('./.github/scripts/report-nightly-failure.js');
+            await report({ github, context, core });
 
       # DECISION NEEDED -- Slack notification is intentionally not wired up.
       #
