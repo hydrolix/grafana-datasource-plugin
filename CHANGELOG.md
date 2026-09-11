@@ -6,6 +6,7 @@
 - **Fix**: An invalid round interval (query editor and datasource default) is now reset to empty when the field loses focus, instead of being saved and silently skipped by the backend; field descriptions now list the actually supported units (s, m, h — `ms` was never accepted)
 - **Chore**: Pin `nwsapi` to 2.2.24 — 2.2.26+ hangs `@testing-library/user-event` on portal-rendered elements (Grafana renders tooltips in a portal), which stalled the frontend test suite (upstream `dperini/nwsapi#214`)
 - **Chore**: Run every CI job on Node 24, matching `.nvmrc` and the `engines` floor — the e2e job had no Node setup and fell back to the runner default (Node 22 / npm 10), which cannot install an npm 11 lockfile
+- **Chore**: Stop leaking the Grafana image tag into the e2e test process — `@grafana/plugin-e2e` reads `GRAFANA_VERSION` as a semver, so the `nightly` tag made every internal version comparison return `NaN` and the page models took their oldest code paths (13 nightly tests timed out clicking a Grafana-8 "Add new panel" testid)
 
 ## 0.12.1
 

@@ -18,7 +18,7 @@ jobs:
     # The nightly image tracks Grafana main, so a failure there is an early
     # warning about an unreleased Grafana, not a plugin regression — it must
     # not block the release pipeline this workflow gates.
-    continue-on-error: ${{ matrix.grafana_version == 'nightly' }}
+    # continue-on-error: ${{ matrix.grafana_version == 'nightly' }}
     env:
       GRAFANA_VERSION: ${{ matrix.grafana_version }}
     steps:
@@ -65,6 +65,21 @@ jobs:
       - name: Run E2E tests
         run: npx playwright test --reporter=junit
         env:
+          # The job-level GRAFANA_VERSION is a docker image *tag*, and compose
+          # needs it verbatim. plugin-e2e reads the same variable as a semver
+          # (`process.env.GRAFANA_VERSION || bootData.version`) and branches on
+          # it inside its page models. Its comparator parses with parseInt, so
+          # a non-semver tag like "nightly" yields NaN and every gte/lt returns
+          # false — each of those ~45 branches silently takes its oldest path.
+          # DashboardPage.addPanel() then clicks the Grafana-8 "Add new panel"
+          # testid and times out against the current dashboard edit pane.
+          # (The selector catalog itself is unaffected: resolveSelectors falls
+          # back to "latest" on an invalid semver. Only the imperative
+          # branching misfires, which is why the failure looked selective.)
+          # Blanking the variable here makes plugin-e2e read the running
+          # Grafana's real version from bootData. Correct for every matrix
+          # entry, not just nightly.
+          GRAFANA_VERSION: ""
           E2E_GRAFANA_URL: http://localhost:3000
           PLAYWRIGHT_JUNIT_OUTPUT_FILE: junit_report.xml
           # Playwright runs on the runner host here, not inside the compose
