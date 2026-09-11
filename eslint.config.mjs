@@ -42,7 +42,11 @@ export default defineConfig([
       '**/error_panel/',
       '**/openspec/',
       '**/.claude/',
-      '**/.codex/'
+      '**/.codex/',
+      // CI helpers: Node CommonJS, not plugin source. The React/TS ruleset
+      // misreads `module.exports = async ({ github, context, core }) => ...`
+      // as a component (react/display-name) because of the destructured arg.
+      '.github/scripts/'
     ],
   },
   ...baseConfig,
