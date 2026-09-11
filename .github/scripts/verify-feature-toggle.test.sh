@@ -12,9 +12,8 @@ trap 'rm -rf "$FIXTURE_DIR"' EXIT
 
 FAILURES=0
 
-# The two shapes Grafana actually returns: an enabled toggle is present and
-# true; a disabled one is absent entirely, never present-and-false. (Verified
-# against 13.3.0 — zero of ~68 reported toggles carry the value false.)
+# The two shapes Grafana returns: enabled is present-and-true, disabled is
+# absent entirely.
 cat > "$FIXTURE_DIR/on.json" <<'JSON'
 {"featureToggles": {"datetime.useLuxon": true, "someOther": true}}
 JSON
@@ -25,8 +24,7 @@ JSON
 cat > "$FIXTURE_DIR/explicit-false.json" <<'JSON'
 {"featureToggles": {"datetime.useLuxon": false, "someOther": true}}
 JSON
-# Degenerate shapes. Each of these once read as "toggle is off" and passed
-# every luxon=false job vacuously — the failure this script exists to prevent.
+# Degenerate shapes — each once read as "off" and passed vacuously.
 echo '{}'                                  > "$FIXTURE_DIR/no-toggles.json"
 echo '{"featureToggles": {}}'              > "$FIXTURE_DIR/empty-toggles.json"
 echo '{"message": "Unauthorized"}'         > "$FIXTURE_DIR/error-body.json"
@@ -34,8 +32,6 @@ echo '{"featureToggles": "not-an-object"}' > "$FIXTURE_DIR/wrong-type.json"
 echo 'not json at all'                     > "$FIXTURE_DIR/malformed.json"
 
 # expect_exit <desc> <want-exit> <fixture> <EXPECT> [TOGGLE] [substring...]
-# Trailing substrings are asserted against combined output, matching the
-# shape of run_case in set-version.test.sh.
 expect_exit() {
   local desc=$1 want=$2 settings=$3 expect=$4 toggle=${5:-datetime.useLuxon}
   shift 5 2>/dev/null || shift 4
@@ -68,13 +64,11 @@ expect_exit "toggle on but expected off"       1 on.json             false
 expect_exit "toggle absent but expected on"    1 off.json            true
 expect_exit "explicit false but expected on"   1 explicit-false.json true
 
-# --- usage errors must be exit 2, never 1 -----------------------------------
-# A workflow typo must stay distinguishable from a real compatibility finding.
+# --- usage errors must be exit 2, never 1 (a typo is not a finding) --------
 expect_exit "invalid EXPECT value"             2 on.json             yes
 expect_exit "empty EXPECT is a usage error"    2 on.json             ""
 
-# --- degenerate responses must never certify "off" --------------------------
-# Each of these would otherwise pass vacuously for the luxon=false half.
+# --- degenerate responses must never certify "off" -------------------------
 expect_exit "missing featureToggles is not 'off'" 1 no-toggles.json    false
 expect_exit "empty featureToggles is not 'off'"   1 empty-toggles.json false
 expect_exit "error body is not 'off'"             1 error-body.json    false
@@ -90,8 +84,7 @@ expect_exit "honours a non-default TOGGLE (off)" 1 off.json false someOther
 # --- diagnostics on the failure path ----------------------------------------
 expect_exit "mismatch lists enabled toggles" 1 on.json false datetime.useLuxon "someOther"
 expect_exit "mismatch emits a GitHub error annotation" 1 on.json false datetime.useLuxon "::error::"
-# Only *enabled* toggles belong in the diagnostic; listing disabled ones as if
-# enabled would send a debugger the wrong way.
+# Listing disabled toggles as enabled would send a debugger the wrong way.
 expect_exit "diagnostic excludes disabled toggles" 1 explicit-false.json true datetime.useLuxon "someOther"
 OUT=$(EXPECT=true GRAFANA_SETTINGS_FILE="$FIXTURE_DIR/explicit-false.json" "$VERIFY" 2>&1)
 if grep -q "^datetime.useLuxon$" <<<"$OUT"; then

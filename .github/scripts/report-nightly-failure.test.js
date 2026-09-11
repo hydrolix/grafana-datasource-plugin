@@ -1,12 +1,6 @@
 /**
- * Tests for report-nightly-failure.js.
- *
- * Plain `node` — no framework. jest.config.js is scoped to src/, so it would
- * never pick this up, and the script's only dependencies are the injected
- * { github, context, core }, which makes stubs trivial and network-free.
- *
- * This path executes ONLY when the nightly is already broken, so a latent
- * defect here surfaces at the exact moment the alerting is needed.
+ * Tests for report-nightly-failure.js. Plain node — jest.config.js is scoped
+ * to src/, and the injected { github, context, core } stub trivially.
  *
  *   node .github/scripts/report-nightly-failure.test.js
  */
@@ -87,7 +81,6 @@ async function t(desc, fn) {
   });
 
   await t('ignores a pull request carrying the label', async () => {
-    // Otherwise a labelled PR swallows every nightly comment.
     const s = stubs({
       jobs: [job(RELEASED, 'failure')],
       openIssues: [{ number: 7, pull_request: { url: 'x' } }],
@@ -114,8 +107,6 @@ async function t(desc, fn) {
   });
 
   await t('counts timed_out and cancelled, not just failure', async () => {
-    // A hung Playwright run ends `cancelled`; filtering on `failure` alone
-    // produced an issue naming zero jobs.
     const s = stubs({ jobs: [job(RELEASED, 'timed_out'), job('Package Plugin', 'cancelled')] });
     await report(s);
     const body = s.calls.created[0].body;
@@ -125,7 +116,6 @@ async function t(desc, fn) {
   });
 
   await t('survives a jobs-API failure and says so in the body', async () => {
-    // Enrichment must never take down the notification.
     const s = stubs({ jobs: [], throwOn: { paginate: { status: 502, message: 'Bad Gateway' } } });
     const n = await report(s);
     assert.strictEqual(n, 42);
@@ -135,8 +125,6 @@ async function t(desc, fn) {
   });
 
   await t('warns when the label was silently dropped', async () => {
-    // GitHub drops labels for tokens without push access, which would file a
-    // fresh issue every night.
     const s = stubs({ jobs: [job(RELEASED, 'failure')], createdLabels: [] });
     await report(s);
     assert.ok(
@@ -163,7 +151,6 @@ async function t(desc, fn) {
   });
 
   await t('setFailed carries the cell list when the issue cannot be filed', async () => {
-    // The list is the whole point; it must survive into the log.
     const s = stubs({
       jobs: [job(RELEASED, 'failure')],
       throwOn: { create: { status: 410, message: 'Issues are disabled' } },

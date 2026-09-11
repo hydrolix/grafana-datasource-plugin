@@ -1,23 +1,14 @@
 name: Nightly Compatibility
 
-# Scheduled entry point for the two-dimensional compatibility canary
-# (HDX-12393). Builds the plugin exactly the way ci.yml does, then hands the
-# packaged artifact to nightly-e2e.yml, which runs the full Playwright suite
-# against every supported Grafana version with `datetime.useLuxon` both on
-# and off.
-#
-# This workflow is additive: it reuses build-frontend.yml, build-backend.yml
-# and package.yml unchanged, and does not alter ci.yml, e2e.yml or
-# compatibility-check.yml in any way.
+# Scheduled entry point for the compatibility canary (HDX-12393). Builds the
+# plugin the way ci.yml does, then runs nightly-e2e.yml. Additive: the reused
+# workflows and ci.yml/e2e.yml are unchanged.
 
 on:
   schedule:
-    # 03:40 UTC daily. Late enough that Grafana's `nightly` image has been
-    # republished (observed ~00:20-01:30 UTC), and off both the top of the
-    # hour and peak Actions load, where scheduled runs queue longest.
+    # After Grafana republishes the nightly image (~00:20-01:30 UTC), off the
+    # top of the hour where scheduled runs queue longest.
     - cron: '40 3 * * *'
-  # Manual trigger for development and for re-running after a fix. Defaults
-  # to the default branch, the ref the schedule uses, but accepts any branch.
   workflow_dispatch:
 
 permissions:
@@ -25,10 +16,7 @@ permissions:
 
 jobs:
   script-tests:
-    # Gates the version × toggle matrix on its own helper scripts being sane
-    # -- a few seconds against ~30 min of wasted runners. ci.yml has an equivalent
-    # "Script Tests" job for set-version.sh; these scripts are consumed only
-    # by nightly-e2e.yml, so they are exercised here instead.
+    # Seconds, against ~30 min of wasted runners if a helper is broken.
     name: Script Tests
     runs-on: ubuntu-latest
     steps:
@@ -40,9 +28,7 @@ jobs:
       - name: Run verify-feature-toggle tests
         run: ./.github/scripts/verify-feature-toggle.test.sh
 
-      # report-nightly-failure.js runs only when the nightly is already
-      # broken, so an untested defect there surfaces at exactly the moment
-      # the alerting is needed. Plain node -- jest.config.js is scoped to src/.
+      # Plain node — jest.config.js is scoped to src/.
       - name: Run report-nightly-failure tests
         run: node .github/scripts/report-nightly-failure.test.js
 
@@ -56,8 +42,7 @@ jobs:
     name: Build Backend
     uses: ./.github/workflows/build-backend.yml
     with:
-      # Keep in step with ci.yml and the `go` directive in go.mod; a lower
-      # value makes the toolchain re-download on every build.
+      # Keep in step with ci.yml and go.mod, or the toolchain re-downloads.
       go_version: '1.26.8'
 
   package:
@@ -80,25 +65,17 @@ jobs:
 
   report-failure:
     name: Report Failure
-    # `failure()` covers a broken build as well as a broken matrix
-    # combination -- a nightly that never got as far as running the suite is
-    # itself worth surfacing.
+    # Also covers a build that never reached the matrix.
     if: failure()
     needs: [script-tests, build-frontend, build-backend, package, nightly-e2e]
     runs-on: ubuntu-latest
     permissions:
-      # A job-level block REPLACES the workflow default, so every scope this
-      # job needs must be listed. `contents: read` is required by the
-      # checkout below; without it the clone breaks the moment the repo goes
-      # private -- in the one job whose purpose is to report the breakage.
+      # A job-level block replaces the workflow default, so contents: read
+      # must be listed for the checkout below.
       contents: read
-      # Read this run's per-job results so the report can name the exact
-      # failing version + toggle combinations.
       actions: read
       issues: write
     steps:
-      # Required: the script step below `require`s a file from the repo, so
-      # the working directory must actually contain it.
       - name: Checkout code
         uses: actions/checkout@v7
         with:
@@ -111,23 +88,11 @@ jobs:
             const report = require('./.github/scripts/report-nightly-failure.js');
             await report({ github, context, core });
 
-      # DECISION NEEDED -- Slack notification is intentionally not wired up.
-      #
-      # This repo currently holds only AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
-      # and GRAFANA_ACCESS_POLICY_TOKEN, so there is no Slack credential to use
-      # and no established channel for this plugin's CI. Guessing one would
-      # page the wrong people.
-      #
-      # The org pattern to copy once a channel and a bot token are agreed is
-      # hydrolix/turbine's .github/workflows/on_schedule_nightly_ui_smoke.yaml,
-      # which calls .github/scripts/send-slack-job-status.js through
-      # actions/github-script using secrets.SLACK_ALPHA_BOT_TOKEN.
-      # hydrolix/hydrolix-console/.github/workflows/slack-ship-notify.yml is a
-      # second, simpler reference.
-      #
-      # To enable: add a bot token secret, then uncomment and set the channel.
-      # Note the env indirection on the `if:` -- the `secrets` context is not
-      # available in a step-level conditional, so guard on `env` instead.
+      # DECISION NEEDED — Slack is not wired up: this repo has no Slack
+      # credential and no agreed channel for the plugin's CI. To enable, add a
+      # bot token and copy hydrolix/turbine's send-slack-job-status.js. Guard
+      # on `env`, not `secrets` — the secrets context is unavailable in a
+      # step-level `if:`.
       #
       # - name: Notify Slack
       #   env:
