@@ -326,6 +326,18 @@ export function ConfigEditor(props: Props) {
       },
     });
   };
+  const onRoundBlur = () => {
+    if (invalidDuration) {
+      setInvalidDuration(false);
+      onOptionsChange({
+        ...options,
+        jsonData: {
+          ...options.jsonData,
+          defaultRound: "",
+        },
+      });
+    }
+  };
   const settingInput = (key: string, value: string) => {
     let type = querySettingDefinitions[key].type;
     if (type === "boolean") {
@@ -618,6 +630,7 @@ export function ConfigEditor(props: Props) {
             <Input
               width={40}
               onChange={onRoundChange}
+              onBlur={onRoundBlur}
               value={jsonData.defaultRound}
             />
           </Field>

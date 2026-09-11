@@ -268,6 +268,40 @@ describe("QueryEditor", () => {
     expect(screen.queryByText("invalid duration")).not.toBeInTheDocument();
   });
 
+  it("resets an invalid round to '' and clears the error on blur", () => {
+    const onChangeSpy = jest.fn();
+    render(
+      <StatefulHarness
+        initial={{ format: QueryType.Table, round: "" }}
+        onChangeSpy={onChangeSpy}
+      />
+    );
+    const round = screen.getByTestId("data-testid round input");
+    fireEvent.change(round, { target: { value: "abc" } });
+    expect(screen.getByText("invalid duration")).toBeInTheDocument();
+    fireEvent.blur(round);
+    expect(onChangeSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ round: "" })
+    );
+    expect(screen.queryByText("invalid duration")).not.toBeInTheDocument();
+  });
+
+  it("keeps a valid round value on blur", () => {
+    const onChangeSpy = jest.fn();
+    render(
+      <StatefulHarness
+        initial={{ format: QueryType.Table, round: "" }}
+        onChangeSpy={onChangeSpy}
+      />
+    );
+    const round = screen.getByTestId("data-testid round input");
+    fireEvent.change(round, { target: { value: "5m" } });
+    fireEvent.blur(round);
+    expect(onChangeSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ round: "5m" })
+    );
+  });
+
   it("toggles the show/hide interpolated query button label", async () => {
     const props = makeProps({ format: QueryType.Table });
     render(<QueryEditor {...props} />);

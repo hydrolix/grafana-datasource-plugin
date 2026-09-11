@@ -9,7 +9,7 @@ export default {
   secure: true,
   skipTlsVerify: false,
   adHocDefaultTimeRange: {
-    from: dateTime().subtract("5m"),
+    from: dateTime().subtract(5, "m"),
     to: dateTime(),
     raw: { from: "now-5m", to: "now" },
   },

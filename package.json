@@ -1,6 +1,6 @@
 {
   "name": "hydrolix-hydrolix-datasource",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "scripts": {
     "build": "webpack -c ./webpack.config.ts --env production",
     "dev": "webpack -w -c ./webpack.config.ts --env development",
@@ -25,6 +25,7 @@
     "js-yaml@4": "^4.3.2",
     "dompurify": "^3.4.14",
     "lodash": "^4.17.23",
+    "nwsapi": "2.2.24",
     "@braintree/sanitize-url": "7.0.2",
     "uuid": "^14.0.0",
     "fast-uri": "^3.1.2",
