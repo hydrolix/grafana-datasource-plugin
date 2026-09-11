@@ -7,8 +7,8 @@ name: Nightly E2E Tests
 # non-Luxon path is never exercised.
 #
 # Largely mirrors e2e.yml. Deliberate divergences: the luxon axis, step-level
-# tolerance on the nightly rung, a stricter health gate, and the toggle /
-# digest steps. e2e.yml is canonical for everything else.
+# tolerance on the nightly rung, a stricter health gate, and the toggle
+# verification. e2e.yml is canonical for everything else.
 
 on:
   workflow_call:
@@ -42,8 +42,9 @@ jobs:
         include:
           # Grafana's unstable channel (currently the 13.3 line), the only rung
           # where the toggle is real. Not `grafana/grafana-dev`, which stopped
-          # publishing in 2026. Floats by design; the digest step records what
-          # actually ran.
+          # publishing in 2026. The tag floats, so it does not identify a
+          # build -- grafana.log carries `version=` and `commit=` for that,
+          # and is collected on any non-success outcome below.
           - grafana_version: "nightly"
             luxon: false
           - grafana_version: "nightly"
@@ -88,11 +89,6 @@ jobs:
         uses: hoverkraft-tech/compose-action@ee6af68587292d72db67743171809c19787df4c9
         with:
           compose-file: '.github/e2e-docker-compose.yml'
-
-      - name: Record Grafana image digest
-        env:
-          LUXON: ${{ matrix.luxon }}
-        run: ./.github/scripts/record-grafana-image.sh
 
       - name: Install Playwright
         run: |
@@ -155,7 +151,9 @@ jobs:
 
       - name: Collect Grafana logs
         # Not `failure()`: a tolerated failure leaves the job green, and a
-        # timeout ends `cancelled`. Plugin-load errors only appear here.
+        # timeout ends `cancelled`. Plugin-load errors only appear here, and
+        # so does `version=`/`commit=` -- on the floating `nightly` tag this
+        # log is the only record of which build actually ran.
         if: ${{ !cancelled() && steps.e2e.outcome != 'success' }}
         run: |
           if ! docker logs grafana > grafana.log 2>&1; then
@@ -172,6 +170,5 @@ jobs:
             test-results/**/*.png
             test-results/**/*.zip
             junit_report.xml
-            grafana-image.txt
             grafana.log
           retention-days: 7
