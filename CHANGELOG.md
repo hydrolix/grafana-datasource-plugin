@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.12.2
+## 0.12.2 (compatible with Grafana <=13.3.0-34421444802 pre-release)
 
 - **Fix**: Plugin fails to import on Grafana builds with the Luxon-backed datetime layer (`datetime.useLuxon` feature toggle, Grafana Cloud / upcoming 13.3) — `dateTime().subtract("5m")` in the default ad-hoc time range used an invalid argument that Moment silently ignored but Luxon rejects at module load
 - **Fix**: An invalid round interval (query editor and datasource default) is now reset to empty when the field loses focus, instead of being saved and silently skipped by the backend; field descriptions now list the actually supported units (s, m, h — `ms` was never accepted)
@@ -8,7 +8,7 @@
 - **Chore**: Run every CI job on Node 24, matching `.nvmrc` and the `engines` floor — the e2e job had no Node setup and fell back to the runner default (Node 22 / npm 10), which cannot install an npm 11 lockfile
 - **Chore**: Stop leaking the Grafana image tag into the e2e test process — `@grafana/plugin-e2e` reads `GRAFANA_VERSION` as a semver, so the `nightly` tag made every internal version comparison return `NaN` and the page models took their oldest code paths (13 nightly tests timed out clicking a Grafana-8 "Add new panel" testid)
 
-## 0.12.1
+## 0.12.1 (compatible with Grafana <=13.2)
 
 - **Fix**: Plugin fails to load on Grafana ≥ 13.2 (React 19) — replace the bundled React 18 `jsx-runtime` with a version-agnostic shim built on `React.createElement`, so a single bundle works on React 16–19 / Grafana 10.4–13.2
 - **Fix**: Drop `console.error` from the query error path; errors are reported via `@grafana/runtime` `logError`
@@ -16,7 +16,7 @@
 - **Chore**: Pin Go to 1.26.8 (same security backports as 1.27.1) so Grafana's govulncheck source scan can run — its govulncheck is still built with Go 1.26
 - **Chore**: Extend the compatibility-check matrix to current Grafana patch releases, including 13.1 and 13.2
 
-## 0.12.0
+## 0.12.0 (compatible with Grafana <=13.1)
 
 - **Feature**: Grafana Assistant support via context integration and MCP skill (HDX-11525)
 - **Feature**: Support UUID, IPv4, and IPv6 column types (HDX-12151)
