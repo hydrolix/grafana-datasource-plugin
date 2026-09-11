@@ -91,14 +91,25 @@ jobs:
 
       - name: Verify feature toggle state
         # Without this, a toggle that never reached the container makes
-        # nightly×true a silent duplicate of nightly×false. An unset toggle is
-        # absent rather than false, hence `// false`; an unreachable Grafana
-        # leaves ACTUAL empty, matching neither value, so this fails closed.
+        # nightly×true a silent duplicate of nightly×false.
+        #
+        # Read from the startup log rather than /api/frontend/settings: that
+        # endpoint 401s without basic auth, and a literal credential here
+        # would be the only one in this repo. Requiring the FeatureToggles
+        # line before concluding is what keeps this failing closed — without
+        # it, an unreadable log looks identical to "toggle is off".
         env:
           EXPECT: ${{ matrix.luxon }}
         run: |
-          ACTUAL=$(curl -sf -u admin:admin http://localhost:3000/api/frontend/settings \
-            | jq -r '.featureToggles["datetime.useLuxon"] // false')
+          TOGGLES=$(docker logs grafana 2>&1 | grep -o 'msg=FeatureToggles.*' | head -1)
+          if [ -z "$TOGGLES" ]; then
+            echo "::error::No FeatureToggles line in the Grafana log; cannot verify the toggle state."
+            exit 1
+          fi
+          case "$TOGGLES" in
+            *"datetime.useLuxon=true"*) ACTUAL=true ;;
+            *)                          ACTUAL=false ;;
+          esac
           echo "datetime.useLuxon: expected=$EXPECT actual=$ACTUAL"
           if [ "$ACTUAL" != "$EXPECT" ]; then
             echo "::error::datetime.useLuxon is '$ACTUAL' but this cell asked for '$EXPECT'."
