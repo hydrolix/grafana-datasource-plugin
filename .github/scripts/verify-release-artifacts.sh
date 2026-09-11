@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
-# Verifies a published release's provenance and S3 mirror end to end,
-# against the downloaded copies rather than any local workspace ZIP:
+# Verifies a published release's provenance end to end, against the
+# downloaded copy rather than any local workspace ZIP:
 #
 #   1. Download the release's zip asset via `gh release download`.
 #   2. `gh attestation verify` that downloaded asset.
-#   3. Compute its sha256 and compare against the S3 copy fetched over the
-#      public HTTPS URL (proves reachability, bucket policy, and URL
-#      encoding, not just that GitHub served the right bytes).
-#   4. Only then assert the attestation's sourceRepositoryRef equals
+#   3. Only then assert the attestation's sourceRepositoryRef equals
 #      refs/tags/<tag> — deliberately last, so a PR-ref attestation still
 #      exercises (and proves) every earlier step before failing here.
 #
@@ -32,11 +29,6 @@ if [[ -z "$REPO" ]]; then
   echo "No repo given: pass it as \$2 or set GITHUB_REPOSITORY"
   exit 1
 fi
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source-path=SCRIPTDIR
-# shellcheck source=s3-config.sh
-source "$SCRIPT_DIR/s3-config.sh"
 
 # Portable sha256: macOS has no sha256sum, only shasum -a 256.
 sha256_of() {
@@ -68,18 +60,8 @@ ATTESTATION_JSON="$WORKDIR/attestation.json"
 gh attestation verify "$ZIP" --repo "$REPO" --format json > "$ATTESTATION_JSON"
 echo "gh attestation verify succeeded"
 
-# --- 3. S3 digest comparison -------------------------------------------------
+# --- 3. Source-ref assertion (last, deliberately) ---------------------------
 DIGEST=$(sha256_of "$ZIP")
-S3_COPY="$WORKDIR/s3-copy.zip"
-curl -fsSL -o "$S3_COPY" "${S3_PUBLIC_BASE_URL}/grafana-datasource-plugin/${ZIP_NAME}"
-S3_DIGEST=$(sha256_of "$S3_COPY")
-if [[ "$S3_DIGEST" != "$DIGEST" ]]; then
-  echo "S3 copy sha256 \"$S3_DIGEST\" does not equal release asset sha256 \"$DIGEST\""
-  exit 1
-fi
-echo "S3 copy matches: sha256=$DIGEST"
-
-# --- 4. Source-ref assertion (last, deliberately) ---------------------------
 SOURCE_REF=$(jq -r '.[0].verificationResult.signature.certificate.sourceRepositoryRef' "$ATTESTATION_JSON")
 EXPECTED_REF="refs/tags/$TAG"
 if [[ "$SOURCE_REF" != "$EXPECTED_REF" ]]; then
@@ -93,6 +75,5 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     echo "## Release verification"
     echo "- Verified source ref: \`$SOURCE_REF\`"
     echo "- Artifact digest: \`sha256:$DIGEST\`"
-    echo "- S3 copy digest matches the verified release asset"
   } >> "$GITHUB_STEP_SUMMARY"
 fi

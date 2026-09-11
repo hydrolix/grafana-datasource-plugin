@@ -16,11 +16,12 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/useragent"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
+	"github.com/grafana/sqlds/v5"
 	hdxbuild "github.com/hydrolix/plugin/pkg/build"
 	"github.com/hydrolix/plugin/pkg/converters"
-	"github.com/grafana/sqlds/v5"
 	"github.com/hydrolix/plugin/pkg/plugin/models"
 	"github.com/pkg/errors"
 )
@@ -46,7 +47,7 @@ func NewHydrolix() *Hydrolix {
 
 // getClientInfoProducts reads build information of grafana and plugin
 func getClientInfoProducts(ctx context.Context) (products []struct{ Name, Version string }) {
-	version := backend.UserAgentFromContext(ctx).GrafanaVersion()
+	version := useragent.FromContext(ctx).GrafanaVersion()
 
 	if version != "" {
 		products = append(products, struct{ Name, Version string }{

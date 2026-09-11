@@ -1,3 +1,4 @@
+import path from 'path';
 import type { Configuration } from 'webpack';
 import grafanaConfig, { Env } from './.config/webpack/webpack.config';
 
@@ -21,6 +22,19 @@ import grafanaConfig, { Env } from './.config/webpack/webpack.config';
  */
 const JSX_RUNTIME_EXTERNALS = ['react/jsx-runtime', 'react/jsx-dev-runtime'];
 
+/**
+ * ...but bundle *our* runtime, not React's.
+ *
+ * Resolving these requests to `node_modules/react` pulls in React 18.3.1's
+ * implementation, which reads
+ * `React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentOwner`
+ * at module scope. React 19 removed that object, so the bundle throws on load
+ * under Grafana >= 13.2 (React-19-only) and the plugin never renders. The shim
+ * uses only `React.createElement`, so a single bundle works on React 16-19.
+ * See `src/compat/jsxRuntime.ts`.
+ */
+const JSX_RUNTIME_SHIM = path.resolve(__dirname, 'src', 'compat', 'jsxRuntime.ts');
+
 const config = async (env: Env): Promise<Configuration> => {
   const baseConfig = await grafanaConfig(env);
 
@@ -29,6 +43,13 @@ const config = async (env: Env): Promise<Configuration> => {
     externals: (baseConfig.externals as unknown[]).filter(
       (external) => !(typeof external === 'string' && JSX_RUNTIME_EXTERNALS.includes(external))
     ) as Configuration['externals'],
+    resolve: {
+      ...baseConfig.resolve,
+      alias: {
+        ...baseConfig.resolve?.alias,
+        ...Object.fromEntries(JSX_RUNTIME_EXTERNALS.map((request) => [`${request}$`, JSX_RUNTIME_SHIM])),
+      },
+    },
   };
 };
 

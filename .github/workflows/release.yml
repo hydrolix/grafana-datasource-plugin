@@ -133,14 +133,14 @@ jobs:
     uses: ./.github/workflows/build-frontend.yml
     needs: classify
     with:
-      node_version: '22'
+      node_version: '24'
 
   build-backend:
     name: Build Backend
     uses: ./.github/workflows/build-backend.yml
     needs: classify
     with:
-      go_version: '1.26.5'
+      go_version: '1.26.8'
 
   package:
     name: Package Plugin
@@ -151,7 +151,7 @@ jobs:
       id-token: write
       attestations: write
     with:
-      node_version: '22'
+      node_version: '24'
       attest: ${{ needs.classify.outputs.channel == 'release' }}
     secrets:
       grafana_token: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
@@ -168,29 +168,7 @@ jobs:
     needs: [classify, package]
     if: needs.classify.outputs.channel == 'rc' || needs.classify.outputs.channel == 'release'
     with:
-      node_version: '22'
-
-  publish-dev:
-    name: Publish Dev to AWS S3
-    uses: ./.github/workflows/s3_publish.yml
-    needs: [classify, package]
-    if: needs.classify.outputs.channel == 'dev'
-    with:
-      path_prefix: dev/
-    secrets:
-      aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-  publish-rc:
-    name: Publish RC to AWS S3
-    uses: ./.github/workflows/s3_publish.yml
-    needs: [classify, package, e2e, plugin-validator]
-    if: needs.classify.outputs.channel == 'rc'
-    with:
-      path_prefix: rc/
-    secrets:
-      aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      node_version: '24'
 
   create-github-release:
     name: Create GitHub Release
@@ -242,34 +220,25 @@ jobs:
           fail_on_unmatched_files: true
           body: ${{ steps.parse.outputs.changelog }}
 
-  publish-release:
-    name: Publish Release to AWS S3
-    uses: ./.github/workflows/s3_publish.yml
-    needs: [classify, package, e2e, plugin-validator]
-    if: needs.classify.outputs.channel == 'release'
-    secrets:
-      aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
   verify-release:
     name: Verify Published Release
     runs-on: ubuntu-latest
-    needs: [classify, create-github-release, publish-release]
+    needs: [classify, create-github-release]
     permissions:
       contents: read
     env:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ needs.classify.outputs.tag }}
     steps:
-      # Needed so the verification script below can source the shared
-      # bucket/URL config; this job otherwise has no checkout.
+      # Needed so the verification script below is available; this job
+      # otherwise has no checkout.
       - name: Checkout code
         uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      # Verify the downloaded copies, not the workspace ZIP: each upload can
-      # independently truncate, misfile, or overwrite, and the external
-      # verifier this exists for fetches the GitHub release asset.
+      # Verify the downloaded copy, not the workspace ZIP: the upload can
+      # truncate, misfile, or overwrite, and the external verifier this
+      # exists for fetches the GitHub release asset.
       - name: Verify published release artifacts
         run: ./.github/scripts/verify-release-artifacts.sh "$TAG"
