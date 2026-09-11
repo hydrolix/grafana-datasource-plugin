@@ -103,51 +103,6 @@ Host Go picks up the wrong toolchain. See `build-plugin`.
 | E2E via `e2e-dev`        | SHOULD | for behavior-affecting changes |
 | `npm run build` produces clean dist | MUST  | before running e2e            |
 
-## CI workflows
-
-Two entry points under `.github/workflows/`:
-
-- **`ci.yml`** — per-PR. `build-frontend` + `build-backend` → `package` →
-  `e2e.yml` and `validate.yml`, plus `compatibility-check.yml`.
-  `e2e.yml` runs 6 released Grafana versions **+ `nightly`**, `fail-fast:
-  false`, with `datetime.useLuxon` pinned **always-on**.
-- **`nightly-compat.yml`** — scheduled 03:40 UTC + `workflow_dispatch`.
-  Chains the same reusable build workflows, then `nightly-e2e.yml`:
-  the same versions × `datetime.useLuxon` **on and off**, 14 jobs.
-
-`nightly-e2e.yml` is a deliberate near-duplicate of `e2e.yml`; keep the
-shared steps in sync. It closes two gaps `e2e.yml` cannot: nothing was
-scheduled (a Grafana-side change could land any night unnoticed), and a
-pinned always-on toggle cannot prove the **default** non-Luxon path still
-works.
-
-Notes that bite:
-
-- `schedule:` fires only from the **default branch** (`develop`), and the
-  reusable build workflows check out their own triggering ref — there is no
-  `ref` input, so a nightly always tests `develop`.
-- The unstable rung is `grafana/grafana-enterprise:nightly` (currently the
-  unreleased 13.3.0 line). **Not** `grafana/grafana-dev`, which stopped
-  publishing at 13.1.0 on 2026-05-16. The tag floats by design; each job
-  records the resolved digest to its step summary and artifact.
-- **The nightly rung is red today** — 14/30 in CI, all `locator.fill`
-  timeouts, with no toggle involved. Hence `continue-on-error` on that
-  rung only; released versions stay blocking.
-- `GF_FEATURE_TOGGLES_ENABLE` in `.github/e2e-docker-compose.yml` uses
-  `${GF_FEATURE_TOGGLES_ENABLE-datetime.useLuxon}` — **single dash**, which
-  substitutes only when *unset*. `e2e.yml` and local runs get the always-on
-  default; `nightly-e2e.yml` passes an explicit empty string to turn it off.
-  Using `:-` would treat that empty string as "use the default" and silently
-  collapse the two-dimensional matrix into one.
-- An unset toggle is **absent** from `/api/frontend/settings`, not `false`.
-  `nightly-e2e.yml` asserts the expected state before running the suite;
-  without that guard a toggle that never landed would make half the matrix a
-  silent duplicate of the other half.
-- Both workflows blank `GRAFANA_VERSION` for the *test process* only.
-  plugin-e2e parses it as a semver, so a tag like `nightly` yields NaN and
-  every version branch takes its oldest path. Compose still needs the real
-  tag at job level.
-
 ## Datasource specifics
 
 - `src/datasource.ts` holds no per-request instance state — the old
