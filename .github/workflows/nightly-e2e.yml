@@ -108,9 +108,22 @@ jobs:
           }
 
       - name: Verify feature toggle state
+        # Without this the toggle axis is unfalsifiable: if the env var never
+        # reached Grafana, nightly x luxon=true would silently re-run the
+        # luxon=false configuration and report green. An unset toggle is
+        # ABSENT from the response rather than false, hence `// false`.
+        # An unreachable Grafana leaves ACTUAL empty, which matches neither
+        # "true" nor "false" -- so this fails closed without needing pipefail.
         env:
           EXPECT: ${{ matrix.luxon }}
-        run: ./.github/scripts/verify-feature-toggle.sh
+        run: |
+          ACTUAL=$(curl -sf -u admin:admin http://localhost:3000/api/frontend/settings \
+            | jq -r '.featureToggles["datetime.useLuxon"] // false')
+          echo "datetime.useLuxon: expected=$EXPECT actual=$ACTUAL"
+          if [ "$ACTUAL" != "$EXPECT" ]; then
+            echo "::error::datetime.useLuxon is '$ACTUAL' but this cell asked for '$EXPECT'."
+            exit 1
+          fi
 
       - name: Run E2E tests
         id: e2e

@@ -107,7 +107,11 @@ async function t(desc, fn) {
   });
 
   await t('a tolerated e2e step failure is advisory, not blocking', async () => {
-    const s = stubs({ jobs: [job(RELEASED, 'failure'), tolerated(NIGHTLY)] });
+    // The third job succeeded with a DIFFERENT step failed: only the
+    // tolerated step earns the advisory label, or an unrelated
+    // continue-on-error step would quietly excuse a real break.
+    const other = job(NIGHTLY, 'success', [{ name: 'Some other step', conclusion: 'failure' }]);
+    const s = stubs({ jobs: [job(RELEASED, 'failure'), tolerated(NIGHTLY), other] });
     await report(s);
     const body = s.calls.created[0].body;
     assert.match(body, /Blocking failures \(1\)/);
@@ -135,21 +139,16 @@ async function t(desc, fn) {
     assert.match(s.calls.created[0].body, /No job could be attributed/);
   });
 
-  await t('an unlisted conclusion is still reported (deny-list, not allow-list)', async () => {
-    const s = stubs({ jobs: [job(RELEASED, 'neutral'), job(NIGHTLY, 'stale')] });
+  await t('reports every non-OK conclusion, listed or not', async () => {
+    // A deny-list, so a hung job (timed_out), a cancelled one, and a
+    // conclusion GitHub adds later all land in the report rather than
+    // producing an issue that names zero jobs.
+    const s = stubs({ jobs: [
+      job(RELEASED, 'timed_out'), job('Package Plugin', 'cancelled'), job(NIGHTLY, 'stale'),
+    ] });
     await report(s);
     const body = s.calls.created[0].body;
-    assert.match(body, /neutral/);
-    assert.match(body, /stale/);
-    assert.doesNotMatch(body, /No job could be attributed/);
-  });
-
-  await t('counts timed_out and cancelled, not just failure', async () => {
-    const s = stubs({ jobs: [job(RELEASED, 'timed_out'), job('Package Plugin', 'cancelled')] });
-    await report(s);
-    const body = s.calls.created[0].body;
-    assert.match(body, /timed_out/);
-    assert.match(body, /cancelled/);
+    for (const c of ['timed_out', 'cancelled', 'stale']) assert.match(body, new RegExp(c));
     assert.doesNotMatch(body, /No job could be attributed/);
   });
 
@@ -171,21 +170,19 @@ async function t(desc, fn) {
     );
   });
 
-  await t('tolerates createLabel 422 without warning', async () => {
-    const s = stubs({ jobs: [job(RELEASED, 'failure')], throwOn: { createLabel: { status: 422 } } });
-    await report(s);
-    assert.strictEqual(s.calls.warnings.length, 0, 'already_exists is the steady state');
-    assert.strictEqual(s.calls.created.length, 1);
-  });
+  await t('createLabel: 422 is silent, anything else warns; both still file', async () => {
+    const ok = stubs({ jobs: [job(RELEASED, 'failure')], throwOn: { createLabel: { status: 422 } } });
+    await report(ok);
+    assert.strictEqual(ok.calls.warnings.length, 0, 'already_exists is the steady state');
+    assert.strictEqual(ok.calls.created.length, 1);
 
-  await t('warns on a non-422 createLabel error but still files', async () => {
-    const s = stubs({
+    const bad = stubs({
       jobs: [job(RELEASED, 'failure')],
       throwOn: { createLabel: { status: 403, message: 'Forbidden' } },
     });
-    await report(s);
-    assert.ok(s.calls.warnings.some((w) => /createLabel/.test(w)));
-    assert.strictEqual(s.calls.created.length, 1);
+    await report(bad);
+    assert.ok(bad.calls.warnings.some((w) => /createLabel/.test(w)));
+    assert.strictEqual(bad.calls.created.length, 1);
   });
 
   await t('setFailed carries the cell list when the issue cannot be filed', async () => {
