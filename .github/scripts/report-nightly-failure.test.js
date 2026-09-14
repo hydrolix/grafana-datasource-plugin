@@ -6,9 +6,12 @@
  */
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 
 const LABEL_NAME = 'nightly-compat-failure';
 const report = require('./report-nightly-failure.js');
+const { TOLERATED_STEP } = report;
 
 let failures = 0;
 
@@ -194,6 +197,22 @@ async function t(desc, fn) {
     assert.strictEqual(s.calls.failed.length, 1);
     assert.match(s.calls.failed[0], /13\.2\.1 \(luxon=false\)/);
     assert.match(s.calls.failed[0], /Issues are disabled/);
+  });
+
+  await t('TOLERATED_STEP matches the workflow step it classifies', async () => {
+    // The constant is matched verbatim against a step name in the jobs API,
+    // so a cosmetic rename in the workflow would silently empty the advisory
+    // bucket. Parsed by hand rather than js-yaml: the script-tests job runs
+    // no npm ci, so the test must stay dependency-free.
+    const wf = fs.readFileSync(
+      path.join(__dirname, '..', 'workflows', 'nightly-e2e.yml'), 'utf8');
+    // The tolerated step is the one carrying `id: e2e`.
+    const m = wf.match(/- name: ([^\n]+)\n(?:\s*#[^\n]*\n)*\s*id: e2e\b/);
+    assert.ok(m, 'could not find the step with `id: e2e` in nightly-e2e.yml');
+    assert.strictEqual(
+      m[1].trim(), TOLERATED_STEP,
+      `workflow step is "${m[1].trim()}" but report-nightly-failure.js expects "${TOLERATED_STEP}"`
+    );
   });
 
   if (failures > 0) {

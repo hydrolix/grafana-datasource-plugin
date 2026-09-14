@@ -169,3 +169,6 @@ module.exports = async ({ github, context, core }) => {
     throw err;
   }
 };
+
+// Exposed so the test can assert it still matches the workflow step name.
+module.exports.TOLERATED_STEP = TOLERATED_STEP;
