@@ -133,13 +133,23 @@ async function t(desc, fn) {
     assert.doesNotMatch(body, /Advisory/);
   });
 
-  await t('files an unattributable issue rather than returning silently', async () => {
-    // The caller gates on a failed run, so "nothing found" still means
-    // something broke. Returning null here filed no notification at all.
+  await t('files nothing on a clean night', async () => {
+    // The caller runs this on every completed night, so a green run must not
+    // produce an issue.
     const s = stubs({ jobs: [job(RELEASED, 'success'), job('Package Plugin', 'skipped')] });
     const n = await report(s);
+    assert.strictEqual(n, null);
+    assert.strictEqual(s.calls.created.length, 0);
+    assert.strictEqual(s.calls.commented.length, 0);
+  });
+
+  await t('a skipped-needs cascade still files (the failing job is visible)', async () => {
+    // package fails -> nightly-e2e skipped. The failure is still in the jobs
+    // list, so this must not be mistaken for a clean night.
+    const s = stubs({ jobs: [job('Package Plugin', 'failure'), job(RELEASED, 'skipped')] });
+    const n = await report(s);
     assert.strictEqual(n, 42);
-    assert.match(s.calls.created[0].body, /No job could be attributed/);
+    assert.match(s.calls.created[0].body, /Package Plugin \(failure\)/);
   });
 
   await t('reports every non-OK conclusion, listed or not', async () => {

@@ -52,9 +52,13 @@ module.exports = async ({ github, context, core }) => {
     core.warning(`Could not list jobs for run ${context.runId}: ${err.message}`);
   }
 
-  // No early return for "nothing found": the caller only invokes this on a
-  // failed or cancelled run, so returning silently is how a skipped-`needs`
-  // cascade produced no notification at all.
+  // The caller now runs this on every completed night, so "nothing found" is
+  // the normal green case and must file nothing. (Under the previous
+  // `failure()` gate this return was wrong — being invoked implied a failure.)
+  if (!blocking.length && !advisory.length && !attributionError) {
+    core.notice('Nightly run is clean; nothing to report.');
+    return null;
+  }
 
   // --- body ----------------------------------------------------------------
   const lines = [
@@ -92,13 +96,6 @@ module.exports = async ({ github, context, core }) => {
       '```',
       attributionError,
       '```',
-      ''
-    );
-  } else if (!blocking.length && !advisory.length) {
-    lines.push(
-      '- :warning: **No job could be attributed.** The run did not succeed, but',
-      '  every job reported success or was skipped. Likely a cancelled run or a',
-      '  dependency that never started. Open the run directly.',
       ''
     );
   }

@@ -5,6 +5,7 @@
     "build": "webpack -c ./webpack.config.ts --env production",
     "dev": "webpack -w -c ./webpack.config.ts --env development",
     "test": "jest --watch --onlyChanged",
+    "test:scripts": "node .github/scripts/report-nightly-failure.test.js",
     "test:ci": "jest --ci --reporters=default --reporters=jest-junit  --collectCoverage --passWithNoTests --maxWorkers 4",
     "typecheck": "tsc --noEmit",
     "lint": "eslint --cache .",
