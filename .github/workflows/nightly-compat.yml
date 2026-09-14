@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   script-tests:
-    # Gates the e2e matrix (see `needs` below) — seconds against an hour.
+    # Gates the e2e matrix (see `needs` below).
     name: Script Tests
     runs-on: ubuntu-latest
     steps:
@@ -23,7 +23,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # Same entry point ci.yml uses, so the two cannot drift.
+      # Same entry point as ci.yml, so the two cannot drift.
       - name: Run CI script tests
         run: npm run test:scripts
 
@@ -60,16 +60,15 @@ jobs:
 
   report-failure:
     name: Report Failure
-    # Runs on every completed night, including green ones, and lets the
-    # script decide whether there is anything to file. A `failure()`-style
-    # gate cannot see a tolerated nightly failure — the job reports success —
-    # so the incident this canary exists for would file nothing.
+    # Every completed night, green included — the script decides whether to
+    # file. A `failure()` gate cannot see a tolerated nightly failure (the job
+    # reports success), so the incident would file nothing.
     if: ${{ !cancelled() }}
     needs: [script-tests, build-frontend, build-backend, package, nightly-e2e]
     runs-on: ubuntu-latest
     permissions:
-      # A job-level block replaces the workflow default, so contents: read
-      # is required by the checkout below.
+      # A job-level block replaces the workflow default; contents: read is
+      # required by the checkout below.
       contents: read
       actions: read
       issues: write

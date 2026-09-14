@@ -34,8 +34,7 @@ module.exports = async ({ github, context, core }) => {
 
     // Tolerance is step-level, so a tolerated e2e failure leaves the JOB
     // reporting success and never appears in a conclusion-based filter.
-    // Classifying by step outcome is what keeps the advisory bucket
-    // reachable without excusing infrastructure failures.
+    // Classify by step outcome instead.
     blocking = jobs
       .filter((j) => !OK_CONCLUSIONS.includes(j.conclusion))
       .map((j) => `${j.name} (${j.conclusion})`)
@@ -52,9 +51,8 @@ module.exports = async ({ github, context, core }) => {
     core.warning(`Could not list jobs for run ${context.runId}: ${err.message}`);
   }
 
-  // The caller now runs this on every completed night, so "nothing found" is
-  // the normal green case and must file nothing. (Under the previous
-  // `failure()` gate this return was wrong — being invoked implied a failure.)
+  // The caller runs this every completed night, so "nothing found" is the
+  // normal green case and must file nothing.
   if (!blocking.length && !advisory.length && !attributionError) {
     core.notice('Nightly run is clean; nothing to report.');
     return null;
