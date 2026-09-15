@@ -42,7 +42,12 @@ export default defineConfig([
       '**/error_panel/',
       '**/openspec/',
       '**/.claude/',
-      '**/.codex/'
+      '**/.codex/',
+      // CI helpers: Node CommonJS, not plugin source. react/display-name
+      // misreads report-nightly-failure.js as a component -- it takes both a
+      // destructured props-like argument AND a `return null` (a valid render
+      // result) to trip it; neither alone does.
+      '.github/scripts/'
     ],
   },
   ...baseConfig,

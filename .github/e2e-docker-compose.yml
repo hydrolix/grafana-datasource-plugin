@@ -21,10 +21,10 @@ services:
       - GF_DATAPROXY_LOGGING=1
       - GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=hydrolix-hydrolix-datasource
       # Luxon-backed datetime layer (lands in Grafana 13.3, default-off).
-      # Unknown toggles are ignored, so this is a no-op on tagged versions
-      # and only takes effect on the nightly matrix entry — catching strict
-      # Luxon datetime breakage before Grafana flips the default.
-      - GF_FEATURE_TOGGLES_ENABLE=datetime.useLuxon
+      # Single dash, not `:-`: substitutes only when *unset*, so
+      # nightly-e2e.yml can pass an explicit empty string to disable it. `:-`
+      # would read that as "use the default" and collapse its matrix.
+      - GF_FEATURE_TOGGLES_ENABLE=${GF_FEATURE_TOGGLES_ENABLE-datetime.useLuxon}
       # plugin-e2e logs in once and freezes the grafana_session cookie into
       # playwright/.auth/admin.json; every test and both workers replay that
       # one snapshot and never follow a Set-Cookie rotation. Grafana keeps a

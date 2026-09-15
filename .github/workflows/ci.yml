@@ -21,6 +21,9 @@ jobs:
       - name: Run set-version tests
         run: ./.github/scripts/set-version.test.sh
 
+      - name: Run CI script tests
+        run: npm run test:scripts
+
   main-ancestry-gate:
     name: Base main Ancestry Gate
     runs-on: ubuntu-latest

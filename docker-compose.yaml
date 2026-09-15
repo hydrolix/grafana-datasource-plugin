@@ -30,6 +30,11 @@ services:
       - keycloak
     environment:
       <<: *common-variables
+      # Comma-separated feature toggles, e.g. to reproduce a nightly-e2e
+      # failure: GF_FEATURE_TOGGLES_ENABLE=datetime.useLuxon npm run server
+      # Runtime var, so no rebuild — unlike grafana_version, a build arg.
+      # Not in .config/docker-compose-base.yaml: that file is scaffold-owned.
+      GF_FEATURE_TOGGLES_ENABLE: "${GF_FEATURE_TOGGLES_ENABLE:-}"
       # --- OAuth2 / Keycloak ---
       GF_SERVER_ROOT_URL: "http://localhost:3000/"
       GF_AUTH_GENERIC_OAUTH_ENABLED: "true"

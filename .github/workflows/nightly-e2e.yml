@@ -1,0 +1,163 @@
+name: Nightly E2E Tests
+
+# Grafana version × `datetime.useLuxon` (HDX-12393). e2e.yml runs only on
+# PR/release and pins the toggle always-on. Mirrors it otherwise; e2e.yml is
+# canonical for the shared steps.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  nightly-e2e-test:
+    name: E2E - Grafana ${{ matrix.grafana_version }} (luxon=${{ matrix.luxon }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The toggle ships in 13.3, but older Grafanas echo it back from
+        # /api/frontend/settings anyway, so a luxon=true cell there is a
+        # duplicate that certifies itself green. Add 13.3.x when it ships;
+        # if the toggle ever defaults on, invert the polarity.
+        grafana_version:
+          - "10.4.19-security-01"
+          - "11.6.16"
+          - "12.4.10"
+          - "13.0.8"
+          - "13.1.5"
+          - "13.2.1"
+        luxon: [false]
+        include:
+          # Not `grafana/grafana-dev`, which stopped publishing in 2026.
+          # Tag floats; grafana.log carries `version=`/`commit=`.
+          - grafana_version: "nightly"
+            luxon: false
+          - grafana_version: "nightly"
+            luxon: true
+    # Backstop only; the suite's step-level timeout below is the real budget,
+    # and a hung step is tolerated where a job timeout would not be.
+    timeout-minutes: 60
+    env:
+      GRAFANA_VERSION: ${{ matrix.grafana_version }}
+      # Must be set-but-empty to disable: the compose file's single-dash
+      # `${GF_FEATURE_TOGGLES_ENABLE-...}` only substitutes when *unset*.
+      GF_FEATURE_TOGGLES_ENABLE: ${{ matrix.luxon && 'datetime.useLuxon' || '' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # The runner default is Node 22 / npm 10 — below `engines` (>=24) and
+      # unable to `npm ci` an npm 11 lockfile.
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Download GitHub artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: plugin-package
+
+      - name: Extract and prepare plugin
+        run: |
+          unzip hydrolix-hydrolix-datasource*.zip
+          chmod +x hydrolix-hydrolix-datasource/gpx*
+
+      - name: Install and run Docker Compose
+        uses: hoverkraft-tech/compose-action@ee6af68587292d72db67743171809c19787df4c9
+        with:
+          compose-file: '.github/e2e-docker-compose.yml'
+
+      - name: Install Playwright
+        run: |
+          npm ci --prefer-offline --no-audit --fund=false
+          npx playwright install
+
+      - name: Wait for Grafana
+        # `-f` so a 503 from a failing DB doesn't clear the gate.
+        run: |
+          timeout 120s bash -c 'until curl -sf http://localhost:3000/api/health >/dev/null; do sleep 2; done' || {
+            echo "::error::Grafana ${GRAFANA_VERSION} never became healthy within 120s."
+            docker logs grafana 2>&1 | tail -100
+            exit 1
+          }
+
+      - name: Verify feature toggle state
+        # Otherwise a toggle that never reached the container makes
+        # nightly×true a silent duplicate of nightly×false. Reads the startup
+        # log, not /api/frontend/settings (401s without basic auth). The
+        # FeatureToggles check is what fails closed: without it an unreadable
+        # log looks identical to "toggle is off".
+        env:
+          EXPECT: ${{ matrix.luxon }}
+        run: |
+          TOGGLES=$(docker logs grafana 2>&1 | grep -o 'msg=FeatureToggles.*' | head -1)
+          if [ -z "$TOGGLES" ]; then
+            echo "::error::No FeatureToggles line in the Grafana log; cannot verify the toggle state."
+            exit 1
+          fi
+          case "$TOGGLES" in
+            *"datetime.useLuxon=true"*) ACTUAL=true ;;
+            *)                          ACTUAL=false ;;
+          esac
+          echo "datetime.useLuxon: expected=$EXPECT actual=$ACTUAL"
+          if [ "$ACTUAL" != "$EXPECT" ]; then
+            echo "::error::datetime.useLuxon is '$ACTUAL' but this cell asked for '$EXPECT'."
+            exit 1
+          fi
+
+      - name: Run E2E tests
+        id: e2e
+        # Step-level: job-level would skip the flag/log steps below, leaving
+        # the cell green *and* silent.
+        continue-on-error: ${{ matrix.grafana_version == 'nightly' }}
+        timeout-minutes: 45
+        run: npx playwright test --reporter=junit
+        env:
+          # Compose needs the job-level value as an image *tag*; plugin-e2e
+          # parses it as a semver, where "nightly" yields NaN and every
+          # version branch takes its oldest path. Blank it here only.
+          GRAFANA_VERSION: ""
+          E2E_GRAFANA_URL: http://localhost:3000
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: junit_report.xml
+          # Tests run on the host, outside the compose network, so only the
+          # published port resolves. CLICKHOUSE_HOSTNAME is Grafana's own
+          # address and must stay the service name.
+          E2E_CLICKHOUSE_HTTP_HOST: localhost
+
+      - name: Flag tolerated nightly failure
+        # Bare `if:` on purpose — the implicit success() confines this to the
+        # tolerated rung.
+        if: steps.e2e.outcome == 'failure'
+        run: |
+          MSG="Grafana ${GRAFANA_VERSION} luxon=${{ matrix.luxon }} failed (advisory, non-blocking)"
+          echo "::warning title=Nightly rung failed::${MSG} -- see artifact e2e-results-${GRAFANA_VERSION}-luxon-${{ matrix.luxon }}"
+          echo "**ADVISORY FAILURE** — ${MSG}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Collect Grafana logs
+        # Not `failure()`: a tolerated failure leaves the job green and a
+        # timeout ends `cancelled`. Also the only record of the build.
+        if: ${{ !cancelled() && steps.e2e.outcome != 'success' }}
+        run: |
+          if ! docker logs grafana > grafana.log 2>&1; then
+            echo "::warning title=Grafana logs unavailable::grafana.log holds the docker error, not Grafana output."
+            docker ps -a --format '{{.Names}}\t{{.Status}}\t{{.Image}}'
+          fi
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-results-${{ matrix.grafana_version }}-luxon-${{ matrix.luxon }}
+          path: |
+            test-results/**/*.png
+            test-results/**/*.zip
+            junit_report.xml
+            grafana.log
+          retention-days: 7

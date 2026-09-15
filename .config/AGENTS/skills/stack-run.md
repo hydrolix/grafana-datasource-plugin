@@ -226,7 +226,7 @@ necessarily the mounted folder. See "Two live-mode traps" above.
 ```yaml
 build:
   args:
-    grafana_version: 13.0.1
+    grafana_version: 13.2.1
 #    grafana_version: 12.3.1
 #    grafana_version: 12.0.2
 #    grafana_version: 11.5.4
@@ -242,7 +242,27 @@ docker compose up -d --no-deps grafana    # --no-deps skips keycloak (already up
 until curl -sf http://localhost:3000/api/health >/dev/null; do sleep 2; done
 ```
 
-Verified supported: 10.4.16, 11.5.4, 12.0.2, 12.3.1, 13.0.1. CI matrix uses 10.4.18, 11.6.1, 12.0.2, 13.0.1 (latest patch within each minor).
+Verified supported: 10.4.16, 11.5.4, 12.0.2, 12.3.1, 13.0.1. The CI matrix uses the latest patch within each minor — 10.4.19-security-01, 11.6.16, 12.4.10, 13.0.8, 13.1.5, 13.2.1 — plus `nightly`.
+
+**`GRAFANA_VERSION=` in the shell does nothing here.** The scaffold-owned base reads it, but the root `docker-compose.yaml` pins `grafana_version` in its own `build.args`, which wins. Edit the active line above instead.
+
+## Feature toggles
+
+`GF_FEATURE_TOGGLES_ENABLE` (comma-separated) passes through from the host shell. Unlike the version it is a *runtime* var — no rebuild:
+
+```sh
+GF_FEATURE_TOGGLES_ENABLE=datetime.useLuxon npm run server
+# stack already up:
+GF_FEATURE_TOGGLES_ENABLE=datetime.useLuxon docker compose up -d --no-deps --force-recreate grafana
+```
+
+Confirm it landed — an unset toggle is **absent** from the response, not `false`:
+
+```sh
+curl -s http://localhost:3000/api/frontend/settings | jq '.featureToggles["datetime.useLuxon"] // false'
+```
+
+Defaults empty here (stock Grafana); `.github/e2e-docker-compose.yml` defaults `datetime.useLuxon` **on**, and `nightly-e2e.yml` runs the suite with it both ways — use the above to reproduce a red nightly job.
 
 ## Inspecting / debugging the stack
 
