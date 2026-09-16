@@ -242,7 +242,7 @@ docker compose up -d --no-deps grafana    # --no-deps skips keycloak (already up
 until curl -sf http://localhost:3000/api/health >/dev/null; do sleep 2; done
 ```
 
-Floor is `>=11.0.0` (`plugin.json`). The CI matrix uses the latest patch within each minor — 11.6.16, 12.4.10, 13.0.8, 13.1.5, 13.2.1 — plus `nightly`. 10.4 was dropped in 0.13.0; the 10.x branches still in `src/` and `tests/` are dead but untouched.
+Floor is `>=11.0.0` (`plugin.json`). The CI matrix uses the latest patch within each minor — 11.6.16, 12.4.10, 13.0.8, 13.1.5, 13.2.1 — plus `nightly`.
 
 **`GRAFANA_VERSION=` in the shell does nothing here.** The scaffold-owned base reads it, but the root `docker-compose.yaml` pins `grafana_version` in its own `build.args`, which wins. Edit the active line above instead.
 
