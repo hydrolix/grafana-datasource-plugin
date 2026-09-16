@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.0 (unreleased)
+
+- **Breaking**: Drop Grafana 10.4 support — `grafanaDependency` is now `>=11.0.0`, and 10.4 is removed from the e2e, compatibility-check and nightly matrices. Instances on 10.4 will no longer be offered the plugin update
+
 ## 0.12.2 (compatible with Grafana <=13.3.0-34421444802 pre-release)
 
 - **Fix**: Plugin fails to import on Grafana builds with the Luxon-backed datetime layer (`datetime.useLuxon` feature toggle, Grafana Cloud / upcoming 13.3) — `dateTime().subtract("5m")` in the default ad-hoc time range used an invalid argument that Moment silently ignored but Luxon rejects at module load
