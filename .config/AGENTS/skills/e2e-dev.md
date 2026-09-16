@@ -183,7 +183,7 @@ await queryRow.getByLabel("hdx_query_max_rows").fill("42");
 
 ### Cross-Grafana-version locator differences
 
-The CI matrix runs Grafana 10.4.x, 11.5.x, 12.0.x, 12.3.x, 13.0.x. Three on-page widgets render differently across that range; tests that touch them need version-agnostic locators.
+The CI matrix runs Grafana 11.6.x, 12.4.x, 13.0.x, 13.1.x, 13.2.x plus `nightly` (10.4 dropped in 0.13.0). Three on-page widgets render differently across that range; tests that touch them need version-agnostic locators.
 
 **Dashboard variable picker on the dashboard page**
 
