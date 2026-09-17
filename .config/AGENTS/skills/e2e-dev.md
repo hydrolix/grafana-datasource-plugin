@@ -183,13 +183,12 @@ await queryRow.getByLabel("hdx_query_max_rows").fill("42");
 
 ### Cross-Grafana-version locator differences
 
-The CI matrix runs Grafana 10.4.x, 11.5.x, 12.0.x, 12.3.x, 13.0.x. Three on-page widgets render differently across that range; tests that touch them need version-agnostic locators.
+The CI matrix runs Grafana 11.6.x, 12.4.x, 13.0.x, 13.1.x, 13.2.x plus `nightly`. Three on-page widgets render differently across that range; tests that touch them need version-agnostic locators.
 
 **Dashboard variable picker on the dashboard page**
 
 | Grafana    | Markup                                                 |
 | ---------- | ------------------------------------------------------ |
-| 10.x       | `<button aria-label="$varName">` containing the value  |
 | 11.x–13.x  | react-select wrapped in `[data-value=""]` (no role)    |
 
 ```ts
@@ -205,7 +204,6 @@ await page
 
 | Grafana    | Role         | Accessible name              |
 | ---------- | ------------ | ---------------------------- |
-| 10.x       | `checkbox`   | the value text (e.g. `no_such_table`) |
 | 11.x–13.x  | `option`     | the value text                |
 
 ```ts
@@ -222,7 +220,6 @@ react-select renders one `<option>` per setting on every version, but the *acces
 
 | Grafana    | Option accessible name                       | Option inner text                        |
 | ---------- | -------------------------------------------- | ---------------------------------------- |
-| 10.x       | `"Select option"` (constant — useless)       | `"hdx_query_max_rowsSet the maximum…"` (no separator) |
 | 11.x–13.x  | `"hdx_query_max_rows Set the maximum…"`      | `"hdx_query_max_rows Set the maximum…"`  |
 
 Use `.filter({ hasText: /^prefix/ })` against inner text — works on both. Avoid `\b` after the prefix: on 10.x there's no word boundary between the setting name and the description start (`...rowsSet...`).
@@ -233,7 +230,6 @@ Use `.filter({ hasText: /^prefix/ })` against inner text — works on both. Avoi
 
 | Grafana            | Renderer  | Entry point                                            |
 | ------------------ | --------- | ------------------------------------------------------ |
-| 10.4               | segments  | `+` button (`Add Filter`) → key / `=` / value segment buttons (`AdHocFilterKey-*` / `AdHocFilterValue-*` test ids) |
 | 11.5 – 12.3        | combobox  | `input[placeholder="Filter by label values"]`          |
 | 13.x               | combobox  | `input[placeholder="+ label = value"]`                 |
 
