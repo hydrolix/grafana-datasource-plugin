@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/binary"
 	"io"
 	"testing"
@@ -322,6 +323,162 @@ func TestStatsStrippingReaderClose(t *testing.T) {
 	if err := r.Close(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+func gzipCompress(data []byte) []byte {
+	var buf bytes.Buffer
+	w := gzip.NewWriter(&buf)
+	if _, err := w.Write(data); err != nil {
+		panic(err)
+	}
+	if err := w.Close(); err != nil {
+		panic(err)
+	}
+	return buf.Bytes()
+}
+
+func TestDecompressThenStripReader(t *testing.T) {
+	t.Parallel()
+
+	statsLine := "\nX-HDX-Query-Stats:exec_time=0 head_rows_read=0 peer_rows_read=0 num_partitions=0 num_peers=0 result_rows=1 query_attempts=1 memory_usage=6306448\n"
+
+	tests := []struct {
+		name            string
+		input           string
+		want            string
+		contentEncoding string
+	}{
+		{
+			name:            "gzip with stats: decompress then strip",
+			input:           "lots of clickhouse data here" + statsLine,
+			want:            "lots of clickhouse data here",
+			contentEncoding: "gzip",
+		},
+		{
+			name:            "gzip without stats: decompress only",
+			input:           "just normal response data",
+			want:            "just normal response data",
+			contentEncoding: "gzip",
+		},
+		{
+			name:            "gzip empty body",
+			input:           "",
+			want:            "",
+			contentEncoding: "gzip",
+		},
+		{
+			name:            "gzip stats only: decompress then strip all",
+			input:           statsLine,
+			want:            "",
+			contentEncoding: "gzip",
+		},
+		{
+			name:            "non-gzip: plain strip",
+			input:           "data" + statsLine,
+			want:            "data",
+			contentEncoding: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var body io.ReadCloser
+			if tt.contentEncoding == "gzip" {
+				body = io.NopCloser(bytes.NewReader(gzipCompress([]byte(tt.input))))
+			} else {
+				body = io.NopCloser(bytes.NewReader([]byte(tt.input)))
+			}
+
+			// Correct order: decompress first, then strip from decompressed stream.
+			decompressed, err := newDecompressReader(body, tt.contentEncoding)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			r := newStatsStrippingReader(decompressed)
+			defer r.Close()
+
+			got, err := io.ReadAll(r)
+			if err != nil {
+				t.Fatalf("unexpected read error: %v", err)
+			}
+			if string(got) != tt.want {
+				t.Errorf("got %q, want %q", string(got), tt.want)
+			}
+		})
+	}
+}
+
+func TestDecompressReader(t *testing.T) {
+	t.Parallel()
+
+	t.Run("gzip decompresses correctly", func(t *testing.T) {
+		t.Parallel()
+		input := "hello decompressed world"
+		body := io.NopCloser(bytes.NewReader(gzipCompress([]byte(input))))
+
+		r, err := newDecompressReader(body, "gzip")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		defer r.Close()
+
+		got, err := io.ReadAll(r)
+		if err != nil {
+			t.Fatalf("unexpected read error: %v", err)
+		}
+		if string(got) != input {
+			t.Errorf("got %q, want %q", string(got), input)
+		}
+	})
+
+	t.Run("non-gzip returns body as-is", func(t *testing.T) {
+		t.Parallel()
+		input := "plain text body"
+		body := io.NopCloser(bytes.NewReader([]byte(input)))
+
+		r, err := newDecompressReader(body, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		defer r.Close()
+
+		got, err := io.ReadAll(r)
+		if err != nil {
+			t.Fatalf("unexpected read error: %v", err)
+		}
+		if string(got) != input {
+			t.Errorf("got %q, want %q", string(got), input)
+		}
+	})
+
+	t.Run("close propagates", func(t *testing.T) {
+		t.Parallel()
+		body := io.NopCloser(bytes.NewReader(gzipCompress([]byte("data"))))
+
+		r, err := newDecompressReader(body, "gzip")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if err := r.Close(); err != nil {
+			t.Fatalf("unexpected close error: %v", err)
+		}
+	})
+
+	t.Run("gzip with invalid data returns error", func(t *testing.T) {
+		t.Parallel()
+		body := io.NopCloser(bytes.NewReader([]byte("not gzip data at all")))
+
+		r, err := newDecompressReader(body, "gzip")
+		if err == nil {
+			_ = r.Close()
+			t.Fatal("expected error for invalid gzip, got nil")
+		}
+		if r != nil {
+			t.Fatalf("expected nil reader on error, got %T", r)
+		}
+	})
 }
 
 // buildCHLZ4Frame builds a ClickHouse LZ4-compressed frame from plain text:
