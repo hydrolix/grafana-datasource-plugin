@@ -53,10 +53,9 @@ services:
       GF_AUTH_GENERIC_OAUTH_NAME_ATTRIBUTE_PATH: "name"
       GF_AUTH_GENERIC_OAUTH_USE_PKCE: "true"
       GF_AUTH_SIGNOUT_REDIRECT_URL: "http://localhost:3000/login"
-      GF_FEATURE_TOGGLES_ENABLE: datetime.useLuxon
     build:
       args:
-        grafana_version: nightly   # 13.3 pre-release — REVERT before commit
+        grafana_version: 13.2.1
     #    grafana_version: 12.3.1
     #    grafana_version: 12.0.2
     #    grafana_version: 11.5.4
