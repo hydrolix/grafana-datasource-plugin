@@ -22,7 +22,6 @@ jobs:
         # duplicate that certifies itself green. Add 13.3.x when it ships;
         # if the toggle ever defaults on, invert the polarity.
         grafana_version:
-          - "10.4.19-security-01"
           - "11.6.16"
           - "12.4.10"
           - "13.0.8"

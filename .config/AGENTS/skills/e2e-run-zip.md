@@ -327,7 +327,7 @@ directly.
 
 The running Grafana version is whatever the local `…-grafana:latest` image was
 last built with (the `grafana_version` build arg in `docker-compose.yaml`,
-default line = 13.0.1; commented toggles for 12.3.1 / 12.0.2 / 11.5.4 / 10.4.16).
+default line = 13.2.1; commented toggles for 12.3.1 / 12.0.2 / 11.5.4).
 The `DEV=false` runtime override works on **any** of these images — you do
 **not** need to rebuild with `development=false`. To switch versions, follow the
 "Switching Grafana versions" section of the `stack-run` skill

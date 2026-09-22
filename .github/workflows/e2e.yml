@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         grafana_name: ["grafana-enterprise"]
-        grafana_version: ["10.4.19-security-01", "11.6.16", "12.4.10", "13.0.8", "13.1.5", "13.2.1", "nightly"]
+        grafana_version: ["11.6.16", "12.4.10", "13.0.8", "13.1.5", "13.2.1", "nightly"]
     # The nightly image tracks Grafana main, so a failure there is an early
     # warning about an unreleased Grafana, not a plugin regression — it must
     # not block the release pipeline this workflow gates.

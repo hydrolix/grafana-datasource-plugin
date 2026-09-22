@@ -11,8 +11,9 @@ context: |
   # Hydrolix Grafana Datasource Plugin
 
   TypeScript + React frontend on `DataSourceWithBackend`. Go backend on
-  `sqlds` for the query pipeline. Compatibility floor: Grafana >= 10 — do
-  not introduce branches for older versions.
+  `sqlds` for the query pipeline. Compatibility floor: Grafana >= 11
+  (`grafanaDependency` in `src/plugin.json`) — do not introduce branches
+  for older versions.
 
   ## Before coding
   - MUST ask clarifying questions for ambiguous requirements.
@@ -78,7 +79,7 @@ rules:
       "unit + Playwright e2e coverage". Specific cases live in tasks.md.
     - The `Capabilities` section uses kebab-case names matching `specs/<name>/`.
     - Mark breaking changes with **BREAKING**. The plugin must not break
-      Grafana 10.x dashboards on upgrade.
+      Grafana 11.x dashboards on upgrade.
   design:
     - Required when the change crosses the frontend/backend boundary or
       mutates shared datasource state.

@@ -146,14 +146,13 @@ await queryRow.locator('[data-value=""]').last().click();
 await queryRow.getByText("Choose").last().click({ force: true });
 ```
 
-Once the menu opens, options live in a portal at the document root (NOT inside `queryRow`), so the option click must be **page-scoped**. Match by inner text rather than accessible name so the locator works on Grafana 10 too (see "Cross-version" below):
+Once the menu opens, options live in a portal at the document root (NOT inside `queryRow`), so the option click must be **page-scoped**. Match by inner text rather than accessible name (see "Cross-version" below):
 
 ```ts
 // Inner text starts with the setting name on every version we support:
-//   - 12+: "hdx_query_max_rows Set the maximum number of rows ..." (space separator)
-//   - 10.x: "hdx_query_max_rowsSet the maximum number ..." (no separator)
-// Anchor at start, but DON'T use `\b` after the prefix — on 10.x there is no
-// word boundary between the prefix and the description (s→S is word→word).
+//   "hdx_query_max_rows Set the maximum number of rows ..."
+// Anchor at start — but read the leading-whitespace trap under
+// "Cross-version" before hand-rolling the regex.
 await page
   .getByRole("option")
   .filter({ hasText: /^hdx_query_max_rows/ })
@@ -183,67 +182,53 @@ await queryRow.getByLabel("hdx_query_max_rows").fill("42");
 
 ### Cross-Grafana-version locator differences
 
-The CI matrix runs Grafana 10.4.x, 11.5.x, 12.0.x, 12.3.x, 13.0.x. Three on-page widgets render differently across that range; tests that touch them need version-agnostic locators.
+The CI matrix runs Grafana 11.6.x, 12.4.x, 13.0.x, 13.1.x, 13.2.x plus `nightly`. Three on-page widgets render differently across that range; tests that touch them need version-agnostic locators.
 
 **Dashboard variable picker on the dashboard page**
 
-| Grafana    | Markup                                                 |
-| ---------- | ------------------------------------------------------ |
-| 10.x       | `<button aria-label="$varName">` containing the value  |
-| 11.x–13.x  | react-select wrapped in `[data-value=""]` (no role)    |
+Across 11.x–13.x this is a react-select wrapped in `[data-value=""]` with **no role** — there is no `button` or `combobox` to match, so the wrapper is the only reliable entry point.
 
 ```ts
-// Open the variable picker (works on 10.x and 11.x–13.x).
-await page
-  .getByRole("button", { name: "tbl", exact: true })   // 10.x
-  .or(page.locator('[data-value=""]'))                  // 11.x–13.x
-  .first()
-  .click();
+// Open the variable picker.
+await page.locator('[data-value=""]').first().click();
 ```
 
 **Dashboard variable dropdown items (after opening the picker)**
 
-| Grafana    | Role         | Accessible name              |
-| ---------- | ------------ | ---------------------------- |
-| 10.x       | `checkbox`   | the value text (e.g. `no_such_table`) |
-| 11.x–13.x  | `option`     | the value text                |
+Across 11.x–13.x items are `role="option"` with the value text as the accessible name.
 
 ```ts
-await page
-  .getByRole("option", { name: "no_such_table" })           // 11.x–13.x
-  .or(page.getByRole("checkbox", { name: "no_such_table" })) // 10.x
-  .first()
-  .click();
+await page.getByRole("option", { name: "no_such_table" }).first().click();
 ```
 
 **QuerySettings Select option (accessible name vs inner text)**
 
-react-select renders one `<option>` per setting on every version, but the *accessible name* differs:
+react-select renders one `<option>` per setting on every version. Across 11.x–13.x the accessible name and the inner text agree — both read `"hdx_query_max_rows Set the maximum…"`.
 
-| Grafana    | Option accessible name                       | Option inner text                        |
-| ---------- | -------------------------------------------- | ---------------------------------------- |
-| 10.x       | `"Select option"` (constant — useless)       | `"hdx_query_max_rowsSet the maximum…"` (no separator) |
-| 11.x–13.x  | `"hdx_query_max_rows Set the maximum…"`      | `"hdx_query_max_rows Set the maximum…"`  |
-
-Use `.filter({ hasText: /^prefix/ })` against inner text — works on both. Avoid `\b` after the prefix: on 10.x there's no word boundary between the setting name and the description start (`...rowsSet...`).
+Match with `.filter({ hasText: /^prefix/ })` against **inner text** rather than by accessible name: the description is appended to the name, so `getByRole("option", { name })` needs the full string, while the prefix filter needs only the setting. Mind the leading-whitespace trap below.
 
 **Leading-whitespace trap on 11.5–12.x option markup.** Some option lists (observed: the ad-hoc filter operator listbox) indent the option's inner markup, so its raw text content starts with a newline. A bare `^prefix` anchor then matches **nothing** — the option is on screen and visible, yet `hasText` reports zero matches and the click times out. Anchor with `^\s*prefix` instead. `pickOptionByPrefix` / `pickOptionByExactText` in `tests/grafanaSelect.ts` already do this; the trap only bites hand-rolled regexes.
 
-**Dashboard ad-hoc filters variable — three renderers**
+**Dashboard ad-hoc filters variable — one renderer, two placeholders**
 
-| Grafana            | Renderer  | Entry point                                            |
-| ------------------ | --------- | ------------------------------------------------------ |
-| 10.4               | segments  | `+` button (`Add Filter`) → key / `=` / value segment buttons (`AdHocFilterKey-*` / `AdHocFilterValue-*` test ids) |
-| 11.5 – 12.3        | combobox  | `input[placeholder="Filter by label values"]`          |
-| 13.x               | combobox  | `input[placeholder="+ label = value"]`                 |
+Every supported version uses the combobox renderer; only the placeholder moved.
 
-What triggers the value preload (`getTagValues`) also differs: picking the operator (combobox) vs clicking the value segment (segments). Don't hand-roll this — drive it through the `AdHocFilter` page-object (`tests/adHocFilter.ts`), which probes the DOM for the renderer (13.x's `AdHocFilter-label-announcer` live-region makes prefix test-id sniffing unreliable) and hides the differences behind `selectKey` / `openValues` / `reopenValues` / `pickValue` / `typeValue` / `dismiss`.
+| Grafana      | Entry point                                    |
+| ------------ | ---------------------------------------------- |
+| 11.x – 12.x  | `input[placeholder="Filter by label values"]`  |
+| 13.x         | `input[placeholder="+ label = value"]`         |
+
+The value preload (`getTagValues`) fires when the operator is picked. Don't hand-roll this — drive it through the `AdHocFilter` page-object (`tests/adHocFilter.ts`), which hides the placeholder difference behind `selectKey` / `openValues` / `reopenValues` / `pickValue` / `typeValue` / `dismiss`.
+
+Don't sniff for the combobox by test-id prefix either: 13.x renders an `AdHocFilter-label-announcer` live region that matches the same prefixes and makes that check unreliable.
+
+> The page-object still carries a `segments` renderer branch that only Grafana 10.4 ever used. It is unreachable on every supported version and is slated for removal — do not write new tests against it.
 
 **Dashboard settings button**
 
 | Grafana    | Accessible name        |
 | ---------- | ---------------------- |
-| 10.x–11.x  | `Dashboard settings`   |
+| 11.x       | `Dashboard settings`   |
 | 12.x–13.x  | `Settings`             |
 
 If you actually need to click into Settings → Variables (rare — prefer the API approach below), use `getByRole("button", { name: /^(?:Dashboard )?[Ss]ettings$/ })`.
@@ -467,14 +452,14 @@ Before reaching for raw locator chains, check whether one of the existing helper
 
 `tests/grafanaSelect.ts` — cross-version Select helpers:
 - `openGrafanaSelect(root)` — clicks the `[data-value=""]` wrapper scoped to `root.last()`.
-- `pickOption(page, name)` — page-scoped, `getByRole("option").or(getByRole("checkbox"))` to span 11+ vs 10.
+- `pickOption(page, name)` — page-scoped `getByRole("option")` match. (It still carries an `.or(getByRole("checkbox"))` fallback for Grafana 10's markup; that arm is now dead.)
 - `pickOptionByPrefix(page, prefix)` — same but matches by inner-text prefix (no `\b` after the prefix; tolerates leading whitespace — see Cross-version section).
-- `pickOptionByExactText(page, text)` / `optionByExactText(page, text)` — exact inner-text match, whitespace-tolerant, regex-escaped. Use when the label is a prefix of a sibling (`status` vs `status_null`) or on 10.x where every option's accessible name is the constant "Select option".
+- `pickOptionByExactText(page, text)` / `optionByExactText(page, text)` — exact inner-text match, whitespace-tolerant, regex-escaped. Use when the label is a prefix of a sibling (`status` vs `status_null`).
 - `visibleOptionTexts(page)` — trimmed inner text of every rendered option; the building block for "which values did the dropdown offer" assertions.
 
-`tests/adHocFilter.ts` — `AdHocFilter` page-object for the dashboard's ad-hoc filters variable (three renderers across the matrix — see Cross-version section):
+`tests/adHocFilter.ts` — `AdHocFilter` page-object for the dashboard's ad-hoc filters variable (one renderer, two placeholders across the matrix — see Cross-version section):
 - `new AdHocFilter(page)` then `selectKey(key)`, `openValues({timeout, waitForOptions})` → `{options, elapsedMs}`, `reopenValues(key, opts)` (proves a second `getTagValues` fires), `pickValue(value)`, `typeValue(value)` (manual entry of a non-suggested value), `dismiss()`.
-- `elapsedMs` starts at the click that actually issues `getTagValues` on each renderer, so timing-budget assertions are comparable across versions. `waitForOptions: false` is for preloads that legitimately return nothing.
+- `elapsedMs` starts at the click that actually issues `getTagValues`, so timing-budget assertions are comparable across versions. `waitForOptions: false` is for preloads that legitimately return nothing.
 
 `tests/queryEditorRow.ts` — `QueryEditorRow` page-object wrapping `panelEditPage.getQueryEditorRow(refId)`:
 - `setSql(sql)`, `setRound(duration)`, `openQuerySettings()`, `addQuerySetting(name, value)`, `toggleInterpolatedQuery(show)`.
@@ -583,9 +568,9 @@ docker compose up -d --no-deps grafana          # --no-deps skips keycloak
 until curl -sf http://localhost:3000/api/health >/dev/null; do sleep 2; done
 ```
 
-The suite has been verified against `10.4.16`, `11.5.4`, `12.0.2`, `12.3.1`, `13.0.1`. Budget **1–2 min** (build arg change is layer-cache friendly; the slow step is Grafana's first-startup plugin install via mage) plus **2–3 min** per test run.
+The suite has been verified against `11.5.4`, `12.0.2`, `12.3.1`, `13.2.1`. Budget **1–2 min** (build arg change is layer-cache friendly; the slow step is Grafana's first-startup plugin install via mage) plus **2–3 min** per test run.
 
-Note: these local toggles are the *earliest minor we still support* per channel. The CI matrix (`.github/`) uses the latest patch within each minor — `10.4.18`, `11.6.1`, `12.0.2`, `13.0.1` — so what passes locally on `10.4.16` should pass on `10.4.18` in CI, but minor-version skews are the place to look first when a Grafana-side test breaks only in CI.
+Note: these local toggles are the *earliest minor we still support* per channel and sit below the CI matrix, which uses the latest patch within each minor — `11.6.16`, `12.4.10`, `13.0.8`, `13.1.5`, `13.2.1`, plus `nightly`. What passes locally on `11.5.4` should pass on `11.6.16` in CI, but minor-version skews are the place to look first when a Grafana-side test breaks only in CI.
 
 ### Pointing tests at a non-compose Grafana
 
@@ -615,7 +600,7 @@ If a freshly-built grafana container is unresponsive on `:3000`, check `docker e
 - `@playwright/test ^1.52.0` (resolves to **1.59.1** today).
 - `@grafana/plugin-e2e ^3.4.1` (resolves to **3.7.0**; latest stable 3.7.2; no 4.x yet).
 - Peer-dep alignment: bumping `plugin-e2e` is the lever, not `@playwright/test` standalone. Re-evaluate when 4.x lands.
-- Verified Grafana versions (this branch): 10.4.16, 11.5.4, 12.0.2, 12.3.1, 13.0.1. CI matrix in `.github/`: 10.4.18, 11.6.1, 12.0.2, 13.0.1.
+- Verified Grafana versions (this branch): 11.5.4, 12.0.2, 12.3.1, 13.2.1. CI matrix in `.github/`: 11.6.16, 12.4.10, 13.0.8, 13.1.5, 13.2.1, plus `nightly`. Declared floor: `>=11.0.0` (`src/plugin.json`).
 
 ## Gaps still worth filling (audit reference)
 
