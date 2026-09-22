@@ -15,7 +15,7 @@
  *
  * Building the runtime on `React.createElement` instead uses only public API,
  * so one bundle works on React 16 through 19 and `grafanaDependency` can stay
- * at `>=10.4.0`.
+ * at `>=11.0.0`.
  *
  * `createElement` reads `children` straight off the props object and extracts
  * `key`, so both runtimes reduce to a single call. `jsxs` (static children,

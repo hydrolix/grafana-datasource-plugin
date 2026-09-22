@@ -113,8 +113,9 @@ Host Go picks up the wrong toolchain. See `build-plugin`.
   (`getTagKeys` / `getTagValues`) read range + filters from the options
   argument Grafana passes them.
 - `adHocPreloadRange()` resolves the ad-hoc preload window:
-  options range → template-service range (load-bearing on Grafana 10.4,
-  which never populates `options.timeRange`) → trailing-24h lookback.
+  options range → template-service range (defensive since the Grafana 11
+  floor; it was load-bearing on 10.4, which never populated
+  `options.timeRange`) → trailing-24h lookback.
   The result is capped to the trailing 24h
   (`AD_HOC_PRELOAD_LOOKBACK_SECONDS`), and metadata queries snap endpoints
   via `round: "5m"` so repeated dropdown opens issue identical SQL.

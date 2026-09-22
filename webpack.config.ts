@@ -15,7 +15,7 @@ import grafanaConfig, { Env } from './.config/webpack/webpack.config';
  * `src/` compiles with the classic JSX transform and never emits these
  * imports, but pre-built dependencies do (`@grafana/assistant` ships JSX
  * compiled with the automatic runtime). Bundling the runtime shim instead
- * costs ~2 KB and keeps `grafanaDependency: ">=10.4.0"` in `src/plugin.json`
+ * costs ~2 KB and keeps `grafanaDependency: ">=11.0.0"` in `src/plugin.json`
  * truthful.
  *
  * Drop this override once the plugin's minimum supported Grafana is >= 12.3.

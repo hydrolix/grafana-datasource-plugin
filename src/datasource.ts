@@ -526,15 +526,18 @@ export class DataSource extends DataSourceWithBackend<
   }
 
   /**
-   * Grafana 10.4 — the floor `plugin.json` declares — does not populate
-   * `timeRange` on the tag-keys options, even though the field has existed on
-   * `DataSourceFilteringRequestOptions` since 10.3. On that version the
-   * dashboard window is reachable only through the template service, so this
-   * fallback is load-bearing, not defensive: without it
-   * `tests/adHocMapKeys.spec.ts` fails on 10.4.18 (map keys resolve against a
-   * now-relative window instead of the dashboard's, find no rows, and the Map
-   * column disappears from the dropdown) while passing on 11.6.1 / 12.0.2 /
-   * 13.0.1. Re-check against the CI matrix before removing it.
+   * Fallback for a `getTagKeys` / `getTagValues` call whose options arrive
+   * without a populated `timeRange`.
+   *
+   * Now defensive rather than load-bearing. It was load-bearing on Grafana
+   * 10.4, which left the field unset even though it has existed on
+   * `DataSourceFilteringRequestOptions` since 10.3; every version at or above
+   * the current `>=11.0.0` floor populates it. Kept because the cost is one
+   * property read and the failure it prevents is silent rather than loud: an
+   * unresolved range falls through to a relative window, the metadata query
+   * finds no rows, and the column simply disappears from the dropdown with no
+   * error surfaced. That is exactly how it failed on 10.4.18, caught only by
+   * `tests/adHocMapKeys.spec.ts`.
    *
    * `timeRange` is absent from the published `TemplateSrv` type — `runQuery`
    * reads it the same way — so the value carries no type guarantee. Shape-guard
