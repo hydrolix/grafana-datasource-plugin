@@ -9,7 +9,7 @@ import {
 import { DashboardBuilder } from "./dashboardBuilder";
 
 /**
- * The dashboard JSON model is stable across Grafana 10–13; the
+ * The dashboard JSON model is stable across Grafana 11–13; the
  * annotation field-mapping UI is not. These tests prove the
  * frontend integration end-to-end at three levels:
  *
@@ -25,7 +25,7 @@ import { DashboardBuilder } from "./dashboardBuilder";
  *      with the annotation name visible. Grafana's on-panel marker is
  *      drawn directly onto uPlot's canvas with no stable test-id, so the
  *      submenu wrapper is the highest-fidelity DOM signal we can assert
- *      reliably across Grafana 10–13 (`annotationsWrapper` has been
+ *      reliably across Grafana 11–13 (`annotationsWrapper` has been
  *      versioned since 10.0.0).
  *
  * SQL uses hardcoded SELECTs so no ClickHouse table or fixture is
@@ -139,15 +139,13 @@ test("instant annotation: source='annotation' on the wire, time frame back, chip
   expect(frameFields).not.toContain("timeEnd");
 
   // 3. Chrome side: the annotation submenu renders an enable toggle for the
-  //    annotation, checked because the annotation is enabled. The toggle role
-  //    differs across versions:
-  //      - Grafana 10.x:    role="checkbox"
-  //      - Grafana 11+:     role="switch" (Scenes layout)
-  //    Both expose the annotation name as the accessible name, so we match by
-  //    name across either role.
-  const annotationToggle = page
-    .getByRole("switch", {name: annotationName, exact: true})
-    .or(page.getByRole("checkbox", {name: annotationName, exact: true}));
+  //    annotation, checked because the annotation is enabled. The Scenes
+  //    layout renders it as role="switch" with the annotation name as its
+  //    accessible name.
+  const annotationToggle = page.getByRole("switch", {
+    name: annotationName,
+    exact: true,
+  });
   await expect(annotationToggle.first()).toBeVisible({timeout: 30000});
   await expect(annotationToggle.first()).toBeChecked();
 });
@@ -209,15 +207,13 @@ test("region annotation: source='annotation' on the wire, timeEnd frame back, ch
   expect(frameFields).toContain("timeEnd");
 
   // 3. Chrome side: the annotation submenu renders an enable toggle for the
-  //    annotation, checked because the annotation is enabled. The toggle role
-  //    differs across versions:
-  //      - Grafana 10.x:    role="checkbox"
-  //      - Grafana 11+:     role="switch" (Scenes layout)
-  //    Both expose the annotation name as the accessible name, so we match by
-  //    name across either role.
-  const annotationToggle = page
-    .getByRole("switch", {name: annotationName, exact: true})
-    .or(page.getByRole("checkbox", {name: annotationName, exact: true}));
+  //    annotation, checked because the annotation is enabled. The Scenes
+  //    layout renders it as role="switch" with the annotation name as its
+  //    accessible name.
+  const annotationToggle = page.getByRole("switch", {
+    name: annotationName,
+    exact: true,
+  });
   await expect(annotationToggle.first()).toBeVisible({timeout: 30000});
   await expect(annotationToggle.first()).toBeChecked();
 });

@@ -487,7 +487,7 @@ test("runs a SELECT and renders fixture rows in the table panel", async ({
  *
  * The dashboard (a Custom variable `tbl` + a panel that selects from
  * `e2e.$tbl`) is created through Grafana's HTTP API rather than the
- * Settings → Variables UI: that UI has moved across Grafana 10/11/12/13
+ * Settings → Variables UI: that UI has moved across Grafana 11/12/13
  * (button names, tab labels, input labels) and was the source of the
  * previous flake. The JSON model is stable.
  *
@@ -535,11 +535,9 @@ test("template variable is substituted into the outgoing SQL", async ({
     })
     .toBe(true);
 
-  // Switch the variable via the on-page picker. VariablePicker handles the
-  // Grafana 10 (button + checkbox list) vs 11+ (react-select + option list)
-  // split internally.
+  // Switch the variable via the on-page picker (the dashboard's only one).
   capturedSqls.length = 0;
-  await new VariablePicker("tbl", page).select("no_such_table");
+  await new VariablePicker(page).select("no_such_table");
 
   await dashboardPage.refreshDashboard();
 

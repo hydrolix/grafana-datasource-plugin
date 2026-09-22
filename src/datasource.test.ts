@@ -1133,10 +1133,11 @@ describe("HdxDataSource", () => {
       return mock;
     }
 
-    // Grafana 10.4 (the declared floor) does not populate `timeRange` on the
-    // tag-keys options, so the template service is the only route to the
-    // dashboard window there. Covered end-to-end by adHocMapKeys.spec.ts,
-    // which fails on 10.4.18 without this fallback.
+    // Defensive fallback, pinned here because its failure mode is silent:
+    // every Grafana at or above the >=11.0.0 floor populates `timeRange` on
+    // the tag-keys options, but an unresolved range yields a relative window,
+    // no rows, and a column that vanishes from the dropdown without an error.
+    // Covered end-to-end by adHocMapKeys.spec.ts.
     it("falls back to the template service range for tag-keys preload", async () => {
       const { datasource, queryMock, templateService } = setupMapKeysMock();
 

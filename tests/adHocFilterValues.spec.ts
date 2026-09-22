@@ -25,11 +25,10 @@ import { AdHocFilter } from "./adHocFilter";
  *   trailing 24h:    2025-04-19T00:00:00Z .. 2025-04-20T00:00:00Z
  *   "old_only" row:  2025-04-18T23:00:00Z (1h before the trailing window)
  *
- * Locator notes: Grafana renders this variable with two structurally
- * different widgets across the CI matrix — segment buttons on 10.4, a single
- * combobox from 11.5 on (with the placeholder changing again at 13) — so all
- * interaction goes through `tests/adHocFilter.ts`, which branches on
- * whichever is present. Read that file before changing any step here.
+ * Locator notes: Grafana renders this variable as a single combobox on every
+ * supported version, but the placeholder changes at 13 — so all interaction
+ * goes through `tests/adHocFilter.ts`, which matches either spelling. Read
+ * that file before changing any step here.
  */
 
 const FIXTURE_TABLE = "e2e.adhoc_topk";
