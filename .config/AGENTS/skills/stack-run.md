@@ -230,7 +230,6 @@ build:
 #    grafana_version: 12.3.1
 #    grafana_version: 12.0.2
 #    grafana_version: 11.5.4
-#    grafana_version: 10.4.16
 ```
 
 Swap the active line, then:
