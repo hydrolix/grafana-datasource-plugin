@@ -11,10 +11,28 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # apt + node 24 via NodeSource. Pinned to noble's nodesource setup. The
 # project's package.json `engines` requires Node ≥ 24; the older 20 build
 # only emits an EBADENGINE warning and silently mismatches deps — foot-gun.
+# (No Ubuntu suite carries Node 24: noble ships 18, resolute ships 22.)
+#
+# The setup script is downloaded to disk and checked against a recorded
+# sha256 instead of being piped straight into bash — a pipe executes the
+# bytes as they arrive, leaving nothing to verify. NodeSource publishes no
+# checksum or signature of its own, so this digest is trust-on-first-use:
+# recorded 2026-09-22, and it pins the bootstrap only. The bytes that
+# actually get installed are verified separately by apt against the
+# NodeSource GPG key the script imports.
+#
+# The script carries no version stamp and NodeSource rewrites it without
+# notice, so their next rewrite surfaces here as a build failure. Re-record
+# it after reading the diff:
+#   curl -fsSL https://deb.nodesource.com/setup_24.x | sha256sum
+ARG NODESOURCE_SETUP_SHA256=6e3d580f5bd7ccf2aa1e8df8d35c60d78e873c3ff8beb282c9bebd914904ad72
 RUN apt-get update -qq \
  && apt-get install -y -qq --no-install-recommends \
         ca-certificates curl gnupg \
- && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+ && curl -fsSL -o /tmp/nodesource_setup.sh https://deb.nodesource.com/setup_24.x \
+ && echo "${NODESOURCE_SETUP_SHA256}  /tmp/nodesource_setup.sh" | sha256sum -c - \
+ && bash /tmp/nodesource_setup.sh \
+ && rm -f /tmp/nodesource_setup.sh \
  && apt-get install -y -qq --no-install-recommends nodejs \
  && rm -rf /var/lib/apt/lists/*
 
