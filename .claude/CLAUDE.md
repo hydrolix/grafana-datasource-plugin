@@ -116,8 +116,10 @@ Host Go picks up the wrong toolchain. See `build-plugin`.
   options range → template-service range (defensive since the Grafana 11
   floor; it was load-bearing on 10.4, which never populated
   `options.timeRange`) → trailing-24h lookback.
-  The result is capped to the trailing 24h
-  (`AD_HOC_PRELOAD_LOOKBACK_SECONDS`), and metadata queries snap endpoints
+  The result is capped to the datasource's `adHocTimeRangeLookback`
+  (default 24h, `AD_HOC_PRELOAD_LOOKBACK_SECONDS`; parsed by
+  `parseLookbackSeconds`), which also sizes the fallback window and the
+  `hdx_query_max_timerange_sec` guardrail. Metadata queries snap endpoints
   via `round: "5m"` so repeated dropdown opens issue identical SQL.
 - `ZERO_TIME_RANGE` is the sentinel `{from: 0, to: 0}` defined in
   `src/editor/metadataProvider.ts`. `executeQuery` substitutes it when no

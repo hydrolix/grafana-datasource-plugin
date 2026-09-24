@@ -5,7 +5,6 @@ import "@testing-library/jest-dom";
 import fs from "fs";
 import { HdxDataSourceOptions } from "types";
 import allLabels from "labels";
-import defaultConfigs from "defaultConfigs";
 
 const pluginJson = JSON.parse(fs.readFileSync("./src/plugin.json", "utf-8"));
 
@@ -29,7 +28,6 @@ function getDefaultProps(overrides: HdxDataSourceOptions) {
         port: 433,
         useDefaultPort: false,
         username: "use",
-        adHocDefaultTimeRange: defaultConfigs.adHocDefaultTimeRange,
         ...overrides,
       },
       secureJsonData: { password: "pass" },
@@ -93,6 +91,58 @@ describe("ConfigEditor", () => {
       .querySelector("input")!;
     fireEvent.blur(round);
     expect(onOptionsChange).not.toHaveBeenCalled();
+  });
+
+  it("does not backfill jsonData when opening an existing datasource", () => {
+    const onOptionsChange = jest.fn();
+    render(
+      <ConfigEditor {...getDefaultProps({})} onOptionsChange={onOptionsChange} />
+    );
+    expect(onOptionsChange).not.toHaveBeenCalled();
+  });
+
+  it("renders the ad hoc lookback input with the stored value", () => {
+    render(
+      <ConfigEditor {...getDefaultProps({ adHocTimeRangeLookback: "6h" })} />
+    );
+    expandAdditionalSettings();
+    const lookback = screen.getByLabelText(
+      labels.adHocTimeRangeLookback.label
+    ) as HTMLInputElement;
+    expect(lookback.value).toBe("6h");
+    expect(lookback.placeholder).toBe("24h");
+    expect(screen.queryByText("invalid duration")).not.toBeInTheDocument();
+  });
+
+  it("flags an invalid ad hoc lookback without clearing it on blur", () => {
+    const onOptionsChange = jest.fn();
+    render(
+      <ConfigEditor
+        {...getDefaultProps({ adHocTimeRangeLookback: "abc" })}
+        onOptionsChange={onOptionsChange}
+      />
+    );
+    expandAdditionalSettings();
+    expect(screen.getByText("invalid duration")).toBeInTheDocument();
+    fireEvent.blur(screen.getByLabelText(labels.adHocTimeRangeLookback.label));
+    expect(onOptionsChange).not.toHaveBeenCalled();
+  });
+
+  it("writes the ad hoc lookback to jsonData on change", () => {
+    const onOptionsChange = jest.fn();
+    render(
+      <ConfigEditor {...getDefaultProps({})} onOptionsChange={onOptionsChange} />
+    );
+    expandAdditionalSettings();
+    fireEvent.change(
+      screen.getByLabelText(labels.adHocTimeRangeLookback.label),
+      { target: { value: "7d" } }
+    );
+    expect(onOptionsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        jsonData: expect.objectContaining({ adHocTimeRangeLookback: "7d" }),
+      })
+    );
   });
 
   // it('port input is enabled', () => {

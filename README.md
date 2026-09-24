@@ -55,8 +55,8 @@ Following is the list of Hydrolix configuration options.
   nearest multiple of this value. For more details, see [Round timestamps](#round-timestamps).
 - **Ad hoc filter table variable name** (optional) - Variable defines which table to use for retrieving ad hoc filter
   columns and values.
-- **Ad hoc filter default time range** (optional) - Default time range for time filtering when dashboard time range is
-  not available
+- **Ad hoc filter suggestion lookback** (optional) - Trailing window for ad hoc filter key and value suggestions (for
+  example `30m`, `24h`, `7d`). Defaults to `24h`. See [Value suggestion guardrails](#value-suggestion-guardrails).
 - **Ad hoc filter values query condition variable name** (optional) - Name of a dashboard variable that defines query condition to filter ad hoc filter values
 - **Dial timeout** (optional) - Connection timeout in seconds.
 - **Query timeout** (optional) - Read timeout in seconds.
@@ -277,7 +277,7 @@ To enable ad hoc filters, both the data source and the dashboard must be configu
 
    - **Ad hoc filter table variable name**: the name of a dashboard variable that defines the table used to retrieve column
      names and their values for ad hoc filters.
-   - **Ad hoc filter default time range**: a default time range to use when the dashboard time range is unavailable.
+   - **Ad hoc filter suggestion lookback**: the trailing window used for key and value suggestions (default `24h`).
 
 2. In the target dashboard, create a variables using the exact name defined in the data source settings  **A variable for the table name**
 
@@ -331,11 +331,13 @@ filters.
 To keep the ad hoc filter value dropdown responsive on high-cardinality columns and long dashboard time ranges, value
 suggestions are computed by a bounded, best-effort query rather than an exhaustive scan:
 
-- **Trailing 24h window**: suggestions are computed over the trailing 24 hours of the dashboard's time range (rounded
-  to 5-minute boundaries). A value that last occurred earlier than that window will not appear in the suggestions, but
-  it can still be entered manually and used as a filter — the applied filter itself is unaffected.
+- **Trailing lookback window**: suggestions are computed over a trailing lookback of the dashboard's time range
+  (default 24h, set with **Ad hoc filter suggestion lookback**; rounded to 5-minute boundaries). When no dashboard time
+  range is available, the window is the trailing lookback ending now. A value that last occurred earlier than that
+  window will not appear in the suggestions, but it can still be entered manually and used as a filter — the applied
+  filter itself is unaffected. An empty or invalid lookback falls back to 24h.
 - **`Map` column keys**: for a `Map` column the key dropdown offers `column['key']` entries discovered by scanning the
-  same trailing 24-hour window, so a key that did not occur in that window is not offered and must be typed in. Keys
+  same trailing lookback window, so a key that did not occur in that window is not offered and must be typed in. Keys
   for plain (non-`Map`) columns come from `DESCRIBE` and are always listed in full.
 - **Approximate top values**: up to 100 of the most frequent values are returned using an approximate (`topK`)
   aggregation, so inclusion and ordering near the cutoff are approximate rather than exact.
@@ -349,11 +351,12 @@ suggestions are computed by a bounded, best-effort query rather than an exhausti
   setting still applies to *all* queries from the data source, not only metadata lookups — it is only the metadata
   breaker's own effective value that is capped at 10 seconds.
 - **Partial results on timeout**: the value-suggestion and map-key queries also carry
-  `SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000` in the SQL text. Where the engine
+  `SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = <lookback + 600>` in the SQL text (`87000`
+  with the default 24h lookback). Where the engine
   honors `timeout_overflow_mode = 'break'`, hitting the execution-time cap returns the top values computed over the
   rows read so far instead of failing the query; if the cap is hit before any values are aggregated, the dropdown
   simply shows no suggestions. `hdx_query_max_timerange_sec` is a server-side
-  backstop for the trailing-24h window above and is not configurable from the data source settings.
+  backstop for the trailing lookback window above and follows it: the lookback plus 10 minutes of rounding slack.
 
 Because of these bounds the dropdowns are a convenience, not the set of filters the plugin accepts — a key or value
 missing from a suggestion list still filters correctly once applied. Typing one in requires **Allow custom values** on

@@ -801,4 +801,24 @@ describe("getQueryRunner guardrails", () => {
       expect(sql).toContain("hdx_query_max_timerange_sec = 87000");
     });
   });
+
+  it("sizes the timerange guardrail from an explicit lookback", () => {
+    const valueSql = getColumnValuesStatement(
+      "clientIP",
+      "sample.log",
+      "ts",
+      "",
+      3600
+    );
+    const mapSql = getColumnKeysForMapStatement(
+      "attributes",
+      "sample.log",
+      3600
+    );
+
+    [valueSql, mapSql].forEach((sql) => {
+      expect(sql).toContain("hdx_query_max_timerange_sec = 4200");
+      expect(sql).not.toContain("${settings}");
+    });
+  });
 });

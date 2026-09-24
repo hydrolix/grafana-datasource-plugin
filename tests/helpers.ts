@@ -593,7 +593,7 @@ interface ConfigPageLocator {
 
     adHocConditionVariable(): Locator;
 
-    adHocDefaultTimeRangeTimeselect(): Locator;
+    adHocTimeRangeLookback(): Locator;
 
     dialTimeout(): Locator;
 

@@ -1,5 +1,8 @@
 import { dateTime, makeTimeRange } from "@grafana/data";
-import { deriveInterpolationInterval } from "./timeRangeUtils";
+import {
+  deriveInterpolationInterval,
+  parseLookbackSeconds,
+} from "./timeRangeUtils";
 import { DEFAULT_INTERPOLATION_RESOLUTION } from "../constants";
 
 const TO_MS = 1_700_000_000_000;
@@ -86,4 +89,22 @@ describe("deriveInterpolationInterval", () => {
       `${DAY}ms`
     );
   });
+});
+
+describe("parseLookbackSeconds", () => {
+  it.each([
+    ["24h", 86400],
+    ["30m", 1800],
+    ["7d", 604800],
+    [" 6h ", 21600],
+  ])("parses %p to %p seconds", (value, seconds) => {
+    expect(parseLookbackSeconds(value)).toBe(seconds);
+  });
+
+  it.each([[""], [undefined], ["abc"], ["0"], ["-5m"], ["   "]])(
+    "rejects %p",
+    (value) => {
+      expect(parseLookbackSeconds(value)).toBeUndefined();
+    }
+  );
 });

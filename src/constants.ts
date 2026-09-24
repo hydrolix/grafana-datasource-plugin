@@ -16,6 +16,8 @@ export const FUNCTIONS_SQL = "SELECT name FROM  system.functions";
 
 export const AD_HOC_VALUE_TOP_K = 100;
 
+// Default ad-hoc preload lookback, used when the datasource's
+// `adHocTimeRangeLookback` is unset or invalid.
 export const AD_HOC_PRELOAD_LOOKBACK_SECONDS = 86400;
 export const AD_HOC_PRELOAD_ROUND_INTERVAL = "5m";
 export const AD_HOC_PRELOAD_ROUND_INTERVAL_SECONDS = 300;
@@ -31,11 +33,16 @@ export const METADATA_QUERY_TIMEOUT_SETTING = "hdx_query_max_execution_time";
 export const METADATA_QUERY_TIMEOUT_SETTING_ALIAS = "max_execution_time";
 export const METADATA_QUERY_TIMEOUT_VALUE = "10";
 
-const AD_HOC_QUERY_GUARDRAIL_SETTINGS = `SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = ${AD_HOC_PRELOAD_MAX_TIMERANGE_SECONDS}`;
+// The timerange guardrail follows the datasource's lookback, padded by one
+// round interval on each side so a `round`-snapped window still fits.
+export const adHocGuardrailSettings = (lookbackSeconds: number): string =>
+  `SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = ${
+    lookbackSeconds + 2 * AD_HOC_PRELOAD_ROUND_INTERVAL_SECONDS
+  }`;
 
 export const AD_HOC_KEY_QUERY = "DESCRIBE ${table}";
-export const AD_HOC_MAP_KEY_QUERY = `SELECT distinct(arrayJoin(mapKeys(\${column}))) FROM \${table} WHERE $__timeFilter() AND $__adHocFilter() ${AD_HOC_QUERY_GUARDRAIL_SETTINGS}`;
-export const AD_HOC_VALUE_QUERY = `SELECT arrayJoin(topK(${AD_HOC_VALUE_TOP_K})(\${column})) AS value FROM \${table} WHERE $__timeFilter(\${timeColumn}) AND $__adHocFilter() \${condition} ${AD_HOC_QUERY_GUARDRAIL_SETTINGS}`;
+export const AD_HOC_MAP_KEY_QUERY = `SELECT distinct(arrayJoin(mapKeys(\${column}))) FROM \${table} WHERE $__timeFilter() AND $__adHocFilter() \${settings}`;
+export const AD_HOC_VALUE_QUERY = `SELECT arrayJoin(topK(${AD_HOC_VALUE_TOP_K})(\${column})) AS value FROM \${table} WHERE $__timeFilter(\${timeColumn}) AND $__adHocFilter() \${condition} \${settings}`;
 
 export const SUPPORTED_TYPES = [
   "DateTime",
