@@ -94,17 +94,18 @@ export default {
           description: "Used when no specific database is provided in queries",
           placeholder: "sample",
         },
-        adHocDefaultTimeRange: {
-          testId: "data-testid hdx_adHocFilterTimeRange",
-          label: "Ad hoc filter default time range",
+        adHocTimeRangeLookback: {
+          testId: "data-testid hdx_adHocTimeRangeLookback",
+          label: "Ad hoc filter suggestion lookback",
           description:
-            "Default time range for time filtering when the dashboard time range is not available",
+            "Maximum trailing window for ad hoc filter key and value suggestions. Supported units: s, m, h (e.g. 30m, 6h, 24h). Longer dashboard ranges are capped to it, and it is also the window used when no dashboard time range is available. Leave empty for the default of 24h",
+          placeholder: "24h",
         },
         adHocTableVariable: {
           testId: "data-testid hdx_adHocTableVariable",
           label: "Ad hoc filter table variable name",
           description:
-            "Name of a dashboard variable that defines which table to use for retrieving ad hoc filter columns and values. Column and value suggestions are bounded (approximate top values over a trailing 24h window), so enable 'Allow custom values' on the ad hoc variable to let users filter on a key or value the dropdown does not list",
+            "Name of a dashboard variable that defines which table to use for retrieving ad hoc filter columns and values. Column and value suggestions are bounded (approximate top values over a trailing lookback window, default 24h), so enable 'Allow custom values' on the ad hoc variable to let users filter on a key or value the dropdown does not list",
         },
         adHocConditionVariable: {
           testId: "data-testid hdx_adHocConditionVariable",

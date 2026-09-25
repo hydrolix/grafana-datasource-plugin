@@ -3,7 +3,6 @@ import {
   DataSourcePluginOptionsEditorProps,
   onUpdateDatasourceJsonDataOption,
   onUpdateDatasourceSecureJsonDataOption,
-  TimeRange,
 } from "@grafana/data";
 import {
   Alert,
@@ -20,7 +19,6 @@ import {
   Stack,
   Switch,
   TextArea,
-  TimeRangeInput,
 } from "@grafana/ui";
 import { ConfigSection } from "@grafana/plugin-ui";
 import {
@@ -31,7 +29,10 @@ import {
 } from "../types";
 import allLabels from "labels";
 import defaultConfigs from "defaultConfigs";
-import { QUERY_DURATION_REGEX } from "../editor/timeRangeUtils";
+import {
+  parseLookbackSeconds,
+  QUERY_DURATION_REGEX,
+} from "../editor/timeRangeUtils";
 import { getDefaultValue } from "../editor/editorUtils";
 import { SOLUTION_TEMPLATES } from "../errors/solutionTemplates";
 
@@ -58,14 +59,6 @@ export function ConfigEditor(props: Props) {
       onOptionsChange({
         ...options,
         jsonData: { ...options.jsonData, ...defaultConfigs },
-      });
-    } else if (!options.jsonData.adHocDefaultTimeRange) {
-      onOptionsChange({
-        ...options,
-        jsonData: {
-          ...options.jsonData,
-          adHocDefaultTimeRange: defaultConfigs.adHocDefaultTimeRange,
-        },
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -245,15 +238,6 @@ export function ConfigEditor(props: Props) {
     });
   };
 
-  const onUpdateTimeRange = (e: TimeRange) => {
-    onOptionsChange({
-      ...options,
-      jsonData: {
-        ...options.jsonData,
-        adHocDefaultTimeRange: e,
-      },
-    });
-  };
   const onQuerySettingsChange = (key: string) => {
     return (value: string) => {
       const querySettings = (jsonData?.querySettings ?? []).map((s) =>
@@ -334,6 +318,48 @@ export function ConfigEditor(props: Props) {
         jsonData: {
           ...options.jsonData,
           defaultRound: "",
+        },
+      });
+    }
+  };
+  // Validity comes from the same parser the datasource resolves with, so blur
+  // only clears values the runtime would ignore anyway. The advertised s/m/h
+  // units are guidance: a stored value in another accepted unit (e.g. `1d`)
+  // must survive someone merely viewing this page.
+  const isInvalidLookback = (value: unknown) => {
+    // Unset or blank means "use the default", which is valid.
+    if (value === undefined || value === null) {
+      return false;
+    }
+    if (typeof value === "string" && !value.trim()) {
+      return false;
+    }
+    // Anything else, including a non-string provisioned from YAML, is up to
+    // the shared parser.
+    return parseLookbackSeconds(value) === undefined;
+  };
+  const [invalidLookback, setInvalidLookback] = useState(() =>
+    isInvalidLookback(jsonData.adHocTimeRangeLookback)
+  );
+  const onLookbackChange = (e: FormEvent<HTMLInputElement>) => {
+    const lookback = e.currentTarget.value;
+    setInvalidLookback(isInvalidLookback(lookback));
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...options.jsonData,
+        adHocTimeRangeLookback: lookback,
+      },
+    });
+  };
+  const onLookbackBlur = () => {
+    if (invalidLookback) {
+      setInvalidLookback(false);
+      onOptionsChange({
+        ...options,
+        jsonData: {
+          ...options.jsonData,
+          adHocTimeRangeLookback: "",
         },
       });
     }
@@ -669,17 +695,22 @@ export function ConfigEditor(props: Props) {
             />
           </Field>
           <Field
-            data-testid={labels.adHocDefaultTimeRange.testId}
-            label={labels.adHocDefaultTimeRange.label}
-            description={labels.adHocDefaultTimeRange.description}
+            data-testid={labels.adHocTimeRangeLookback.testId}
+            error={"invalid duration"}
+            label={labels.adHocTimeRangeLookback.label}
+            description={labels.adHocTimeRangeLookback.description}
+            invalid={invalidLookback}
           >
-            <div style={{ width: "23em" }}>
-              <TimeRangeInput
-                value={jsonData.adHocDefaultTimeRange!}
-                onChange={onUpdateTimeRange}
-                aria-label={labels.adHocDefaultTimeRange.label}
-              />
-            </div>
+            <Input
+              name={"adHocTimeRangeLookback"}
+              width={40}
+              value={jsonData.adHocTimeRangeLookback || ""}
+              onChange={onLookbackChange}
+              onBlur={onLookbackBlur}
+              label={labels.adHocTimeRangeLookback.label}
+              aria-label={labels.adHocTimeRangeLookback.label}
+              placeholder={labels.adHocTimeRangeLookback.placeholder}
+            />
           </Field>
           <Field
             data-testid={labels.dialTimeout.testId}

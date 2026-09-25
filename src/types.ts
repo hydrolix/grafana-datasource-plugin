@@ -55,7 +55,7 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   skipTlsVerify?: boolean;
   defaultDatabase?: string;
   defaultRound?: string;
-  adHocDefaultTimeRange?: TimeRange;
+  adHocTimeRangeLookback?: string;
   adHocTableVariable?: string;
   adHocConditionVariable?: string;
   dialTimeout?: string;

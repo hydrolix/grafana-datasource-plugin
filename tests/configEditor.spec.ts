@@ -55,7 +55,7 @@ test("smoke: should render config editor", async ({
   await expect(configPage.defaultDatabase()).not.toBeVisible();
   await expect(configPage.defaultRound()).not.toBeVisible();
   await expect(configPage.adHocTableVariable()).not.toBeVisible();
-  await expect(configPage.adHocDefaultTimeRangeTimeselect()).not.toBeVisible();
+  await expect(configPage.adHocTimeRangeLookback()).not.toBeVisible();
   await expect(configPage.dialTimeout()).not.toBeVisible();
   await expect(configPage.queryTimeout()).not.toBeVisible();
 
@@ -65,7 +65,7 @@ test("smoke: should render config editor", async ({
   await expect(configPage.defaultDatabase()).toBeVisible();
   await expect(configPage.defaultRound()).toBeVisible();
   await expect(configPage.adHocTableVariable()).toBeVisible();
-  await expect(configPage.adHocDefaultTimeRangeTimeselect()).toBeVisible();
+  await expect(configPage.adHocTimeRangeLookback()).toBeVisible();
   await expect(configPage.dialTimeout()).toBeVisible();
   await expect(configPage.queryTimeout()).toBeVisible();
 });
@@ -130,10 +130,6 @@ test('"Save & test" should fail when configuration is invalid', async ({
  * render. This one verifies the form ↔ jsonData wiring: fill the fields, save
  * the datasource, reload the page, and confirm every value survived the
  * round-trip.
- *
- * adHocDefaultTimeRange is intentionally skipped here — it is a popup time
- * picker (Timeselect locator returns a button, not a fillable input). A
- * dedicated test should drive it via the picker UI.
  */
 test("additional settings persist after save and reload", async ({
   createDataSourceConfigPage,
@@ -153,6 +149,7 @@ test("additional settings persist after save and reload", async ({
   await configPage.defaultDatabase().fill("e2e");
   await configPage.defaultRound().fill("15m");
   await configPage.adHocTableVariable().fill("my_ad_hoc_var");
+  await configPage.adHocTimeRangeLookback().fill("6h");
   await configPage.dialTimeout().fill("9");
   await configPage.queryTimeout().fill("31");
 
@@ -165,6 +162,7 @@ test("additional settings persist after save and reload", async ({
   await expect(configPage.defaultDatabase()).toHaveValue("e2e");
   await expect(configPage.defaultRound()).toHaveValue("15m");
   await expect(configPage.adHocTableVariable()).toHaveValue("my_ad_hoc_var");
+  await expect(configPage.adHocTimeRangeLookback()).toHaveValue("6h");
   await expect(configPage.dialTimeout()).toHaveValue("9");
   await expect(configPage.queryTimeout()).toHaveValue("31");
 });

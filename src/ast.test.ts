@@ -1,4 +1,5 @@
 import { getColumnValuesStatement, traverseTree, walkNodes } from "./ast";
+import { AD_HOC_PRELOAD_LOOKBACK_SECONDS } from "./constants";
 
 describe("walkNodes", () => {
   test("yields parents before their children", () => {
@@ -87,14 +88,26 @@ describe("traverseTree", () => {
 
 describe("ast getColumnValuesStatement", () => {
   test("should return topK statement for a plain column", () => {
-    let result = getColumnValuesStatement("statusCode", "sample.log", "ts", "");
+    let result = getColumnValuesStatement(
+      "statusCode",
+      "sample.log",
+      "ts",
+      "",
+      AD_HOC_PRELOAD_LOOKBACK_SECONDS
+    );
     expect(result).toBe(
       "SELECT arrayJoin(topK(100)(statusCode)) AS value FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter()  SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000"
     );
   });
 
   test("should return topK statement for city for table with variables", () => {
-    let result = getColumnValuesStatement("city", "sample.log", "ts", "");
+    let result = getColumnValuesStatement(
+      "city",
+      "sample.log",
+      "ts",
+      "",
+      AD_HOC_PRELOAD_LOOKBACK_SECONDS
+    );
     expect(result).toBe(
       "SELECT arrayJoin(topK(100)(city)) AS value FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter()  SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000"
     );
@@ -105,7 +118,8 @@ describe("ast getColumnValuesStatement", () => {
       "statusCode",
       "sample.log",
       "ts",
-      "toString(statusCode) like '2%'"
+      "toString(statusCode) like '2%'",
+      AD_HOC_PRELOAD_LOOKBACK_SECONDS
     );
     expect(result).toBe(
       "SELECT arrayJoin(topK(100)(statusCode)) AS value FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter() AND toString(statusCode) like '2%' SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000"
@@ -117,7 +131,8 @@ describe("ast getColumnValuesStatement", () => {
       "arrayJoin(tags)",
       "sample.log",
       "ts",
-      ""
+      "",
+      AD_HOC_PRELOAD_LOOKBACK_SECONDS
     );
     expect(result).toBe(
       "SELECT arrayJoin(topK(100)(arrayJoin(tags))) AS value FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter()  SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000"
@@ -129,7 +144,8 @@ describe("ast getColumnValuesStatement", () => {
       "attributes['env']",
       "sample.log",
       "ts",
-      ""
+      "",
+      AD_HOC_PRELOAD_LOOKBACK_SECONDS
     );
     expect(result).toBe(
       "SELECT arrayJoin(topK(100)(attributes['env'])) AS value FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter()  SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000"
@@ -137,13 +153,25 @@ describe("ast getColumnValuesStatement", () => {
   });
 
   test("should not contain GROUP BY or ORDER BY count", () => {
-    let result = getColumnValuesStatement("clientIP", "sample.log", "ts", "");
+    let result = getColumnValuesStatement(
+      "clientIP",
+      "sample.log",
+      "ts",
+      "",
+      AD_HOC_PRELOAD_LOOKBACK_SECONDS
+    );
     expect(result).not.toContain("GROUP BY");
     expect(result).not.toContain("ORDER BY count");
   });
 
   test("should carry both SETTINGS entries", () => {
-    let result = getColumnValuesStatement("clientIP", "sample.log", "ts", "");
+    let result = getColumnValuesStatement(
+      "clientIP",
+      "sample.log",
+      "ts",
+      "",
+      AD_HOC_PRELOAD_LOOKBACK_SECONDS
+    );
     expect(result).toContain("timeout_overflow_mode = 'break'");
     expect(result).toContain("hdx_query_max_timerange_sec = 87000");
   });

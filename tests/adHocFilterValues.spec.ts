@@ -36,7 +36,7 @@ const DASHBOARD_FROM = "2025-04-01T00:00:00.000Z";
 const DASHBOARD_TO = "2025-04-20T00:00:00.000Z";
 
 /** Guardrail budget from src/constants.ts: METADATA_QUERY_TIMEOUT_VALUE
- *  (10s breaker) + AD_HOC_QUERY_GUARDRAIL_SETTINGS timeout_overflow_mode.
+ *  (10s breaker) + adHocGuardrailSettings() timeout_overflow_mode.
  *  The dropdown must populate comfortably inside that budget. */
 const GUARDRAIL_BUDGET_MS = 8000;
 
