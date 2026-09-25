@@ -56,7 +56,7 @@ Following is the list of Hydrolix configuration options.
 - **Ad hoc filter table variable name** (optional) - Variable defines which table to use for retrieving ad hoc filter
   columns and values.
 - **Ad hoc filter suggestion lookback** (optional) - Trailing window for ad hoc filter key and value suggestions (for
-  example `30m`, `24h`, `7d`). Defaults to `24h`. See [Value suggestion guardrails](#value-suggestion-guardrails).
+  example `30m`, `6h`, `24h`; supported units: `s`, `m`, `h`). Defaults to `24h`. See [Value suggestion guardrails](#value-suggestion-guardrails).
 - **Ad hoc filter values query condition variable name** (optional) - Name of a dashboard variable that defines query condition to filter ad hoc filter values
 - **Dial timeout** (optional) - Connection timeout in seconds.
 - **Query timeout** (optional) - Read timeout in seconds.

@@ -95,16 +95,39 @@ describe("parseLookbackSeconds", () => {
   it.each([
     ["24h", 86400],
     ["30m", 1800],
-    ["7d", 604800],
+    ["600s", 600],
     [" 6h ", 21600],
+    // Not advertised, but accepted so provisioned and existing values resolve.
+    ["7d", 604800],
   ])("parses %p to %p seconds", (value, seconds) => {
     expect(parseLookbackSeconds(value)).toBe(seconds);
   });
 
-  it.each([[""], [undefined], ["abc"], ["0"], ["-5m"], ["   "]])(
-    "rejects %p",
-    (value) => {
-      expect(parseLookbackSeconds(value)).toBeUndefined();
-    }
-  );
+  it.each<[string, unknown]>([
+    ["empty", ""],
+    ["whitespace", "   "],
+    ["undefined", undefined],
+    ["garbage", "abc"],
+    ["zero", "0"],
+    ["zero with a unit", "0h"],
+    ["negative", "-5m"],
+    ["uppercase unit", "24H"],
+    // rangeUtil alone would misread these rather than reject them.
+    ["bare number (24 seconds)", "24"],
+    ["exponent", "1e3"],
+    ["trailing junk", "24hfoo"],
+    ["fractional count", "1.5h"],
+    ["fractional count under one", "0.5h"],
+    ["compound duration", "1h30m"],
+    ["milliseconds", "500ms"],
+    // Units rangeUtil knows but the lookback does not accept.
+    ["weeks", "1w"],
+    ["months", "1M"],
+    ["years", "1y"],
+    // Provisioned YAML can deliver non-strings.
+    ["number", 86400],
+    ["null", null],
+  ])("rejects %s (%p)", (_label, value) => {
+    expect(parseLookbackSeconds(value)).toBeUndefined();
+  });
 });

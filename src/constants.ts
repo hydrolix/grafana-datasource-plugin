@@ -21,8 +21,16 @@ export const AD_HOC_VALUE_TOP_K = 100;
 export const AD_HOC_PRELOAD_LOOKBACK_SECONDS = 86400;
 export const AD_HOC_PRELOAD_ROUND_INTERVAL = "5m";
 export const AD_HOC_PRELOAD_ROUND_INTERVAL_SECONDS = 300;
-export const AD_HOC_PRELOAD_MAX_TIMERANGE_SECONDS =
-  AD_HOC_PRELOAD_LOOKBACK_SECONDS + 2 * AD_HOC_PRELOAD_ROUND_INTERVAL_SECONDS;
+
+// The timerange guardrail follows the datasource's lookback, padded by one
+// round interval on each side so a `round`-snapped window still fits.
+const adHocGuardrailSeconds = (lookbackSeconds: number): number =>
+  lookbackSeconds + 2 * AD_HOC_PRELOAD_ROUND_INTERVAL_SECONDS;
+
+// The guardrail for the default lookback (87000).
+export const AD_HOC_PRELOAD_MAX_TIMERANGE_SECONDS = adHocGuardrailSeconds(
+  AD_HOC_PRELOAD_LOOKBACK_SECONDS
+);
 
 // Stand-in for the panel's maxDataPoints when the editor has no panel request
 // to read it from. The interpolation preview only needs a representative bucket
@@ -33,12 +41,10 @@ export const METADATA_QUERY_TIMEOUT_SETTING = "hdx_query_max_execution_time";
 export const METADATA_QUERY_TIMEOUT_SETTING_ALIAS = "max_execution_time";
 export const METADATA_QUERY_TIMEOUT_VALUE = "10";
 
-// The timerange guardrail follows the datasource's lookback, padded by one
-// round interval on each side so a `round`-snapped window still fits.
 export const adHocGuardrailSettings = (lookbackSeconds: number): string =>
-  `SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = ${
-    lookbackSeconds + 2 * AD_HOC_PRELOAD_ROUND_INTERVAL_SECONDS
-  }`;
+  `SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = ${adHocGuardrailSeconds(
+    lookbackSeconds
+  )}`;
 
 export const AD_HOC_KEY_QUERY = "DESCRIBE ${table}";
 export const AD_HOC_MAP_KEY_QUERY = `SELECT distinct(arrayJoin(mapKeys(\${column}))) FROM \${table} WHERE $__timeFilter() AND $__adHocFilter() \${settings}`;

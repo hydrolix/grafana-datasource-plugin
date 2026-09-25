@@ -322,6 +322,38 @@ export function ConfigEditor(props: Props) {
       });
     }
   };
+  // Validity comes from the same parser the datasource resolves with, so blur
+  // only clears values the runtime would ignore anyway. The advertised s/m/h
+  // units are guidance: a stored value in another accepted unit (e.g. `1d`)
+  // must survive someone merely viewing this page.
+  const isInvalidLookback = (value?: string) =>
+    !!value?.trim() && parseLookbackSeconds(value) === undefined;
+  const [invalidLookback, setInvalidLookback] = useState(() =>
+    isInvalidLookback(jsonData.adHocTimeRangeLookback)
+  );
+  const onLookbackChange = (e: FormEvent<HTMLInputElement>) => {
+    const lookback = e.currentTarget.value;
+    setInvalidLookback(isInvalidLookback(lookback));
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...options.jsonData,
+        adHocTimeRangeLookback: lookback,
+      },
+    });
+  };
+  const onLookbackBlur = () => {
+    if (invalidLookback) {
+      setInvalidLookback(false);
+      onOptionsChange({
+        ...options,
+        jsonData: {
+          ...options.jsonData,
+          adHocTimeRangeLookback: "",
+        },
+      });
+    }
+  };
   const settingInput = (key: string, value: string) => {
     let type = querySettingDefinitions[key].type;
     if (type === "boolean") {
@@ -657,20 +689,14 @@ export function ConfigEditor(props: Props) {
             error={"invalid duration"}
             label={labels.adHocTimeRangeLookback.label}
             description={labels.adHocTimeRangeLookback.description}
-            invalid={
-              !!jsonData.adHocTimeRangeLookback &&
-              parseLookbackSeconds(jsonData.adHocTimeRangeLookback) ===
-                undefined
-            }
+            invalid={invalidLookback}
           >
             <Input
               name={"adHocTimeRangeLookback"}
               width={40}
               value={jsonData.adHocTimeRangeLookback || ""}
-              onChange={onUpdateDatasourceJsonDataOption(
-                props,
-                "adHocTimeRangeLookback"
-              )}
+              onChange={onLookbackChange}
+              onBlur={onLookbackBlur}
               label={labels.adHocTimeRangeLookback.label}
               aria-label={labels.adHocTimeRangeLookback.label}
               placeholder={labels.adHocTimeRangeLookback.placeholder}

@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { ConfigEditor, Props } from "./ConfigEditor";
 import "@testing-library/jest-dom";
 import fs from "fs";
@@ -111,10 +111,43 @@ describe("ConfigEditor", () => {
     ) as HTMLInputElement;
     expect(lookback.value).toBe("6h");
     expect(lookback.placeholder).toBe("24h");
-    expect(screen.queryByText("invalid duration")).not.toBeInTheDocument();
+    expect(lookbackError()).not.toBeInTheDocument();
   });
 
-  it("flags an invalid ad hoc lookback without clearing it on blur", () => {
+  // Scoped to the lookback field: defaultRound shows the same error text.
+  function lookbackError() {
+    return within(
+      screen.getByTestId(labels.adHocTimeRangeLookback.testId)
+    ).queryByText("invalid duration");
+  }
+
+  it("resets an invalid ad hoc lookback to '' and clears the error on blur", () => {
+    const onOptionsChange = jest.fn();
+    render(
+      <ConfigEditor
+        {...getDefaultProps({ adHocTimeRangeLookback: "6h" })}
+        onOptionsChange={onOptionsChange}
+      />
+    );
+    expandAdditionalSettings();
+    const lookback = screen.getByLabelText(labels.adHocTimeRangeLookback.label);
+    fireEvent.change(lookback, { target: { value: "24" } });
+    expect(lookbackError()).toBeInTheDocument();
+    expect(onOptionsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        jsonData: expect.objectContaining({ adHocTimeRangeLookback: "24" }),
+      })
+    );
+    fireEvent.blur(lookback);
+    expect(onOptionsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        jsonData: expect.objectContaining({ adHocTimeRangeLookback: "" }),
+      })
+    );
+    expect(lookbackError()).not.toBeInTheDocument();
+  });
+
+  it("flags a stored invalid ad hoc lookback and clears it on blur", () => {
     const onOptionsChange = jest.fn();
     render(
       <ConfigEditor
@@ -123,10 +156,35 @@ describe("ConfigEditor", () => {
       />
     );
     expandAdditionalSettings();
-    expect(screen.getByText("invalid duration")).toBeInTheDocument();
+    expect(lookbackError()).toBeInTheDocument();
     fireEvent.blur(screen.getByLabelText(labels.adHocTimeRangeLookback.label));
-    expect(onOptionsChange).not.toHaveBeenCalled();
+    expect(onOptionsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        jsonData: expect.objectContaining({ adHocTimeRangeLookback: "" }),
+      })
+    );
   });
+
+  // Viewing the page must not rewrite a value the runtime accepts, even in a
+  // unit the field does not advertise.
+  it.each([["6h"], ["7d"]])(
+    "keeps a valid ad hoc lookback (%p) on blur",
+    (value) => {
+      const onOptionsChange = jest.fn();
+      render(
+        <ConfigEditor
+          {...getDefaultProps({ adHocTimeRangeLookback: value })}
+          onOptionsChange={onOptionsChange}
+        />
+      );
+      expandAdditionalSettings();
+      expect(lookbackError()).not.toBeInTheDocument();
+      fireEvent.blur(
+        screen.getByLabelText(labels.adHocTimeRangeLookback.label)
+      );
+      expect(onOptionsChange).not.toHaveBeenCalled();
+    }
+  );
 
   it("writes the ad hoc lookback to jsonData on change", () => {
     const onOptionsChange = jest.fn();
@@ -136,11 +194,11 @@ describe("ConfigEditor", () => {
     expandAdditionalSettings();
     fireEvent.change(
       screen.getByLabelText(labels.adHocTimeRangeLookback.label),
-      { target: { value: "7d" } }
+      { target: { value: "12h" } }
     );
     expect(onOptionsChange).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        jsonData: expect.objectContaining({ adHocTimeRangeLookback: "7d" }),
+        jsonData: expect.objectContaining({ adHocTimeRangeLookback: "12h" }),
       })
     );
   });

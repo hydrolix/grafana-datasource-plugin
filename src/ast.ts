@@ -1,6 +1,5 @@
 import {
   AD_HOC_MAP_KEY_QUERY,
-  AD_HOC_PRELOAD_LOOKBACK_SECONDS,
   AD_HOC_VALUE_QUERY,
   adHocGuardrailSettings,
 } from "./constants";
@@ -65,7 +64,7 @@ export function getColumnValuesStatement(
   table: string,
   timeColumn: string,
   condition: string,
-  lookbackSeconds: number = AD_HOC_PRELOAD_LOOKBACK_SECONDS
+  lookbackSeconds: number
 ): string {
   return AD_HOC_VALUE_QUERY.replaceAll("${column}", column)
     .replaceAll("${table}", table)
@@ -76,7 +75,7 @@ export function getColumnValuesStatement(
 export function getColumnKeysForMapStatement(
   column: string,
   table: string,
-  lookbackSeconds: number = AD_HOC_PRELOAD_LOOKBACK_SECONDS
+  lookbackSeconds: number
 ): string {
   return AD_HOC_MAP_KEY_QUERY.replaceAll("${column}", column)
     .replaceAll("${table}", table)

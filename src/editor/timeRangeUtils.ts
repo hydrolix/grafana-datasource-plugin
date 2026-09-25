@@ -3,6 +3,13 @@ import { DEFAULT_INTERPOLATION_RESOLUTION } from "../constants";
 
 export const QUERY_DURATION_REGEX = /^$|^0$|^(\d+)([smh])$/;
 
+// A whole number and one unit, matched in full. `rangeUtil.intervalToSeconds`
+// alone is too lenient to validate with: it matches only a prefix, `parseInt`s
+// the count, and reads a bare number as seconds, so `24` is 24 seconds, `1.5h`
+// is 1h, `24hfoo` is 24h, and `500ms` is 0.5. Only s, m and h are advertised;
+// `d` is accepted so provisioned and existing values keep resolving.
+const LOOKBACK_REGEX = /^\d+[smhd]$/;
+
 /**
  * Interval to send with an interpolation request, derived from the range it
  * accompanies so the two always describe the same window.
@@ -25,20 +32,22 @@ export const deriveInterpolationInterval = (
 };
 
 /**
- * Parses an ad-hoc lookback duration (`30m`, `24h`, `7d`, …) to seconds.
- * Returns undefined for empty, unparseable, or non-positive input so callers
- * can fall back to the default. Shared by the datasource (resolution) and the
- * config editor (validation) so the two agree on what is valid.
+ * Parses an ad-hoc lookback duration (`30m`, `6h`, `24h`, …) to whole seconds.
+ * Returns undefined for anything that is not a positive `<count><unit>` string
+ * so callers can fall back to the default. The parameter is `unknown` because
+ * jsonData can be provisioned from YAML, where `86400` arrives as a number.
+ * Shared by the datasource (resolution) and the config editor (validation) so
+ * the two agree on what is valid.
  */
-export const parseLookbackSeconds = (value?: string): number | undefined => {
-  const trimmed = value?.trim();
-  if (!trimmed) {
+export const parseLookbackSeconds = (value?: unknown): number | undefined => {
+  if (typeof value !== "string") {
     return undefined;
   }
-  try {
-    const seconds = rangeUtil.intervalToSeconds(trimmed);
-    return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
-  } catch {
+  const trimmed = value.trim();
+  if (!LOOKBACK_REGEX.test(trimmed)) {
     return undefined;
   }
+  // Cannot throw: the regex only admits formats rangeUtil accepts.
+  const seconds = rangeUtil.intervalToSeconds(trimmed);
+  return seconds > 0 ? seconds : undefined;
 };

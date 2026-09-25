@@ -15,6 +15,7 @@ import {
   ARRAY_TYPES,
   SUPPORTED_TYPES,
   NULLABLE_TYPES,
+  AD_HOC_PRELOAD_LOOKBACK_SECONDS,
   AD_HOC_PRELOAD_ROUND_INTERVAL,
   METADATA_QUERY_TIMEOUT_SETTING,
   METADATA_QUERY_TIMEOUT_VALUE,
@@ -792,9 +793,14 @@ describe("getQueryRunner guardrails", () => {
       "clientIP",
       "sample.log",
       "ts",
-      ""
+      "",
+      AD_HOC_PRELOAD_LOOKBACK_SECONDS
     );
-    const mapSql = getColumnKeysForMapStatement("attributes", "sample.log");
+    const mapSql = getColumnKeysForMapStatement(
+      "attributes",
+      "sample.log",
+      AD_HOC_PRELOAD_LOOKBACK_SECONDS
+    );
 
     [valueSql, mapSql].forEach((sql) => {
       expect(sql).toContain("SETTINGS timeout_overflow_mode = 'break'");

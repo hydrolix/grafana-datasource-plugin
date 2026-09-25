@@ -98,7 +98,7 @@ export default {
           testId: "data-testid hdx_adHocTimeRangeLookback",
           label: "Ad hoc filter suggestion lookback",
           description:
-            "Maximum trailing window for ad hoc filter key and value suggestions (e.g. 30m, 24h, 7d). Longer dashboard ranges are capped to it, and it is also the window used when no dashboard time range is available. Leave empty for the default of 24h",
+            "Maximum trailing window for ad hoc filter key and value suggestions. Supported units: s, m, h (e.g. 30m, 6h, 24h). Longer dashboard ranges are capped to it, and it is also the window used when no dashboard time range is available. Leave empty for the default of 24h",
           placeholder: "24h",
         },
         adHocTableVariable: {

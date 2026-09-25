@@ -1333,6 +1333,25 @@ describe("HdxDataSource", () => {
       );
     });
 
+    // Provisioned values never pass through the config editor, so the runtime
+    // fallback is the only guard: `24` must not become a 24-second window, and
+    // a YAML number must not throw.
+    it.each<[string, unknown]>([
+      ["a bare number string", "24"],
+      ["a provisioned number", 86400],
+    ])("treats %s as the 24h default", async (_label, value) => {
+      const req = await valuesRange(
+        { adHocTimeRangeLookback: value },
+        makeRange(TO - 90 * DAY_MS, TO)
+      );
+      expect(req.range.from.valueOf()).toBe(
+        TO - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+      expect(req.targets[0].rawSql).toContain(
+        "hdx_query_max_timerange_sec = 87000"
+      );
+    });
+
     it("treats an invalid lookback as the 24h default", async () => {
       const req = await valuesRange(
         { adHocTimeRangeLookback: "abc" },
