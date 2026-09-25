@@ -165,6 +165,74 @@ describe("ConfigEditor", () => {
     );
   });
 
+  it("flags a provisioned numeric ad hoc lookback without crashing and clears it on blur", () => {
+    const onOptionsChange = jest.fn();
+    render(
+      <ConfigEditor
+        {...getDefaultProps({ adHocTimeRangeLookback: 86400 as any })}
+        onOptionsChange={onOptionsChange}
+      />
+    );
+    expandAdditionalSettings();
+    expect(lookbackError()).toBeInTheDocument();
+    fireEvent.blur(screen.getByLabelText(labels.adHocTimeRangeLookback.label));
+    expect(onOptionsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        jsonData: expect.objectContaining({ adHocTimeRangeLookback: "" }),
+      })
+    );
+  });
+
+  it("keeps a value corrected before blur", () => {
+    const onOptionsChange = jest.fn();
+    render(
+      <ConfigEditor
+        {...getDefaultProps({ adHocTimeRangeLookback: "6h" })}
+        onOptionsChange={onOptionsChange}
+      />
+    );
+    expandAdditionalSettings();
+    const lookback = screen.getByLabelText(labels.adHocTimeRangeLookback.label);
+    fireEvent.change(lookback, { target: { value: "24" } });
+    expect(lookbackError()).toBeInTheDocument();
+    fireEvent.change(lookback, { target: { value: "12h" } });
+    expect(lookbackError()).not.toBeInTheDocument();
+    fireEvent.blur(lookback);
+    expect(onOptionsChange).toHaveBeenCalledTimes(2);
+    expect(onOptionsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        jsonData: expect.objectContaining({ adHocTimeRangeLookback: "12h" }),
+      })
+    );
+  });
+
+  // Blank is the documented way to get the 24h default, so it is valid.
+  it.each([[""], ["   "]])(
+    "neither flags nor clears a blank ad hoc lookback (%p)",
+    (value) => {
+      const onOptionsChange = jest.fn();
+      render(
+        <ConfigEditor
+          {...getDefaultProps({ adHocTimeRangeLookback: "6h" })}
+          onOptionsChange={onOptionsChange}
+        />
+      );
+      expandAdditionalSettings();
+      const lookback = screen.getByLabelText(
+        labels.adHocTimeRangeLookback.label
+      );
+      fireEvent.change(lookback, { target: { value } });
+      expect(lookbackError()).not.toBeInTheDocument();
+      fireEvent.blur(lookback);
+      expect(onOptionsChange).toHaveBeenCalledTimes(1);
+      expect(onOptionsChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          jsonData: expect.objectContaining({ adHocTimeRangeLookback: value }),
+        })
+      );
+    }
+  );
+
   // Viewing the page must not rewrite a value the runtime accepts, even in a
   // unit the field does not advertise.
   it.each([["6h"], ["7d"]])(

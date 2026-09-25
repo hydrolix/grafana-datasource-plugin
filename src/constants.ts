@@ -27,7 +27,7 @@ export const AD_HOC_PRELOAD_ROUND_INTERVAL_SECONDS = 300;
 const adHocGuardrailSeconds = (lookbackSeconds: number): number =>
   lookbackSeconds + 2 * AD_HOC_PRELOAD_ROUND_INTERVAL_SECONDS;
 
-// The guardrail for the default lookback (87000).
+// The guardrail for the default lookback.
 export const AD_HOC_PRELOAD_MAX_TIMERANGE_SECONDS = adHocGuardrailSeconds(
   AD_HOC_PRELOAD_LOOKBACK_SECONDS
 );

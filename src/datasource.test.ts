@@ -1314,6 +1314,7 @@ describe("HdxDataSource", () => {
       expect(req.range.to.valueOf() - req.range.from.valueOf()).toBe(HOUR_MS);
     });
 
+    // 7d: not advertised, but accepted for existing and provisioned values.
     it("leaves a 3-day range untouched with a 7d lookback", async () => {
       const req = await valuesRange(
         { adHocTimeRangeLookback: "7d" },

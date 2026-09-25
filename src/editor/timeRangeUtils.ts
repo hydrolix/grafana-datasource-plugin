@@ -5,8 +5,9 @@ export const QUERY_DURATION_REGEX = /^$|^0$|^(\d+)([smh])$/;
 
 // A whole number and one unit, matched in full. `rangeUtil.intervalToSeconds`
 // alone is too lenient to validate with: it matches only a prefix, `parseInt`s
-// the count, and reads a bare number as seconds, so `24` is 24 seconds, `1.5h`
-// is 1h, `24hfoo` is 24h, and `500ms` is 0.5. Only s, m and h are advertised;
+// the count, and reads unit-less input as seconds, so `24` is 24 seconds, `1e3`
+// is 1 second, `1.5h` is 1h, `24hfoo` is 24h, and `500ms` is 0.5. Only s, m
+// and h are advertised;
 // `d` is accepted so provisioned and existing values keep resolving.
 const LOOKBACK_REGEX = /^\d+[smhd]$/;
 
@@ -47,7 +48,11 @@ export const parseLookbackSeconds = (value?: unknown): number | undefined => {
   if (!LOOKBACK_REGEX.test(trimmed)) {
     return undefined;
   }
-  // Cannot throw: the regex only admits formats rangeUtil accepts.
+  // Cannot throw: every string the regex admits reaches rangeUtil's unit
+  // branch with a known unit.
   const seconds = rangeUtil.intervalToSeconds(trimmed);
-  return seconds > 0 ? seconds : undefined;
+  // `\d+` admits any number of digits, so a long count overflows to Infinity
+  // or loses precision, and would reach the SQL SETTINGS clause as `Infinity`
+  // or in exponent notation.
+  return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : undefined;
 };

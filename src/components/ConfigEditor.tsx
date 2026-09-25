@@ -326,8 +326,18 @@ export function ConfigEditor(props: Props) {
   // only clears values the runtime would ignore anyway. The advertised s/m/h
   // units are guidance: a stored value in another accepted unit (e.g. `1d`)
   // must survive someone merely viewing this page.
-  const isInvalidLookback = (value?: string) =>
-    !!value?.trim() && parseLookbackSeconds(value) === undefined;
+  const isInvalidLookback = (value: unknown) => {
+    // Unset or blank means "use the default", which is valid.
+    if (value === undefined || value === null) {
+      return false;
+    }
+    if (typeof value === "string" && !value.trim()) {
+      return false;
+    }
+    // Anything else, including a non-string provisioned from YAML, is up to
+    // the shared parser.
+    return parseLookbackSeconds(value) === undefined;
+  };
   const [invalidLookback, setInvalidLookback] = useState(() =>
     isInvalidLookback(jsonData.adHocTimeRangeLookback)
   );

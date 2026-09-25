@@ -120,6 +120,9 @@ describe("parseLookbackSeconds", () => {
     ["fractional count under one", "0.5h"],
     ["compound duration", "1h30m"],
     ["milliseconds", "500ms"],
+    // Overflow: `\d+` admits any length, so these must not reach the SQL.
+    ["a count that overflows to Infinity", "1" + "0".repeat(320) + "s"],
+    ["a count beyond safe integers", "99999999999999999999d"],
     // Units rangeUtil knows but the lookback does not accept.
     ["weeks", "1w"],
     ["months", "1M"],

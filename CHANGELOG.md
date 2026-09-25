@@ -2,7 +2,7 @@
 
 ## 0.13.0 (unreleased)
 
-- **Feature**: Replace the unused *Ad hoc filter default time range* setting with *Ad hoc filter suggestion lookback* (`adHocTimeRangeLookback`, default `24h`; supported units `s`, `m`, `h`). It sets the ad hoc key/value suggestion window, the cap applied to longer dashboard ranges, and the `hdx_query_max_timerange_sec` guardrail (lookback + 10m). An invalid value is reset to empty when the field loses focus, and falls back to 24h at runtime (e.g. when provisioned). A previously saved default time range is ignored; it was never applied
+- **Feature**: Replace the unused *Ad hoc filter default time range* setting with *Ad hoc filter suggestion lookback* (`adHocTimeRangeLookback`, default `24h`; supported units `s`, `m`, `h`). It sets the ad hoc key/value suggestion window, the cap applied to longer dashboard ranges, and the `hdx_query_max_timerange_sec` guardrail (lookback + 10m). In the config editor an invalid value is cleared when the field loses focus; an invalid value that bypasses the editor (e.g. provisioned) falls back to 24h at runtime. `d` is still accepted for existing values. A previously saved default time range is ignored; it was never applied
 
 - **Breaking**: Drop Grafana 10.4 support — `grafanaDependency` is now `>=11.0.0`, and 10.4 is removed from the e2e, compatibility-check and nightly matrices. Instances on 10.4 will no longer be offered the plugin update
 
