@@ -12,10 +12,18 @@ on:
         required: false
         type: boolean
         default: false
+      require_signature:
+        description: "Fail when grafana_token is empty instead of packaging unsigned"
+        required: false
+        type: boolean
+        default: true
     secrets:
+      # Optional so PR CI can package without it: Dependabot and fork PRs
+      # don't receive Actions secrets. require_signature decides whether a
+      # missing token is an error.
       grafana_token:
         description: "Grafana access policy token for signing"
-        required: true
+        required: false
 
 jobs:
   package:
@@ -52,10 +60,23 @@ jobs:
       - name: Set version
         run: ./.github/scripts/set-version.sh
 
+      # Guard in the shell, not a step-level `if:` — the secrets context is
+      # unavailable there.
       - name: Sign plugin
-        run: npx --yes @grafana/sign-plugin@latest
         env:
           GRAFANA_ACCESS_POLICY_TOKEN: ${{ secrets.grafana_token }}
+          REQUIRE_SIGNATURE: ${{ inputs.require_signature }}
+        run: |
+          if [[ -z "$GRAFANA_ACCESS_POLICY_TOKEN" ]]; then
+            if [[ "$REQUIRE_SIGNATURE" == "true" ]]; then
+              echo "::error::GRAFANA_ACCESS_POLICY_TOKEN is empty and this caller requires a signed package"
+              exit 1
+            fi
+            echo "::warning::GRAFANA_ACCESS_POLICY_TOKEN is not available to this run; packaging the plugin unsigned"
+            echo "- Signing: skipped (no token available); the package is **unsigned**" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          npx --yes @grafana/sign-plugin@latest
 
       - name: Create package
         run: |

@@ -98,6 +98,10 @@ jobs:
       attestations: write
     with:
       node_version: '24'
+      # Dependabot and fork PRs get no Actions secrets; package them unsigned
+      # (e2e allows unsigned plugins, the validator only warns) rather than
+      # failing. release.yml and nightly-compat.yml keep the default and fail.
+      require_signature: false
     secrets:
       grafana_token: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
 
