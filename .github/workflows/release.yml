@@ -189,6 +189,21 @@ jobs:
           name: plugin-package
           path: /tmp/plugin-package
 
+      # Last gate before publishing: e2e allows unsigned plugins and the
+      # validator only warns, so nothing upstream would stop an unsigned zip.
+      - name: Assert package is signed
+        run: |
+          shopt -s nullglob
+          zips=(/tmp/plugin-package/*.zip)
+          if [[ ${#zips[@]} -ne 1 ]]; then
+            echo "::error::expected exactly one plugin zip, found ${#zips[@]}"
+            exit 1
+          fi
+          if ! unzip -Z1 "${zips[0]}" | grep -q '^[^/]*/MANIFEST\.txt$'; then
+            echo "::error::${zips[0]} has no MANIFEST.txt; refusing to publish an unsigned release"
+            exit 1
+          fi
+
       - name: Parse changelog
         id: parse
         env:

@@ -13,14 +13,13 @@ on:
         type: boolean
         default: false
       require_signature:
-        description: "Fail when grafana_token is empty instead of packaging unsigned"
+        description: "Fail when grafana_token is empty instead of packaging unsigned. Defaults to true so release paths fail closed; only PR CI should pass false."
         required: false
         type: boolean
         default: true
     secrets:
-      # Optional so PR CI can package without it: Dependabot and fork PRs
-      # don't receive Actions secrets. require_signature decides whether a
-      # missing token is an error.
+      # Optional: a caller may lack the token (PRs without secrets access);
+      # require_signature decides whether that is an error.
       grafana_token:
         description: "Grafana access policy token for signing"
         required: false
@@ -60,23 +59,30 @@ jobs:
       - name: Set version
         run: ./.github/scripts/set-version.sh
 
-      # Guard in the shell, not a step-level `if:` — the secrets context is
-      # unavailable there.
+      # Decide in the shell: a missing token must fail or skip depending on
+      # require_signature, and a step-level `if:` can only skip (it also can't
+      # read the secrets context). Only an explicit "false" skips, so any
+      # unexpected value fails closed.
       - name: Sign plugin
         env:
           GRAFANA_ACCESS_POLICY_TOKEN: ${{ secrets.grafana_token }}
           REQUIRE_SIGNATURE: ${{ inputs.require_signature }}
         run: |
           if [[ -z "$GRAFANA_ACCESS_POLICY_TOKEN" ]]; then
-            if [[ "$REQUIRE_SIGNATURE" == "true" ]]; then
-              echo "::error::GRAFANA_ACCESS_POLICY_TOKEN is empty and this caller requires a signed package"
+            if [[ "$REQUIRE_SIGNATURE" != "false" ]]; then
+              echo "::error::GRAFANA_ACCESS_POLICY_TOKEN is empty and this caller requires a signed package (require_signature=$REQUIRE_SIGNATURE)"
               exit 1
             fi
-            echo "::warning::GRAFANA_ACCESS_POLICY_TOKEN is not available to this run; packaging the plugin unsigned"
+            echo "::warning::GRAFANA_ACCESS_POLICY_TOKEN is not available to this run; packaging the plugin unsigned. Expected for Dependabot and fork PRs; otherwise the repository secret is missing."
             echo "- Signing: skipped (no token available); the package is **unsigned**" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           npx --yes @grafana/sign-plugin@latest
+          # sign-plugin exiting 0 is not proof of a signature; the manifest is.
+          if [[ ! -s dist/MANIFEST.txt ]]; then
+            echo "::error::sign-plugin exited successfully but dist/MANIFEST.txt is missing or empty"
+            exit 1
+          fi
 
       - name: Create package
         run: |
