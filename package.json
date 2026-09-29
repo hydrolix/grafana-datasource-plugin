@@ -74,7 +74,7 @@
     "jest-environment-jsdom": "^30.5.2",
     "jest-junit": "^17.0.0",
     "node-rest-client-promise": "^3.1.1",
-    "prettier": "^3.9.5",
+    "prettier": "^3.9.9",
     "replace-in-file-webpack-plugin": "^1.0.6",
     "sass": "^1.89.0",
     "sass-loader": "^17.0.0",
