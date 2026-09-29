@@ -56,7 +56,8 @@ Following is the list of Hydrolix configuration options.
 - **Ad hoc filter table variable name** (optional) - Variable defines which table to use for retrieving ad hoc filter
   columns and values.
 - **Ad hoc filter suggestion lookback** (optional) - Trailing window for ad hoc filter key and value suggestions (for
-  example `30m`, `6h`, `24h`; supported units: `s`, `m`, `h`). Defaults to `24h`. See [Value suggestion guardrails](#value-suggestion-guardrails).
+  example `30m`, `6h`, `24h`; supported units: `s`, `m`, `h`). Use at least `5m` — see
+  [Value suggestion guardrails](#value-suggestion-guardrails). Defaults to `24h`.
 - **Ad hoc filter values query condition variable name** (optional) - Name of a dashboard variable that defines query condition to filter ad hoc filter values
 - **Dial timeout** (optional) - Connection timeout in seconds.
 - **Query timeout** (optional) - Read timeout in seconds.
@@ -335,7 +336,9 @@ suggestions are computed by a bounded, best-effort query rather than an exhausti
   (default 24h, set with **Ad hoc filter suggestion lookback**; rounded to 5-minute boundaries). When no dashboard time
   range is available, the window is the trailing lookback ending now. A value that last occurred earlier than that
   window will not appear in the suggestions, but it can still be entered manually and used as a filter — the applied
-  filter itself is unaffected. An empty or invalid lookback falls back to 24h.
+  filter itself is unaffected. An empty or invalid lookback falls back to 24h. Use a lookback of at least `5m`:
+  because both endpoints snap to the nearest 5-minute boundary, a shorter window frequently collapses to zero
+  width and the dropdown then returns no suggestions at all.
 - **`Map` column keys**: for a `Map` column the key dropdown offers `column['key']` entries discovered by scanning the
   same trailing lookback window, so a key that did not occur in that window is not offered and must be typed in. Keys
   for plain (non-`Map`) columns come from `DESCRIBE` and are always listed in full.

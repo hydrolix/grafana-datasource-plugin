@@ -39,6 +39,13 @@ export const deriveInterpolationInterval = (
  * jsonData can be provisioned from YAML, where `86400` arrives as a number.
  * Shared by the datasource (resolution) and the config editor (validation) so
  * the two agree on what is valid.
+ *
+ * Not bounded below on purpose, but anything under `AD_HOC_PRELOAD_ROUND_
+ * INTERVAL_SECONDS` degrades badly: metadata queries pin `round: "5m"` and the
+ * backend snaps both endpoints to the nearest boundary, so a sub-5m window
+ * collapses to zero width whenever the two land on the same one (~90% of opens
+ * at 30s, ~80% at 1m) and the dropdown silently returns nothing. The field
+ * description recommends 5m or more; enforce it here if that proves too weak.
  */
 export const parseLookbackSeconds = (value?: unknown): number | undefined => {
   if (typeof value !== "string") {

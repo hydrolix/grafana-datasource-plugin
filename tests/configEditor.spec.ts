@@ -1,6 +1,8 @@
 import { test, expect } from "@grafana/plugin-e2e";
 // @ts-ignore
 import { ConfigPageSteps } from "./helpers";
+// @ts-ignore
+import allLabels from "../src/labels";
 
 test("smoke: should render config editor", async ({
   createDataSourceConfigPage,
@@ -223,4 +225,69 @@ test("password persists via secureJsonData and can be reset", async ({
   // shows the Reset button — proving the new password also persisted.
   await page.reload();
   await expect(configPage.passwordReset()).toBeVisible();
+});
+
+/**
+ * #4 – Ad hoc lookback validation in the real form
+ *
+ * The Jest tests for this field assert on the argument handed to
+ * onOptionsChange. The input is fully controlled and the mocked parent never
+ * feeds the new options back, so those tests cannot observe what the field
+ * displays: after typing an invalid value the rendered input still holds the
+ * old one, and after blur it never shows the cleared value. This drives the
+ * real Grafana form, where the options do round-trip, so it covers the two
+ * properties that actually matter to an admin:
+ *
+ *   1. An invalid duration is cleared when focus leaves the field, so it can
+ *      never be saved and then silently ignored at runtime.
+ *   2. A value the runtime still resolves but the field does not advertise
+ *      (`7d`) survives both blur and a save/reload round-trip. Merely opening
+ *      the config page must not rewrite a working lookback.
+ */
+test("an invalid ad hoc lookback clears on blur and a valid one survives", async ({
+  createDataSourceConfigPage,
+  page,
+}) => {
+  const configPageSteps = new ConfigPageSteps(page);
+  const dsConfigPage = await configPageSteps.createDatasourceConfigPage(
+    "ad hoc lookback validation",
+    createDataSourceConfigPage
+  );
+  const configPage = configPageSteps.configPageLocator;
+
+  await configPageSteps.fillTestNativeDatasource();
+  await configPage.additionalSettingsExpandable().click({ force: true });
+
+  const lookback = configPage.adHocTimeRangeLookback();
+  // The Field wrapper carries the error text; the proxy locator returns the
+  // input inside it, so scope the error lookup here rather than page-wide
+  // (defaultRound renders the same "invalid duration" message).
+  const lookbackField = page
+    .getByTestId("data-testid hydrolix_config_page")
+    .getByTestId(allLabels.components.config.editor.adHocTimeRangeLookback.testId);
+  const lookbackError = () => lookbackField.getByText("invalid duration");
+
+  // A bare number is the trap this validation exists for: the duration parser
+  // Grafana ships would read "24" as 24 seconds, not 24 hours.
+  await lookback.fill("24");
+  await expect(lookback).toHaveValue("24");
+  await expect(lookbackError()).toBeVisible();
+
+  // Move focus to the neighbouring field to fire blur.
+  await configPage.adHocTableVariable().click();
+  await expect(lookback).toHaveValue("");
+  await expect(lookbackError()).not.toBeVisible();
+
+  // `d` is accepted by the parser but not advertised in the description.
+  // Blur must leave it alone, otherwise viewing the page silently downgrades
+  // a provisioned 7-day lookback to the 24h default.
+  await lookback.fill("7d");
+  await configPage.adHocTableVariable().click();
+  await expect(lookback).toHaveValue("7d");
+  await expect(lookbackError()).not.toBeVisible();
+
+  await configPageSteps.saveSuccess(dsConfigPage);
+  await page.reload();
+  await configPage.additionalSettingsExpandable().click({ force: true });
+  await expect(configPage.adHocTimeRangeLookback()).toHaveValue("7d");
 });
