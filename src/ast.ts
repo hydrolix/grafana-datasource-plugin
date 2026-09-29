@@ -55,23 +55,57 @@ export const traverseTree = (
 export const isObject = (value: any): boolean => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 };
+/**
+ * Fills `${name}` slots with a function replacer: a string replacement goes
+ * through JavaScript's GetSubstitution, where `$'`, `` $` ``, `$&` and `$$`
+ * inside a user-authored condition or a map-key column like `attrs['$ref']`
+ * would splice template text into the predicate.
+ */
+export function fillSlots(
+  template: string,
+  slots: Record<string, string>
+): string {
+  return Object.entries(slots).reduce(
+    (sql, [name, value]) => sql.replaceAll("${" + name + "}", () => value),
+    template
+  );
+}
+
+/**
+ * Ad-hoc value preload SQL. `timeColumn` is the table's primary key; the
+ * empty string means the table declares none, so the time conjunct is left
+ * out rather than interpolating an empty column name.
+ */
 export function getColumnValuesStatement(
   column: string,
   table: string,
   timeColumn: string,
   condition: string
 ): string {
-  return AD_HOC_VALUE_QUERY.replaceAll("${column}", column)
-    .replaceAll("${table}", table)
-    .replaceAll("${timeColumn}", timeColumn)
-    .replaceAll("${condition}", condition ? `AND ${condition}` : "");
+  return fillSlots(AD_HOC_VALUE_QUERY, {
+    column,
+    table,
+    timeFilter: timeColumn ? `$__timeFilter(${timeColumn}) AND ` : "",
+    condition: condition ? `AND ${condition}` : "",
+  });
 }
+
+/**
+ * Map-key discovery SQL. The zero-argument `$__timeFilter()` is resolved to
+ * the primary key on the backend, so `timeColumn` only decides whether the
+ * conjunct is present. Only a positively resolved `""` selects the keyless
+ * form; `undefined` (the frontend lookup failed) keeps the conjunct and lets
+ * the backend resolve it from its own lookup, which is what this statement
+ * did before the keyless form existed.
+ */
 export function getColumnKeysForMapStatement(
   column: string,
-  table: string
+  table: string,
+  timeColumn: string | undefined
 ): string {
-  return AD_HOC_MAP_KEY_QUERY.replaceAll("${column}", column).replaceAll(
-    "${table}",
-    table
-  );
+  return fillSlots(AD_HOC_MAP_KEY_QUERY, {
+    column,
+    table,
+    timeFilter: timeColumn === "" ? "" : "$__timeFilter() AND ",
+  });
 }

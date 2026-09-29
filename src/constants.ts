@@ -31,11 +31,23 @@ export const METADATA_QUERY_TIMEOUT_SETTING = "hdx_query_max_execution_time";
 export const METADATA_QUERY_TIMEOUT_SETTING_ALIAS = "max_execution_time";
 export const METADATA_QUERY_TIMEOUT_VALUE = "10";
 
+// One suffix for both the time-filtered and the keyless form.
+// `timeout_overflow_mode` has no Hydrolix mirror, so it cannot travel on the
+// driver settings channel and has to ride in the statement text.
+// `hdx_query_max_timerange_sec` derives the covered range from the WHERE
+// filter on the primary column and is inert on a statement without one, so
+// the keyless form keeps it rather than growing a second suffix to sync.
+// That reading is from the Hydrolix query-circuit-breaker docs only: the dev
+// stack is stock ClickHouse and cannot enforce any `hdx_*` setting, so the
+// first keyless preload against a real Hydrolix query head is the proof.
 const AD_HOC_QUERY_GUARDRAIL_SETTINGS = `SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = ${AD_HOC_PRELOAD_MAX_TIMERANGE_SECONDS}`;
 
+// `${timeFilter}` is either `$__timeFilter(<pk>) AND ` (value) /
+// `$__timeFilter() AND ` (map keys) or empty for a table with no primary key,
+// so the keyed statement is byte-identical to the pre-slot template.
 export const AD_HOC_KEY_QUERY = "DESCRIBE ${table}";
-export const AD_HOC_MAP_KEY_QUERY = `SELECT distinct(arrayJoin(mapKeys(\${column}))) FROM \${table} WHERE $__timeFilter() AND $__adHocFilter() ${AD_HOC_QUERY_GUARDRAIL_SETTINGS}`;
-export const AD_HOC_VALUE_QUERY = `SELECT arrayJoin(topK(${AD_HOC_VALUE_TOP_K})(\${column})) AS value FROM \${table} WHERE $__timeFilter(\${timeColumn}) AND $__adHocFilter() \${condition} ${AD_HOC_QUERY_GUARDRAIL_SETTINGS}`;
+export const AD_HOC_MAP_KEY_QUERY = `SELECT distinct(arrayJoin(mapKeys(\${column}))) FROM \${table} WHERE \${timeFilter}$__adHocFilter() ${AD_HOC_QUERY_GUARDRAIL_SETTINGS}`;
+export const AD_HOC_VALUE_QUERY = `SELECT arrayJoin(topK(${AD_HOC_VALUE_TOP_K})(\${column})) AS value FROM \${table} WHERE \${timeFilter}$__adHocFilter() \${condition} ${AD_HOC_QUERY_GUARDRAIL_SETTINGS}`;
 
 export const SUPPORTED_TYPES = [
   "DateTime",

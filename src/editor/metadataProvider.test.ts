@@ -252,8 +252,8 @@ describe("MetadataProvider", () => {
   });
 
   // A falsy primary key is a real result, not a miss. Assistant republishes
-  // context on a 300ms debounce, so treating "" or undefined as "not fetched
-  // yet" issues a cluster query per keystroke.
+  // context on a 300ms debounce, so treating "" as "not fetched yet" issues
+  // a cluster query per keystroke.
   test("treats an empty pk as already-fetched", async () => {
     queryMock.mockReturnValue(
       of({
@@ -268,7 +268,11 @@ describe("MetadataProvider", () => {
     expect(queryMock).toHaveBeenCalledTimes(1);
   });
 
-  test("treats a pk query returning no rows as already-fetched", async () => {
+  // No row is "table not found" - not "declares no primary key", so it must
+  // not become "" (that would select the unfiltered preload for a table that
+  // may exist, keyed, by the next call). It is still a memoized answer: the
+  // Assistant asks on a 300ms debounce while the table name is half-typed.
+  test("memoizes a pk query returning no rows as undefined", async () => {
     queryMock.mockReturnValue(
       of({
         data: [toDataFrame({ fields: [{ values: [] }] })],
@@ -280,6 +284,36 @@ describe("MetadataProvider", () => {
     expect(first).toBeUndefined();
     expect(second).toBeUndefined();
     expect(queryMock).toHaveBeenCalledTimes(1);
+  });
+
+  // "" is what the ad-hoc preload reads as "no primary key", so a failed
+  // lookup must reject rather than resolve to it - and must not be memoized,
+  // or a transient cluster error would keep selecting the keyless form for
+  // the rest of the session.
+  test("rejects a pk response carrying errors and does not memoize it", async () => {
+    queryMock.mockReturnValue(
+      of({
+        data: [],
+        errors: [{ message: "Not enough privileges", status: "error" }],
+      })
+    );
+    let mdp = getMetadataProvider(datasource);
+    await expect(
+      mdp.primaryKey({ schema: "schema", table: "table" })
+    ).rejects.toThrow("Not enough privileges");
+    await expect(
+      mdp.primaryKey({ schema: "schema", table: "table" })
+    ).rejects.toThrow("Not enough privileges");
+    expect(queryMock).toHaveBeenCalledTimes(2);
+
+    // Once the cluster answers, the value is memoized as usual.
+    queryMock.mockReturnValue(
+      of({ data: [toDataFrame({ fields: [{ values: [PK] }] })] })
+    );
+    expect(
+      await mdp.primaryKey({ schema: "schema", table: "table" })
+    ).toEqual("timefilter");
+    expect(queryMock).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -794,7 +828,7 @@ describe("getQueryRunner guardrails", () => {
       "ts",
       ""
     );
-    const mapSql = getColumnKeysForMapStatement("attributes", "sample.log");
+    const mapSql = getColumnKeysForMapStatement("attributes", "sample.log", "ts");
 
     [valueSql, mapSql].forEach((sql) => {
       expect(sql).toContain("SETTINGS timeout_overflow_mode = 'break'");

@@ -112,19 +112,28 @@ Host Go picks up the wrong toolchain. See `build-plugin`.
   `interpolateQuery` / `getInterpolatedQuery`; the ad-hoc hooks
   (`getTagKeys` / `getTagValues`) read range + filters from the options
   argument Grafana passes them.
-- `adHocPreloadRange()` resolves the ad-hoc preload window:
+- `adHocPreloadRange()` resolves the ad-hoc preload window for **keyed
+  tables only** (the ones whose `system.tables.primary_key` is non-empty):
   options range → template-service range (defensive since the Grafana 11
   floor; it was load-bearing on 10.4, which never populated
   `options.timeRange`) → trailing-24h lookback.
   The result is capped to the trailing 24h
   (`AD_HOC_PRELOAD_LOOKBACK_SECONDS`), and metadata queries snap endpoints
   via `round: "5m"` so repeated dropdown opens issue identical SQL.
+- A table with no primary key resolves `metadataProvider.primaryKey()` to
+  `""` (a memoized value, not an error). The preload builders in `src/ast.ts`
+  then leave the `${timeFilter}` slot empty — no `$__timeFilter`, no range,
+  no cap — and the statement is bounded by `topK(100)`, the
+  `hdx_query_max_execution_time = 10` breaker, and the shared `SETTINGS`
+  suffix alone. Only `""` selects that form: a lookup that rejects (response
+  with `errors`) is not memoized and issues no preload at all.
 - `ZERO_TIME_RANGE` is the sentinel `{from: 0, to: 0}` defined in
   `src/editor/metadataProvider.ts`. `executeQuery` substitutes it when no
   range is passed; it means "this metadata query has no time macro" and is
-  only valid for the unfiltered `system.*` / `DESCRIBE` lookups — it must
-  never reach a query carrying `$__timeFilter()` (it resolves to a 1970
-  window that returns no rows).
+  valid for any statement that carries none — the unfiltered `system.*` /
+  `DESCRIBE` lookups and the keyless ad-hoc preloads. It must never reach a
+  query carrying `$__timeFilter()` (it resolves to a 1970 window that
+  returns no rows).
 - Annotation queries (spec: `annotations`) arrive from Grafana with
   `app === CoreApp.Dashboard`. The plugin retags them at `query()` entry
   to `app === 'annotation'` (spread copy, detected via
