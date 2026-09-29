@@ -1,4 +1,8 @@
-import { AD_HOC_MAP_KEY_QUERY, AD_HOC_VALUE_QUERY } from "./constants";
+import {
+  AD_HOC_MAP_KEY_QUERY,
+  AD_HOC_VALUE_QUERY,
+  adHocGuardrailSettings,
+} from "./constants";
 
 /**
  * Yields every node of a parser AST depth-first, parents before children,
@@ -59,19 +63,21 @@ export function getColumnValuesStatement(
   column: string,
   table: string,
   timeColumn: string,
-  condition: string
+  condition: string,
+  lookbackSeconds: number
 ): string {
   return AD_HOC_VALUE_QUERY.replaceAll("${column}", column)
     .replaceAll("${table}", table)
     .replaceAll("${timeColumn}", timeColumn)
-    .replaceAll("${condition}", condition ? `AND ${condition}` : "");
+    .replaceAll("${condition}", condition ? `AND ${condition}` : "")
+    .replaceAll("${settings}", adHocGuardrailSettings(lookbackSeconds));
 }
 export function getColumnKeysForMapStatement(
   column: string,
-  table: string
+  table: string,
+  lookbackSeconds: number
 ): string {
-  return AD_HOC_MAP_KEY_QUERY.replaceAll("${column}", column).replaceAll(
-    "${table}",
-    table
-  );
+  return AD_HOC_MAP_KEY_QUERY.replaceAll("${column}", column)
+    .replaceAll("${table}", table)
+    .replaceAll("${settings}", adHocGuardrailSettings(lookbackSeconds));
 }

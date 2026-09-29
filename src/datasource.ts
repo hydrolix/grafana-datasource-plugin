@@ -41,6 +41,7 @@ import { from, Observable, switchMap } from "rxjs";
 import { map } from "rxjs/operators";
 import { ErrorMessageBeautifier } from "./errors/errorBeautifier";
 import { getMetadataProvider } from "./editor/metadataProvider";
+import { parseLookbackSeconds } from "./editor/timeRangeUtils";
 import { getColumnKeysForMapStatement, getColumnValuesStatement } from "./ast";
 import {
   AD_HOC_PRELOAD_LOOKBACK_SECONDS,
@@ -346,7 +347,7 @@ export class DataSource extends DataSourceWithBackend<
     filters?: AdHocVariableFilter[]
   ): Promise<{ key: string; val: string[] }> {
     const response = await this.metadataProvider.executeQuery(
-      getColumnKeysForMapStatement(column, table),
+      getColumnKeysForMapStatement(column, table, this.adHocLookbackSeconds()),
       this.adHocPreloadRange(timeRange),
       filters
     );
@@ -467,7 +468,8 @@ export class DataSource extends DataSourceWithBackend<
         column,
         table,
         timeFilter,
-        this.getAdHocFilterValueCondition()
+        this.getAdHocFilterValueCondition(),
+        this.adHocLookbackSeconds()
       );
     }
     if (!sql) {
@@ -517,11 +519,10 @@ export class DataSource extends DataSourceWithBackend<
     if (resolved) {
       return this.capPreloadTimeRange(resolved);
     }
-    // Last resort: the same lookback the cap already enforces for long ranges.
+    // Last resort: the same configured lookback the cap enforces for long
+    // ranges.
     const to = dateTime();
-    const from = dateTime(
-      to.valueOf() - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
-    );
+    const from = dateTime(to.valueOf() - this.adHocLookbackSeconds() * 1000);
     return { from, to, raw: { from, to } };
   }
 
@@ -552,9 +553,23 @@ export class DataSource extends DataSourceWithBackend<
       : undefined;
   }
 
+  /**
+   * Ad-hoc preload lookback in seconds: the datasource's
+   * `adHocTimeRangeLookback`, or the 24h default when unset or invalid. Bounds
+   * the fallback window, the cap on resolved ranges, and the
+   * `hdx_query_max_timerange_sec` guardrail alike.
+   */
+  private adHocLookbackSeconds(): number {
+    return (
+      parseLookbackSeconds(
+        this.instanceSettings.jsonData.adHocTimeRangeLookback
+      ) ?? AD_HOC_PRELOAD_LOOKBACK_SECONDS
+    );
+  }
+
   private capPreloadTimeRange(range: TimeRange): TimeRange {
     const lookbackFromMs =
-      range.to.valueOf() - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000;
+      range.to.valueOf() - this.adHocLookbackSeconds() * 1000;
     if (range.from.valueOf() >= lookbackFromMs) {
       // Already inside the lookback, so nothing to cap. Return the range
       // untouched rather than rebuilding it: the rewrite below would freeze a

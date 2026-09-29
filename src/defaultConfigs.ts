@@ -1,5 +1,4 @@
 import { CredentialsType, Protocol } from "./types";
-import { dateTime } from "@grafana/data";
 
 export default {
   username: "default",
@@ -8,11 +7,6 @@ export default {
   useDefaultPort: true,
   secure: true,
   skipTlsVerify: false,
-  adHocDefaultTimeRange: {
-    from: dateTime().subtract(5, "m"),
-    to: dateTime(),
-    raw: { from: "now-5m", to: "now" },
-  },
   path: "/query",
   settings: {},
   exposeErrors: {

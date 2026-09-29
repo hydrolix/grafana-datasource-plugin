@@ -1248,6 +1248,168 @@ describe("HdxDataSource", () => {
     );
   });
 
+  describe("configurable ad hoc lookback", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    const HOUR_MS = 60 * 60 * 1000;
+    const DAY_MS = 24 * HOUR_MS;
+    const TO = 1_700_000_000_000;
+
+    function makeRange(fromMs: number, toMs: number) {
+      const from = dateTime(fromMs);
+      const to = dateTime(toMs);
+      return { from, to, raw: { from, to } };
+    }
+
+    function setupLookbackMock(jsonDataOverrides: Record<string, unknown>) {
+      const mock = setupDataSourceMock({
+        variables: [adHocTableVariable],
+        customInstanceSettings: {
+          ...MockDataSourceInstanceSettings,
+          jsonData: {
+            ...MockDataSourceInstanceSettings.jsonData,
+            ...jsonDataOverrides,
+          },
+        },
+      });
+      jest.spyOn(mock.datasource.metadataProvider, "tableKeys").mockReturnValue(
+        Promise.resolve([
+          { text: "labels", value: "labels", type: "Map(String, String)" },
+          { text: "key1", value: "key1", type: "String" },
+        ] as AdHocFilterKeys[])
+      );
+      jest
+        .spyOn(mock.datasource.metadataProvider, "primaryKey")
+        .mockReturnValue(Promise.resolve("ts"));
+      mock.queryMock.mockReturnValue(of({ data: [] }));
+      return mock;
+    }
+
+    async function valuesRange(
+      jsonDataOverrides: Record<string, unknown>,
+      timeRange?: ReturnType<typeof makeRange>
+    ) {
+      const { datasource, queryMock } = setupLookbackMock(jsonDataOverrides);
+      await datasource.getTagValues({
+        key: "key1",
+        filters: [],
+        timeRange,
+      } as any);
+      return queryMock.mock.calls[0][0];
+    }
+
+    it("caps a 6h range to a configured 1h lookback", async () => {
+      const req = await valuesRange(
+        { adHocTimeRangeLookback: "1h" },
+        makeRange(TO - 6 * HOUR_MS, TO)
+      );
+      expect(req.range.from.valueOf()).toBe(TO - HOUR_MS);
+      expect(req.range.to.valueOf()).toBe(TO);
+    });
+
+    it("falls back to a 1h window with no range and a 1h lookback", async () => {
+      const req = await valuesRange({ adHocTimeRangeLookback: "1h" });
+      expect(req.range.to.valueOf() - req.range.from.valueOf()).toBe(HOUR_MS);
+    });
+
+    // 7d: not advertised, but accepted for existing and provisioned values.
+    it("leaves a 3-day range untouched with a 7d lookback", async () => {
+      const req = await valuesRange(
+        { adHocTimeRangeLookback: "7d" },
+        makeRange(TO - 3 * DAY_MS, TO)
+      );
+      expect(req.range.from.valueOf()).toBe(TO - 3 * DAY_MS);
+    });
+
+    it("caps a 90-day range to a configured 7d lookback", async () => {
+      const req = await valuesRange(
+        { adHocTimeRangeLookback: "7d" },
+        makeRange(TO - 90 * DAY_MS, TO)
+      );
+      expect(req.range.from.valueOf()).toBe(TO - 7 * DAY_MS);
+      expect(req.targets[0].rawSql).toContain(
+        `hdx_query_max_timerange_sec = ${7 * 86400 + 600}`
+      );
+    });
+
+    // Provisioned values never pass through the config editor, so the runtime
+    // fallback is the only guard: `24` must not become a 24-second window, and
+    // a YAML number must not throw.
+    it.each<[string, unknown]>([
+      ["a bare number string", "24"],
+      ["a provisioned number", 86400],
+    ])("treats %s as the 24h default", async (_label, value) => {
+      const req = await valuesRange(
+        { adHocTimeRangeLookback: value },
+        makeRange(TO - 90 * DAY_MS, TO)
+      );
+      expect(req.range.from.valueOf()).toBe(
+        TO - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+      expect(req.targets[0].rawSql).toContain(
+        "hdx_query_max_timerange_sec = 87000"
+      );
+    });
+
+    it("treats an invalid lookback as the 24h default", async () => {
+      const req = await valuesRange(
+        { adHocTimeRangeLookback: "abc" },
+        makeRange(TO - 90 * DAY_MS, TO)
+      );
+      expect(req.range.from.valueOf()).toBe(
+        TO - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+      expect(req.targets[0].rawSql).toContain(
+        "hdx_query_max_timerange_sec = 87000"
+      );
+    });
+
+    it("sizes the getTagValues guardrail from the lookback", async () => {
+      const req = await valuesRange({ adHocTimeRangeLookback: "1h" });
+      expect(req.targets[0].rawSql).toContain(
+        "hdx_query_max_timerange_sec = 4200"
+      );
+    });
+
+    it("sizes the map-key guardrail and window from the lookback", async () => {
+      const { datasource, queryMock } = setupLookbackMock({
+        adHocTimeRangeLookback: "1h",
+      });
+      await datasource.getTagKeys({
+        filters: [],
+        timeRange: makeRange(TO - 6 * HOUR_MS, TO) as any,
+      });
+      const req = queryMock.mock.calls[0][0];
+      expect(req.targets[0].rawSql).toContain("mapKeys(labels)");
+      expect(req.targets[0].rawSql).toContain(
+        "hdx_query_max_timerange_sec = 4200"
+      );
+      expect(req.range.from.valueOf()).toBe(TO - HOUR_MS);
+    });
+
+    it("ignores a stale adHocDefaultTimeRange left in jsonData", async () => {
+      // What an old `now-5m` backfill looks like after Grafana stores it.
+      const stale = JSON.parse(
+        JSON.stringify({
+          adHocDefaultTimeRange: {
+            from: dateTime(TO - 5 * 60 * 1000),
+            to: dateTime(TO),
+            raw: { from: "now-5m", to: "now" },
+          },
+        })
+      );
+      const req = await valuesRange(stale);
+      expect(req.range.to.valueOf() - req.range.from.valueOf()).toBe(
+        AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+      expect(req.targets[0].rawSql).toContain(
+        "hdx_query_max_timerange_sec = 87000"
+      );
+    });
+  });
+
   describe("assistant support surface", () => {
     it("getQueryDisplayText returns the raw SQL", () => {
       const { datasource } = setupDataSourceMock({});
