@@ -105,3 +105,29 @@ INSERT INTO e2e.adhoc_slow_src
 SELECT toDateTime64('2025-04-19 00:00:00', 3, 'UTC') + INTERVAL number MINUTE,
        'slowval'
 FROM numbers(100);
+
+-- Keyless ad-hoc fixture (tests/adHocKeyless.spec.ts). `ORDER BY tuple()`
+-- gives the table no sorting key, so `system.tables.primary_key` comes back
+-- empty — which is exactly what the keyless statement variants branch on,
+-- and what a real Hydrolix table with no primary key looks like to the
+-- plugin. Small fixed row set, so the unfiltered scan finishes well inside
+-- the 10s execution-time breaker.
+--
+-- The rows are pinned to 2020, far outside the 2025 dashboard range the
+-- spec uses. A time-filtered preload would therefore return nothing, so the
+-- dropdown populating at all is the proof that the time conjunct was
+-- dropped rather than merely widened.
+DROP TABLE IF EXISTS e2e.adhoc_keyless;
+CREATE TABLE e2e.adhoc_keyless
+(
+    ts DateTime64(3, 'UTC'),
+    status String,
+    attrs Map(String, String)
+) ENGINE = MergeTree() ORDER BY tuple();
+
+INSERT INTO e2e.adhoc_keyless (ts, status, attrs) VALUES
+    ('2020-01-01 00:00:00', 'ok', map('env', 'prod')),
+    ('2020-01-01 00:10:00', 'ok', map('env', 'prod')),
+    ('2020-01-01 00:20:00', 'error', map('env', 'staging')),
+    ('2020-01-01 00:30:00', 'error', map('env', 'staging')),
+    ('2020-01-01 00:40:00', 'warn', map('env', 'dev'));

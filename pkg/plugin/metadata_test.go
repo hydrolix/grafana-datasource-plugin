@@ -237,3 +237,58 @@ func TestMetadataProvider_QueryFailurePropagates(t *testing.T) {
 	_, err := p.QueryPK(context.Background(), nil, "db", "tbl")
 	assert.Error(t, err)
 }
+
+func TestMetadataProvider_QueryPK_EmptyCellIsAValue(t *testing.T) {
+	ds := &fakeMetadataDS{
+		queryDataFn: func(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
+			return respondWith(frameOf([]string{""}), "pk_query"), nil
+		},
+	}
+	p := NewMetadataProvider(ds)
+
+	pk, err := p.QueryPK(context.Background(), nil, "db", "keyless")
+	require.NoError(t, err)
+	assert.Equal(t, "", pk)
+	assert.NotErrorIs(t, err, ErrPrimaryKeyNotFound,
+		"a table that exists without a primary key is not a missing table")
+}
+
+func TestMetadataProvider_GetPK_EmptyPrimaryKeyIsStoredLikeAnyResult(t *testing.T) {
+	ds := &fakeMetadataDS{
+		queryDataFn: func(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
+			return respondWith(frameOf([]string{""}), "pk_query"), nil
+		},
+	}
+	p := NewMetadataProvider(ds)
+
+	pk, err := p.GetPK(context.Background(), nil, "db", "keyless")
+	require.NoError(t, err)
+	assert.Equal(t, "", pk)
+	assert.Equal(t, 1, ds.callCount)
+
+	pk, err = p.GetPK(context.Background(), nil, "db", "keyless")
+	require.NoError(t, err)
+	assert.Equal(t, "", pk)
+	assert.Equal(t, 1, ds.callCount, "a keyless table must be looked up at most once per TTL")
+}
+
+func TestMetadataProvider_GetPK_FailedLookupIsNotStored(t *testing.T) {
+	// A source-wrapped error is exactly what a source-wrapped sentinel would
+	// have matched via errors.Is; the plain sentinel must not.
+	upstream := backend.DownstreamError(errors.New("cluster unavailable"))
+	ds := &fakeMetadataDS{
+		queryDataFn: func(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
+			return nil, upstream
+		},
+	}
+	p := NewMetadataProvider(ds)
+
+	for i := 1; i <= 2; i++ {
+		_, err := p.GetPK(context.Background(), nil, "db", "tbl")
+		assert.ErrorIs(t, err, upstream)
+		assert.NotErrorIs(t, err, ErrPrimaryKeyEmpty,
+			"a transient lookup failure must never be mistaken for a keyless table")
+		assert.Equal(t, i, ds.callCount, "a failed lookup must be retried, not stored")
+	}
+	assert.Nil(t, p.pkCache.Get("db_tbl"))
+}
