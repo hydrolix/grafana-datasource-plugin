@@ -189,20 +189,30 @@ jobs:
           name: plugin-package
           path: /tmp/plugin-package
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
       # Last gate before publishing: e2e allows unsigned plugins and the
       # validator only warns, so nothing upstream would stop an unsigned zip.
       - name: Assert package is signed
         run: |
           shopt -s nullglob
           zips=(/tmp/plugin-package/*.zip)
+          # The validator reads only its first positional argument, so a
+          # second zip would go unchecked.
           if [[ ${#zips[@]} -ne 1 ]]; then
             echo "::error::expected exactly one plugin zip, found ${#zips[@]}"
             exit 1
           fi
-          if ! unzip -Z1 "${zips[0]}" | grep -q '^[^/]*/MANIFEST\.txt$'; then
-            echo "::error::${zips[0]} has no MANIFEST.txt; refusing to publish an unsigned release"
-            exit 1
-          fi
+          # Verifies the manifest's PGP signature and every file hash, not
+          # just that MANIFEST.txt exists. -strict: the signature findings
+          # are warnings by default; make them fail the step
+          # (-analyzerSeverity error does not — unsigned-plugin comes from
+          # the manifest dependency analyzer). Pinned so a validator update
+          # can't silently change what the release gate accepts.
+          npx --yes @grafana/plugin-validator@0.49.5 -analyzer signature -strict "${zips[0]}"
 
       - name: Parse changelog
         id: parse
