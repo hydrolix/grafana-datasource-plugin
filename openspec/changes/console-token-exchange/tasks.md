@@ -75,9 +75,15 @@ field name.
 
 ## 3. Settings and health
 
-- [ ] 3.1 `CredentialsType` gains the exchanging mode; `src/types.ts` and the
-      config editor follow. `oauthPassThru` stays true for it — Grafana must
-      still forward the sign-in token.
+- [x] 3.1 `CredentialsType` gains the exchanging mode; `src/types.ts` and the
+      config editor follow. `oauthPassThru` is set for **both** forwarding modes
+      — Grafana forwards a token only when asked to, and the exchanging mode
+      then swaps it before querying. The mode asks for no credential at all:
+      the delegate lives in server configuration. Its one optional field is the
+      cluster audience, in `jsonData`, where nothing secret belongs; empty means
+      the host, which is the audience on every cluster the console registers
+      today. Seven tests in `ConfigEditor.exchange.test.tsx`; the repo's 332
+      frontend tests still pass.
 - [ ] 3.2 Read `exchange_url`, `exchange_audience`, `exchange_client_id`,
       `exchange_client_secret` from server config. Never from `jsonData`.
 - [ ] 3.3 Health check: distinguish "not configured" from "configured but the

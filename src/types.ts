@@ -1,12 +1,7 @@
-import {
-  AdHocVariableFilter,
-  DataSourceJsonData,
-  TimeRange,
-  TypedVariableModel,
-} from "@grafana/data";
-import { DataQuery } from "@grafana/schema";
+import { AdHocVariableFilter, DataSourceJsonData, TimeRange, TypedVariableModel } from '@grafana/data';
+import { DataQuery } from '@grafana/schema';
 
-export type HdxQuerySource = "annotation";
+export type HdxQuerySource = 'annotation';
 
 export interface HdxQuery extends DataQuery {
   rawSql: string;
@@ -53,6 +48,11 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   secure?: boolean;
   path?: string;
   skipTlsVerify?: boolean;
+  /**
+   * The cluster's token audience, for `forwardOAuthExchange`. Optional: the host
+   * is the audience on every cluster the console registers today. Not a secret.
+   */
+  exchangeAudience?: string;
   defaultDatabase?: string;
   defaultRound?: string;
   adHocTimeRangeLookback?: string;
@@ -86,14 +86,24 @@ export interface HdxSecureJsonData {
 }
 
 export enum Protocol {
-  Native = "native",
-  Http = "http",
+  Native = 'native',
+  Http = 'http',
 }
 
 export enum CredentialsType {
-  UserAccount = "userAccount",
-  ServiceAccount = "serviceAccount",
-  ForwardOAuth = "forwardOAuth",
+  UserAccount = 'userAccount',
+  ServiceAccount = 'serviceAccount',
+  ForwardOAuth = 'forwardOAuth',
+  /**
+   * Forward the signed-in user's OAuth token, but exchange it for a cluster
+   * token before querying. For a Grafana whose users sign in through an issuer
+   * the cluster does not accept directly — a Hydrolix Console realm, say — where
+   * forwarding the token unchanged is refused on its audience.
+   *
+   * The exchange endpoint and its per-cluster credentials come from Grafana's
+   * server configuration, so this mode stores no secret on the datasource.
+   */
+  ForwardOAuthExchange = 'forwardOAuthExchange',
 }
 
 export interface AdHocFilterKeys {
@@ -191,11 +201,7 @@ export interface Expr {
 }
 
 export interface MacroFunctionMap {
-  [macro: string]: (
-    params: string[],
-    context: Context,
-    index: number
-  ) => string;
+  [macro: string]: (params: string[], context: Context, index: number) => string;
 }
 
 export interface Context {
