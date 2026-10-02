@@ -2,6 +2,9 @@ package plugin
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,8 +43,8 @@ type metadataDS interface {
 	DefaultDatabase() string
 }
 
-// MetadataProvider caches per-(database, table) primary-key lookups and
-// per-CTE column-type maps. Both caches use ttlcache with a 1-hour TTL —
+// MetadataProvider caches primary-key lookups and column-type maps, per
+// (forwarded identity, database, table) and (forwarded identity, CTE). Both caches use ttlcache with a 1-hour TTL —
 // matches the connection cache (C3) and the fork's hardcoded choice.
 //
 // Schema queries are issued through ds.QueryData(...), so they participate
@@ -67,6 +70,70 @@ func NewMetadataProvider(ds metadataDS) *MetadataProvider {
 	return &MetadataProvider{ds: ds, pkCache: pkCache, keyCache: keyCache}
 }
 
+// cacheScope answers the part of a metadata cache key that keeps one person's
+// schema reads out of another's.
+//
+// These caches hold what a schema query answered, and a schema query is
+// authorized like any other: in a forwarding credentials mode the user's token
+// reaches the cluster on a cache MISS only. Keyed on (database, table) alone,
+// the first user to look a table up serves its primary key and column types to
+// every other user of the same datasource for the cache's lifetime, with the
+// cluster never asked about them. That is a disclosure of schema shape — not of
+// rows, but not nothing either.
+//
+// The scope is the forwarded token's subject: stable for a person, so a token
+// refresh does not throw the cache away, and distinct between people, which is
+// the point. Modes that forward no token — a service account, a stored user
+// account — have one credential and therefore one legitimate view, and keep
+// sharing an entry.
+func cacheScope(headers http.Header) string {
+	token := strings.TrimPrefix(headers.Get(backend.OAuthIdentityTokenHeaderName), "Bearer ")
+	if token == "" {
+		return ""
+	}
+	if subject := subjectOf(token); subject != "" {
+		return subject
+	}
+	// A forwarded token whose subject cannot be read is still a distinct
+	// identity. Key on a digest of it rather than let it share an entry: this
+	// re-caches on every refresh, which is the right way to be wrong.
+	sum := sha256.Sum256([]byte(token))
+	return "d:" + hex.EncodeToString(sum[:8])
+}
+
+// subjectOf reads the `sub` claim from a JWT without verifying its signature.
+// Unverified is correct here: the value only picks a cache slot, and the
+// cluster remains the authority on what this person may read.
+func subjectOf(jwt string) string {
+	parts := strings.Split(jwt, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		Sub string `json:"sub"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return ""
+	}
+	return claims.Sub
+}
+
+// scopedKey joins a scope to a cache key. An empty scope — a mode that forwards
+// no identity — yields the bare key the cache has always used, so those modes
+// keep sharing one entry, which is correct for one credential and one view. The
+// separator cannot appear in a subject or an identifier, so two different
+// (scope, key) pairs cannot collide.
+func scopedKey(scope, key string) string {
+	if scope == "" {
+		return key
+	}
+	return scope + "\x00" + key
+}
+
 // GetPK returns the primary-key column name for (database, table). If
 // database is empty, the wrapper's configured default database is used.
 // Cache miss issues a schema query; subsequent calls within the TTL hit
@@ -79,14 +146,14 @@ func (p *MetadataProvider) GetPK(ctx context.Context, headers http.Header, datab
 		}
 		database = defaultDB
 	}
-	cacheKey := database + "_" + table
+	cacheKey := scopedKey(cacheScope(headers), database+"_"+table)
 
 	if entry := p.pkCache.Get(cacheKey); entry != nil {
-		log.DefaultLogger.Debug("MetadataProvider: PK cache hit", "key", cacheKey)
+		log.DefaultLogger.Debug("MetadataProvider: PK cache hit", "table", database+"_"+table)
 		return entry.Value(), nil
 	}
 
-	log.DefaultLogger.Debug("MetadataProvider: PK cache miss", "key", cacheKey)
+	log.DefaultLogger.Debug("MetadataProvider: PK cache miss", "table", database+"_"+table)
 	pk, err := p.QueryPK(ctx, headers, database, table)
 	if err != nil {
 		return "", err
@@ -99,17 +166,19 @@ func (p *MetadataProvider) GetPK(ctx context.Context, headers http.Header, datab
 // table reference. Cache miss issues a DESCRIBE; subsequent calls within
 // the TTL hit the cache.
 func (p *MetadataProvider) GetKeys(ctx context.Context, headers http.Header, cte string) (map[string]string, error) {
-	if entry := p.keyCache.Get(cte); entry != nil {
-		log.DefaultLogger.Debug("MetadataProvider: keys cache hit", "key", cte)
+	cacheKey := scopedKey(cacheScope(headers), cte)
+
+	if entry := p.keyCache.Get(cacheKey); entry != nil {
+		log.DefaultLogger.Debug("MetadataProvider: keys cache hit", "cte", cte)
 		return entry.Value(), nil
 	}
 
-	log.DefaultLogger.Debug("MetadataProvider: keys cache miss", "key", cte)
+	log.DefaultLogger.Debug("MetadataProvider: keys cache miss", "cte", cte)
 	keys, err := p.QueryKeys(ctx, headers, cte)
 	if err != nil {
 		return nil, err
 	}
-	p.keyCache.Set(cte, keys, ttlcache.DefaultTTL)
+	p.keyCache.Set(cacheKey, keys, ttlcache.DefaultTTL)
 	return keys, nil
 }
 
