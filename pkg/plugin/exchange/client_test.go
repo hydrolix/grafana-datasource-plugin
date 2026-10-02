@@ -152,6 +152,37 @@ func TestConfigFromEnv(t *testing.T) {
 			t.Fatalf("got %v", err)
 		}
 	})
+	t.Run("the plain environment names work too", func(t *testing.T) {
+		// A backend plugin inherits Grafana's environment, so an operator who
+		// can set a variable on the process does not have to touch grafana.ini.
+		cfg, err := ConfigFromEnv(env(map[string]string{
+			EnvURLAlt:         "https://console/api/v1/auth/token-exchange",
+			EnvCredentialsAlt: `{"c1":{"client_id":"grafana-c1","client_secret":"s1"}}`,
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := cfg.Credential("c1"); !ok {
+			t.Fatal("the plain names were not read")
+		}
+	})
+	t.Run("the grafana.ini names win where both are set", func(t *testing.T) {
+		cfg, err := ConfigFromEnv(env(map[string]string{
+			EnvURL:            "https://configured/api",
+			EnvCredentials:    `{"c1":{"client_id":"from-ini","client_secret":"s1"}}`,
+			EnvURLAlt:         "https://env/api",
+			EnvCredentialsAlt: `{"c1":{"client_id":"from-env","client_secret":"s1"}}`,
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.URL != "https://configured/api" {
+			t.Fatalf("url %q", cfg.URL)
+		}
+		if c, _ := cfg.Credential("c1"); c.ClientID != "from-ini" {
+			t.Fatalf("client id %q", c.ClientID)
+		}
+	})
 	t.Run("a credential map is read", func(t *testing.T) {
 		cfg, err := ConfigFromEnv(env(map[string]string{
 			EnvURL:         "https://console/api/v1/auth/token-exchange",

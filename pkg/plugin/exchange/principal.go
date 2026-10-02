@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"strings"
+	"sync"
+	"time"
 )
 
 // CredentialsType is the datasource credentials mode this package serves. It
@@ -73,4 +75,75 @@ func SubjectOf(jwt string) string {
 		return ""
 	}
 	return claims.Sub
+}
+
+// Principals remembers the newest forwarded token for each subject.
+//
+// The context is the better carrier and is tried first, but it does not always
+// arrive: a connection's own handshake — clickhouse-go's "server hello" — runs
+// when database/sql establishes the connection, and the context it gets is not
+// always the query's. A query that could not be identified would then be
+// refused even though Grafana forwarded a perfectly good token, which is what
+// the first live run of this change showed.
+//
+// So the subject, which keys the connection, also keys this registry, and the
+// transport can recover the token for the connection it belongs to. Entries are
+// the newest token seen for that person and are dropped once they go unused,
+// because a token Grafana has stopped refreshing is of no further use.
+type Principals struct {
+	mu    sync.Mutex
+	known map[string]remembered
+	idle  time.Duration
+	now   func() time.Time
+}
+
+type remembered struct {
+	principal Principal
+	seen      time.Time
+}
+
+// NewPrincipals builds a registry. An entry unused for `idle` is dropped; zero
+// means one hour.
+func NewPrincipals(idle time.Duration, now func() time.Time) *Principals {
+	if idle <= 0 {
+		idle = time.Hour
+	}
+	if now == nil {
+		now = time.Now
+	}
+	return &Principals{known: map[string]remembered{}, idle: idle, now: now}
+}
+
+// Remember records the newest token for this subject at this cluster.
+func (p *Principals) Remember(pr Principal) {
+	if pr.Subject == "" || pr.SubjectToken == "" || pr.Audience == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.known[key(pr.Audience, pr.Subject)] = remembered{principal: pr, seen: p.now()}
+	p.pruneLocked()
+}
+
+// Lookup answers the newest token for this subject at this cluster.
+func (p *Principals) Lookup(audience, subject string) (Principal, bool) {
+	if audience == "" || subject == "" {
+		return Principal{}, false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	entry, ok := p.known[key(audience, subject)]
+	if !ok || p.now().Sub(entry.seen) > p.idle {
+		return Principal{}, false
+	}
+	return entry.principal, true
+}
+
+func (p *Principals) pruneLocked() {
+	cutoff := p.now().Add(-p.idle)
+	for k, v := range p.known {
+		if v.seen.Before(cutoff) {
+			delete(p.known, k)
+		}
+	}
 }

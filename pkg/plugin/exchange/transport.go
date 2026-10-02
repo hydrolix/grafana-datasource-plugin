@@ -17,9 +17,18 @@ import (
 type Transport struct {
 	Base   http.RoundTripper
 	Source *Source
+
+	// Bound is the connection's own (audience, subject), known because the
+	// subject keys the connection cache. It lets a request that arrives without
+	// a context principal — the driver's own handshake, which runs when the
+	// connection is established — still be identified.
+	Bound Principal
+	// Principals holds the newest forwarded token per subject, for that case.
+	Principals *Principals
 }
 
-// NewTransport wraps a base round tripper. A nil base means the default.
+// NewTransport wraps a base round tripper for a connection that has no bound
+// identity. A nil base means the default.
 func NewTransport(base http.RoundTripper, src *Source) *Transport {
 	if base == nil {
 		base = http.DefaultTransport
@@ -27,8 +36,32 @@ func NewTransport(base http.RoundTripper, src *Source) *Transport {
 	return &Transport{Base: base, Source: src}
 }
 
+// NewBoundTransport wraps a base round tripper for a connection belonging to one
+// person at one cluster. Requests on it are identified even where the context
+// does not reach — the registry supplies the newest token for that subject.
+func NewBoundTransport(base http.RoundTripper, src *Source, principals *Principals, audience, subject string) *Transport {
+	t := NewTransport(base, src)
+	t.Principals = principals
+	t.Bound = Principal{Audience: audience, Subject: subject}
+	return t
+}
+
+// principalFor answers who this request runs as. The context is tried first
+// because it is exact — it carries the token of the very request being served.
+// The connection's bound identity is the fallback, and the registry supplies
+// that person's newest token.
+func (t *Transport) principalFor(req *http.Request) (Principal, bool) {
+	if p, ok := PrincipalFrom(req.Context()); ok {
+		return p, true
+	}
+	if t.Principals == nil || t.Bound.Subject == "" || t.Bound.Audience == "" {
+		return Principal{}, false
+	}
+	return t.Principals.Lookup(t.Bound.Audience, t.Bound.Subject)
+}
+
 func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
-	p, ok := PrincipalFrom(req.Context())
+	p, ok := t.principalFor(req)
 	if !ok {
 		// No principal: refuse rather than send whatever the connection was
 		// built with. A query with no identity has no business reaching a
