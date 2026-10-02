@@ -118,9 +118,18 @@ field name.
             shares one entry between different people. The cache log lines now
             name the table or CTE rather than the key, which carries a subject.
       - [x] 4.1b Test: two users, one table, second user must reach the cluster.
-- [ ] 4.2 Macros that run a schema lookup without a user context
-      (`$__adHocFilter`, `$__timeFilter` with no column) lose the token. Confirm
-      the behaviour and state it.
+- [x] 4.2 **Tested live, and they do not lose the token.** This was the gating
+      question for package dashboards, not a detail: across the bundle corpus
+      `$__adHocFilter` appears 228 times and `$__timeFilter` 183, and each runs a
+      schema lookup that is itself a query needing the signed-in user. A
+      dashboard of `$__timeFilter()` (primary-key lookup), `$__adHocFilter()`
+      (DESCRIBE) and `$__conditionalAll` against a 484M-row table returned
+      numbers on every panel, with no refusal and no extra exchange — the
+      lookups rode the cached token, and repeats were served by the metadata
+      cache.
+      - What this did **not** cover: ad-hoc filter *key population* in the
+        editor, which is a frontend resource call rather than this backend path.
+        Worth a look before anyone calls the mode finished.
 - [ ] 4.3 `hdx-query-attribution` already exists as a spec in this repo; the
       exchanged token's subject is the obvious thing to attribute a query to, and
       the cluster records nothing per user today. Worth connecting the two.
