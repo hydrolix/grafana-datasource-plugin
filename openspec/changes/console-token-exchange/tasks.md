@@ -47,10 +47,20 @@
 
 ## 4. The gaps this mode inherits, named not assumed
 
-- [ ] 4.1 **Shared metadata caches.** Schema lookups cached per datasource rather
-      than per user would cross users in any forwarding mode. Establish whether
-      they do, and fix or document it — this decides whether forward modes are
-      usable in a multi-tenant org at all.
+- [x] 4.1 **Shared metadata caches — confirmed, and it affects shipped
+      `forwardOAuth`, not just this mode.** `MetadataProvider` keys `pkCache` on
+      `database + "_" + table` and `keyCache` on the CTE reference
+      (`pkg/plugin/metadata.go`), both with a one-hour TTL, per datasource
+      instance. The caller's `headers` — carrying the user's token — reach the
+      cluster only on a **miss**. So one user's lookup populates the cache, and
+      for the next hour every other user of that datasource is served that
+      table's primary key and column name→type map without the cluster
+      authorizing them. Disclosure is schema shape, not rows.
+      - [ ] 4.1a Add the user (the forwarded token's subject) to both cache keys
+            in forwarding modes, or bypass these caches there. Keying on the
+            token itself would churn the cache on every refresh; the subject is
+            stable.
+      - [ ] 4.1b Test: two users, one table, second user must reach the cluster.
 - [ ] 4.2 Macros that run a schema lookup without a user context
       (`$__adHocFilter`, `$__timeFilter` with no column) lose the token. Confirm
       the behaviour and state it.
