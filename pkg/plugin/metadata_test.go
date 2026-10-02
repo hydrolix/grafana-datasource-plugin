@@ -17,11 +17,11 @@ import (
 // the request the provider built (so tests can assert header propagation)
 // and returns canned frames.
 type fakeMetadataDS struct {
-	queryDataFn  func(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error)
-	instanceSet  backend.DataSourceInstanceSettings
-	defaultDB    string
-	callCount    int
-	lastRequest  *backend.QueryDataRequest
+	queryDataFn func(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error)
+	instanceSet backend.DataSourceInstanceSettings
+	defaultDB   string
+	callCount   int
+	lastRequest *backend.QueryDataRequest
 }
 
 func (f *fakeMetadataDS) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
