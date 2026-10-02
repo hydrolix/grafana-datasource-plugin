@@ -86,10 +86,15 @@ field name.
       frontend tests still pass.
 - [ ] 3.2 Read `exchange_url`, `exchange_audience`, `exchange_client_id`,
       `exchange_client_secret` from server config. Never from `jsonData`.
-- [ ] 3.3 Health check: distinguish "not configured" from "configured but the
-      console refused" from "console unreachable". Note that Save & test carries
-      no user token, so it can verify configuration reachability only — say so in
-      the message rather than implying the user's access was checked.
+- [x] 3.3 **Done, and it also fixes plain `forwardOAuth`.** Upstream runs the
+      check on the bootstrap connection, which has no user, so a working
+      forward-mode datasource reported degraded health — and a green tick would
+      have read as "your access works" when nothing about anyone's access was
+      tested. Both forwarding modes now answer with what can actually be
+      established: for the exchanging mode, whether this Grafana holds a
+      delegate credential **for this cluster** (they are per cluster, so the
+      message names which), and in every case that a person's access is proven
+      by opening a panel, not here. Four tests.
 
 ## 4. The gaps this mode inherits, named not assumed
 

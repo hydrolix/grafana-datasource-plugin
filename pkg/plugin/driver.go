@@ -44,6 +44,9 @@ type Hydrolix struct {
 	// requests whose context does not reach the transport — the driver's own
 	// handshake when a connection is established.
 	exchangePrincipals *exchange.Principals
+	// exchangeConfig is kept so a health check can say which clusters this
+	// Grafana is configured to exchange for.
+	exchangeConfig exchange.Config
 }
 
 var (
@@ -65,6 +68,7 @@ func NewHydrolix() *Hydrolix {
 	if cfg, err := exchange.ConfigFromEnv(os.LookupEnv); err == nil {
 		h.exchangeSource = exchange.NewSource(exchange.NewHTTPExchanger(cfg), nil, log.DefaultLogger)
 		h.exchangePrincipals = exchange.NewPrincipals(0, nil)
+		h.exchangeConfig = cfg
 	} else {
 		h.exchangeConfigErr = err
 	}
@@ -79,6 +83,19 @@ func NewHydrolix() *Hydrolix {
 // connection failed its handshake before a query could run.
 func forwardsUserIdentity(credentialsType string) bool {
 	return credentialsType == "forwardOAuth" || credentialsType == exchange.CredentialsType
+}
+
+// exchangeConfiguredFor reports whether this process holds a delegate credential
+// for that cluster. Credentials are per cluster, so a Grafana serving several
+// can be configured for one and not another.
+func (h *Hydrolix) exchangeConfiguredFor(audience string) bool {
+	if h.exchangeSource == nil {
+		return false
+	}
+	return h.exchangeConfig.Credentials != nil && func() bool {
+		_, ok := h.exchangeConfig.Credential(audience)
+		return ok
+	}()
 }
 
 // exchangeAudienceOf answers the audience a datasource exchanges for: the one
