@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/grafana/sqlds/v5"
 	hdxbuild "github.com/hydrolix/plugin/pkg/build"
 	"github.com/hydrolix/plugin/pkg/converters"
+	"github.com/hydrolix/plugin/pkg/plugin/exchange"
 	"github.com/hydrolix/plugin/pkg/plugin/models"
 	"github.com/pkg/errors"
 )
@@ -29,6 +31,15 @@ import (
 // Hydrolix defines how to connect to a Hydrolix datasource
 type Hydrolix struct {
 	querySettingsContextHandler func(context.Context, map[string]any) context.Context
+
+	// exchangeSource mints cluster tokens for the exchanging credentials mode,
+	// or is nil where this instance is not configured for it. One per process:
+	// the cache is keyed by (cluster audience, subject), so sharing it across
+	// datasources of the same cluster is correct and saves exchanges.
+	exchangeSource *exchange.Source
+	// exchangeConfigErr says why exchangeSource is nil, so a datasource set to
+	// the mode can fail with the reason rather than with an auth error.
+	exchangeConfigErr error
 }
 
 var (
@@ -42,7 +53,27 @@ var (
 
 // NewHydrolix creates plugin instance with default parameters
 func NewHydrolix() *Hydrolix {
-	return &Hydrolix{querySettingsContextHandler: clickhouseContextHandler}
+	h := &Hydrolix{querySettingsContextHandler: clickhouseContextHandler}
+	// Read from the environment, which is how Grafana exposes its
+	// `[plugin.<id>]` configuration to a plugin process. Absent configuration is
+	// not an error: it only means this instance cannot serve the exchanging
+	// mode, which nothing else depends on.
+	if cfg, err := exchange.ConfigFromEnv(os.LookupEnv); err == nil {
+		h.exchangeSource = exchange.NewSource(exchange.NewHTTPExchanger(cfg), nil, log.DefaultLogger)
+	} else {
+		h.exchangeConfigErr = err
+	}
+	return h
+}
+
+// exchangeAudienceOf answers the audience a datasource exchanges for: the one
+// its settings name, else its host, which is the audience on every cluster the
+// console registers today.
+func exchangeAudienceOf(settings models.PluginSettings) string {
+	if settings.ExchangeAudience != "" {
+		return settings.ExchangeAudience
+	}
+	return settings.Host
 }
 
 // getClientInfoProducts reads build information of grafana and plugin
@@ -192,6 +223,27 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		}
 	}
 
+	if settings.CredentialsType == exchange.CredentialsType {
+		if protocol != clickhouse.HTTP {
+			// The native protocol carries its credential as the connection's
+			// password, which cannot be swapped per request — so a refreshed
+			// cluster token could never reach an open connection. Refusing is
+			// better than a second, worse code path: the console's own
+			// datasources are all HTTP.
+			return nil, backend.DownstreamError(fmt.Errorf(
+				"%s credentials need the http protocol: the native protocol binds its credential to the connection", exchange.CredentialsType))
+		}
+		if h.exchangeSource == nil {
+			return nil, backend.PluginError(fmt.Errorf(
+				"this Grafana is not configured for %s credentials: %w", exchange.CredentialsType, h.exchangeConfigErr))
+		}
+		// The credential is set per request by the transport, from the token
+		// source, rather than frozen into this connection's headers.
+		opts.TransportFunc = func(t *http.Transport) (http.RoundTripper, error) {
+			return exchange.NewTransport(t, h.exchangeSource), nil
+		}
+	}
+
 	db := clickhouse.OpenDB(opts)
 
 	// TODO: add config UI for connection pool
@@ -281,6 +333,22 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 	if pluginSettings.CredentialsType == "forwardOAuth" {
 		if token := strings.TrimPrefix(headers.Get(backend.OAuthIdentityTokenHeaderName), "Bearer "); token != "" {
 			connArgs["oauthToken"] = token
+		}
+	}
+	if pluginSettings.CredentialsType == exchange.CredentialsType {
+		// The SUBJECT keys the connection cache, not the token: Grafana
+		// refreshes the token every few minutes while the person stays the
+		// same, so keying on the token would rebuild the pool each time. The
+		// token itself rides the context, where it is not part of any key.
+		if token := strings.TrimPrefix(headers.Get(backend.OAuthIdentityTokenHeaderName), "Bearer "); token != "" {
+			if subject := exchange.SubjectOf(token); subject != "" {
+				connArgs["sub"] = subject
+				ctx = exchange.WithPrincipal(ctx, exchange.Principal{
+					Audience:     exchangeAudienceOf(pluginSettings),
+					Subject:      subject,
+					SubjectToken: token,
+				})
+			}
 		}
 	}
 	if org := headers.Get(OrgIdHeaderKey); org != "" {

@@ -45,16 +45,20 @@ was decided while building it:
 
 - [x] 2.1 A `RoundTripper` that sets `Authorization: Bearer <exchanged token>` on
       each request, from the token source, for the user the connection belongs to.
-- [ ] 2.2 Install it through `Options.TransportFunc` for the HTTP protocol when
+- [x] 2.2 Install it through `Options.TransportFunc` for the HTTP protocol when
       the mode is the exchanging one. `MutateQueryData` puts the subject in
       `connectionArgs` instead of the token, so the pool key survives a refresh.
 - [x] 2.2a A test that the forwarded console token can never reach the cluster,
       including when the exchange fails.
 - [x] 2.3 On a cluster `401`: invalidate that user and retry the request once.
-- [ ] 2.4 Native protocol: the credential is the connection's password and cannot
+- [x] 2.4 Native protocol: the credential is the connection's password and cannot
       be swapped per request. Either refuse the mode for native with a clear
-      message, or key the pool on the exchanged token for native only. Decide and
-      write it down; do not leave it implicit.
+      message, or key the pool on the exchanged token for native only. **Decided:
+      refused**, with a message saying the mode needs the http protocol. Native
+      binds its credential to the connection as a password, so a refreshed token
+      could never reach an open connection; a second, worse code path is not
+      worth shipping for a protocol the console's own datasources never use
+      (they are http, port 443, path /query).
 
 **The transport seam is built** — `exchange.Transport` plus the context-carried
 `Principal`, 29 tests in the package. The mechanism that makes it work: the
@@ -63,11 +67,11 @@ driver builds its outbound request with `http.NewRequestWithContext`
 principal can ride it. That is why the subject token needs no side map and no
 place in `connectionArgs`.
 
-Still open in this section: **2.2** (installing it through `Options.TransportFunc`
-in `driver.go` and putting the subject in `connectionArgs`) and **2.4** (the
-native protocol, whose credential is the connection's password and cannot be
-swapped per request). Both touch the plugin's own files rather than this new
-package, so they are the first changes a reviewer there will care about.
+Section 2 is built, including the wiring in `driver.go`. Six tests cover the
+wiring itself (`driver_exchange_test.go`), and every existing suite in the repo
+still passes. The diff in `models/settings.go` is one field and its comment; the
+rest of that file's diff is gofmt realigning the struct tags around a longer
+field name.
 
 ## 3. Settings and health
 
