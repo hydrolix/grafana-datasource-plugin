@@ -2,26 +2,44 @@
 
 ## 1. The token source (`pkg/plugin/exchange`)
 
-- [ ] 1.1 `TokenSource` with `Token(ctx, sub string) (string, error)`, a cache of
+- [x] 1.1 `TokenSource` with `Token(ctx, sub string) (string, error)`, a cache of
       `{token, deadline}` keyed on the subject claim — **never on the forwarded
       token**, which changes on every Grafana refresh — and a
       `singleflight.Group` keyed the same way (`golang.org/x/sync` is already an
       indirect dependency).
-- [ ] 1.2 Deadlines stamped from the request start, never from a server clock.
+- [x] 1.2 Deadlines stamped from the request start, never from a server clock.
       Refresh lead = 20 % of lifetime clamped to [60 s, 300 s]; lazy skew 30 s;
       no scheduling under a 120 s lifetime.
-- [ ] 1.3 Retry ladder 5/10/20/40/60 s, each rung taken only if it lands before
+- [x] 1.3 Retry ladder 5/10/20/40/60 s, each rung taken only if it lands before
       the current token's real expiry.
-- [ ] 1.4 `Invalidate(user)` with a generation counter, so an exchange that began
+- [x] 1.4 `Invalidate(user)` with a generation counter, so an exchange that began
       before the invalidation cannot populate the cache after it.
-- [ ] 1.5 The exchange call itself: form-encoded RFC 8693
+- [x] 1.5 The exchange call itself: form-encoded RFC 8693
       (`grant_type=urn:ietf:params:oauth:grant-type:token-exchange`,
       `subject_token`, `subject_token_type=…:access_token`, `audience`), Basic
       auth with the delegate credential, no `scope` (the console's facade refuses
       one). Classify the response into refused / unavailable / misconfigured.
-- [ ] 1.6 Tests: single-flight under concurrency, refresh-ahead boundaries,
+- [x] 1.6 Tests: single-flight under concurrency, refresh-ahead boundaries,
       ladder bounded by expiry, invalidate-mid-exchange, and a log-hygiene test
       asserting no token, SQL or secret reaches any log line.
+
+**Section 1 is built** — `pkg/plugin/exchange` (config, client, source) with 20 tests,
+green under `-race`, and the repo's existing suites unaffected. Two notes on what
+was decided while building it:
+
+- **The refresh is synchronous, not a background goroutine.** A caller inside the
+  lead window performs the refresh itself while its current token is still
+  usable, so a failed refresh is invisible — the token in hand keeps serving. A
+  renewal timer would add process lifecycle for the same outcome; the browser
+  needs one because a tab has no request to attach the work to, and a plugin
+  does.
+- **A refusal drops the cached token and is remembered for ten seconds.** The
+  browser has no equivalent because a browser is one user. Server-side, a refused
+  person reloading a thirty-panel dashboard would otherwise ask the console
+  thirty times, and a converging role removal would become a load spike against
+  one delegate's quota. Dropping the token is deliberate: a refusal is the
+  removal path taking effect, and continuing to serve would defeat the gate chain
+  that produced it.
 
 ## 2. Per-request credential (`pkg/plugin/driver.go`)
 
