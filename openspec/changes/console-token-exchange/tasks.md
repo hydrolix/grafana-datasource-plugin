@@ -2,9 +2,11 @@
 
 ## 1. The token source (`pkg/plugin/exchange`)
 
-- [ ] 1.1 `TokenSource` with `Token(ctx, user string) (string, error)`, a per-user
-      cache of `{token, deadline}`, and a `singleflight.Group` keyed on the user
-      (`golang.org/x/sync` is already an indirect dependency).
+- [ ] 1.1 `TokenSource` with `Token(ctx, sub string) (string, error)`, a cache of
+      `{token, deadline}` keyed on the subject claim — **never on the forwarded
+      token**, which changes on every Grafana refresh — and a
+      `singleflight.Group` keyed the same way (`golang.org/x/sync` is already an
+      indirect dependency).
 - [ ] 1.2 Deadlines stamped from the request start, never from a server clock.
       Refresh lead = 20 % of lifetime clamped to [60 s, 300 s]; lazy skew 30 s;
       no scheduling under a 120 s lifetime.
@@ -26,7 +28,10 @@
 - [ ] 2.1 A `RoundTripper` that sets `Authorization: Bearer <exchanged token>` on
       each request, from the token source, for the user the connection belongs to.
 - [ ] 2.2 Install it through `Options.TransportFunc` for the HTTP protocol when
-      the mode is the exchanging one. The pool key stays the forwarded token.
+      the mode is the exchanging one. `MutateQueryData` puts the subject in
+      `connectionArgs` instead of the token, so the pool key survives a refresh.
+- [ ] 2.2a A test that the forwarded console token can never reach the cluster,
+      including when the exchange fails.
 - [ ] 2.3 On a cluster `401`: invalidate that user and retry the request once.
 - [ ] 2.4 Native protocol: the credential is the connection's password and cannot
       be swapped per request. Either refuse the mode for native with a clear
