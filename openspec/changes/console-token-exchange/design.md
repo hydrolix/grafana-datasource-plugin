@@ -87,9 +87,25 @@ Server configuration, under the plugin's section:
 | `exchange_audience` | The audience to request — the cluster's configured audience |
 | `exchange_client_id` / `exchange_client_secret` | The delegate credential, one per cluster |
 
-All four absent ⇒ the mode is unavailable and a datasource configured for it
+**The credential is a map, not a pair.** One Grafana can hold datasources for
+many clusters: in the console's fleet, 683 of 693 legacy Grafana organizations
+sit on 7 *shared* instances. Each cluster has its own delegate, so a shared
+instance needs one credential per cluster it queries, keyed by the cluster's
+audience (or host). A single id/secret pair cannot express that.
+
+This is the shape the console's own records require rather than a preference.
+Their delegate registry is "one delegate per cluster, whose allowed deployments
+are exactly that cluster"; the constraint is on the registry row's scope, not on
+how many credentials one process holds, so N per-cluster credentials in one
+Grafana are fine. The alternative — one delegate per Grafana instance,
+allowlisted to every deployment it serves — is the shape that record's amendment
+rejects, because a stolen secret would then reach every cluster that instance
+touches.
+
+All config absent ⇒ the mode is unavailable and a datasource configured for it
 fails its health check with a message naming what is missing. A secret belongs in
-server config, never in `jsonData`.
+server config, never in `jsonData` — and with a map, a per-datasource secret is
+not needed either.
 
 ## Failure messages a panel can act on
 
