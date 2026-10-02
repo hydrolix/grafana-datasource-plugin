@@ -71,6 +71,16 @@ func NewHydrolix() *Hydrolix {
 	return h
 }
 
+// forwardsUserIdentity reports whether a credentials mode carries the signed-in
+// user's identity rather than a credential stored on the datasource.
+//
+// It exists because this is the second place that had to know, and the first was
+// a literal string comparison: a mode added later matched none of them and every
+// connection failed its handshake before a query could run.
+func forwardsUserIdentity(credentialsType string) bool {
+	return credentialsType == "forwardOAuth" || credentialsType == exchange.CredentialsType
+}
+
 // exchangeAudienceOf answers the audience a datasource exchanges for: the one
 // its settings name, else its host, which is the audience on every cluster the
 // console registers today.
@@ -270,7 +280,12 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		}
 		return nil, fmt.Errorf("connect to database was cancelled: %w", ctx.Err())
 	default:
-		if settings.CredentialsType != "forwardOAuth" {
+		// A connection whose credential belongs to the signed-in user cannot be
+		// verified here: this runs when the connection is established, with no
+		// user in hand, so the handshake would have nobody to be. Both
+		// forwarding modes therefore skip it, and the first real query is what
+		// proves the connection.
+		if !forwardsUserIdentity(settings.CredentialsType) {
 			err := db.PingContext(ctx)
 			if err != nil {
 				var ex *clickhouse.Exception
