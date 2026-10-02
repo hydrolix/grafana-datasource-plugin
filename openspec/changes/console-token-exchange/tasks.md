@@ -122,8 +122,33 @@ field name.
 
 ## 5. Verification
 
-- [ ] 5.1 Unit tests above, green under `mage test` / `go test ./...`.
-- [ ] 5.2 Against a real cluster: a dashboard renders as the signed-in user; one
+**Proven live, 2026-10-02, against console-playpen with no shim in the path.**
+A signed-in user's dashboard returned rows: Django logged one
+`token_exchange_minted … delegate=grafana-playpen … expires_in=300` and the
+plugin logged six `status=ok` queries off that single mint — the
+one-exchange-per-dashboard property, measured on the real thing.
+
+Two defects the live run found, which no unit test would have:
+
+1. **`Connect` pinged the cluster.** `db.PingContext` at connect time is the
+   "server hello", and it ran for every mode except `forwardOAuth` — a literal
+   string comparison that a mode added later could not match. A connection whose
+   credential belongs to the signed-in user cannot be verified there: Connect has
+   no user in hand. Every query failed before it began. Now both forwarding modes
+   skip it, behind a named predicate rather than a string.
+2. **The query context does not reach the driver's handshake.** It is issued when
+   `database/sql` establishes the connection, with a context that is not the
+   query's, so a principal carried only on the context left the handshake with
+   nobody to be. The connection now also knows the subject that keys it, and a
+   registry supplies that person's newest forwarded token.
+
+One thing that looked like a defect and was not: Django answered 400
+`DisallowedHost` because the plugin calls `host.docker.internal` in this rig. A
+deployed Grafana calls the console's real hostname, which is already allowed.
+
+
+- [x] 5.1 Unit tests above, green under `mage test` / `go test ./...`.
+- [x] 5.2 Against a real cluster: a dashboard renders as the signed-in user; one
       dashboard load causes one exchange per user; a 401 re-mints once; stopping
       the console leaves panels working until the cached token expires and then
       says so.

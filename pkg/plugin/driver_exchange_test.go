@@ -157,3 +157,41 @@ func TestExchangeMode_AnUnconfiguredGrafanaSaysSoRatherThanFailingAuth(t *testin
 	assert.Contains(t, err.Error(), "not configured",
 		"an operator must read what is missing, not an auth failure")
 }
+
+func TestExchangeMode_ConnectDoesNotPingTheCluster(t *testing.T) {
+	// A connection whose credential belongs to the signed-in user cannot be
+	// verified at Connect time: there is no user in hand there. The first live
+	// run of this change failed exactly here — every query reported "failed to
+	// query server hello" because Connect pinged before anyone had signed in to
+	// be. Both forwarding modes must skip it.
+	assert.True(t, forwardsUserIdentity("forwardOAuth"))
+	assert.True(t, forwardsUserIdentity(exchange.CredentialsType))
+	assert.False(t, forwardsUserIdentity("serviceAccount"))
+	assert.False(t, forwardsUserIdentity("userAccount"))
+	assert.False(t, forwardsUserIdentity(""))
+}
+
+func TestExchangeMode_ConnectSucceedsWithoutReachingACluster(t *testing.T) {
+	// Connect must return a usable *sql.DB without contacting anything: the host
+	// below does not exist, and sql.OpenDB does not dial.
+	settings := models.PluginSettings{
+		Host: "nowhere.invalid", Port: 443, Protocol: "http", Secure: true,
+		CredentialsType: exchange.CredentialsType,
+		DialTimeout:     "10", QueryTimeout: "20",
+	}
+	jsonData, err := json.Marshal(settings)
+	require.NoError(t, err)
+
+	h := NewHydrolix()
+	// Give the process an exchange configuration, so the mode is available.
+	h.exchangeSource = exchange.NewSource(nil, nil, nil)
+	h.exchangePrincipals = exchange.NewPrincipals(0, nil)
+
+	db, err := h.Connect(context.Background(), backend.DataSourceInstanceSettings{
+		JSONData:                jsonData,
+		DecryptedSecureJSONData: map[string]string{},
+	}, []byte(`{"sub":"kc-sub-alice"}`))
+	require.NoError(t, err, "Connect must not verify a per-user connection")
+	require.NotNil(t, db)
+	_ = db.Close()
+}
