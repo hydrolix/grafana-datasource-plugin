@@ -28,21 +28,25 @@ var (
 
 // PluginSettings structure represent data source configuration options
 type PluginSettings struct {
-	Host            string         `json:"host"`
-	UserName        string         `json:"username"`
-	Port            uint16         `json:"port"`
-	Protocol        string         `json:"protocol"`
-	Password        string         `json:"-"`
-	Token           string         `json:"-"`
-	CredentialsType string         `json:"credentialsType"`
-	Secure          bool           `json:"secure"`
-	Path            string         `json:"path,omitempty"`
-	SkipTlsVerify   bool           `json:"skipTlsVerify,omitempty"`
-	DialTimeout     string         `json:"dialTimeout,omitempty"`
-	QueryTimeout    string         `json:"queryTimeout,omitempty"`
-	DefaultDatabase string         `json:"defaultDatabase,omitempty"`
-	QuerySettings   []QuerySetting `json:"querySettings,omitempty"`
-	Other           map[string]any `json:"-"`
+	Host            string `json:"host"`
+	UserName        string `json:"username"`
+	Port            uint16 `json:"port"`
+	Protocol        string `json:"protocol"`
+	Password        string `json:"-"`
+	Token           string `json:"-"`
+	CredentialsType string `json:"credentialsType"`
+	// ExchangeAudience names the cluster's token audience for the exchanging
+	// credentials mode. It is not a secret, and it is optional: the host is the
+	// audience on every cluster the console registers today.
+	ExchangeAudience string         `json:"exchangeAudience"`
+	Secure           bool           `json:"secure"`
+	Path             string         `json:"path,omitempty"`
+	SkipTlsVerify    bool           `json:"skipTlsVerify,omitempty"`
+	DialTimeout      string         `json:"dialTimeout,omitempty"`
+	QueryTimeout     string         `json:"queryTimeout,omitempty"`
+	DefaultDatabase  string         `json:"defaultDatabase,omitempty"`
+	QuerySettings    []QuerySetting `json:"querySettings,omitempty"`
+	Other            map[string]any `json:"-"`
 }
 
 type QuerySetting struct {
@@ -109,6 +113,10 @@ func NewPluginSettings(_ context.Context, source backend.DataSourceInstanceSetti
 
 	if jsonData["credentialsType"] != nil {
 		settings.CredentialsType = jsonData["credentialsType"].(string)
+	}
+
+	if jsonData["exchangeAudience"] != nil {
+		settings.ExchangeAudience, _ = jsonData["exchangeAudience"].(string)
 	}
 
 	if jsonData["secure"] != nil {
