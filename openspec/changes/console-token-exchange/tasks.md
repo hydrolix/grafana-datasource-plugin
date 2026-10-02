@@ -43,18 +43,31 @@ was decided while building it:
 
 ## 2. Per-request credential (`pkg/plugin/driver.go`)
 
-- [ ] 2.1 A `RoundTripper` that sets `Authorization: Bearer <exchanged token>` on
+- [x] 2.1 A `RoundTripper` that sets `Authorization: Bearer <exchanged token>` on
       each request, from the token source, for the user the connection belongs to.
 - [ ] 2.2 Install it through `Options.TransportFunc` for the HTTP protocol when
       the mode is the exchanging one. `MutateQueryData` puts the subject in
       `connectionArgs` instead of the token, so the pool key survives a refresh.
-- [ ] 2.2a A test that the forwarded console token can never reach the cluster,
+- [x] 2.2a A test that the forwarded console token can never reach the cluster,
       including when the exchange fails.
-- [ ] 2.3 On a cluster `401`: invalidate that user and retry the request once.
+- [x] 2.3 On a cluster `401`: invalidate that user and retry the request once.
 - [ ] 2.4 Native protocol: the credential is the connection's password and cannot
       be swapped per request. Either refuse the mode for native with a clear
       message, or key the pool on the exchanged token for native only. Decide and
       write it down; do not leave it implicit.
+
+**The transport seam is built** — `exchange.Transport` plus the context-carried
+`Principal`, 29 tests in the package. The mechanism that makes it work: the
+driver builds its outbound request with `http.NewRequestWithContext`
+(`conn_http.go`), so the query's context reaches the round tripper, and the
+principal can ride it. That is why the subject token needs no side map and no
+place in `connectionArgs`.
+
+Still open in this section: **2.2** (installing it through `Options.TransportFunc`
+in `driver.go` and putting the subject in `connectionArgs`) and **2.4** (the
+native protocol, whose credential is the connection's password and cannot be
+swapped per request). Both touch the plugin's own files rather than this new
+package, so they are the first changes a reviewer there will care about.
 
 ## 3. Settings and health
 
