@@ -96,11 +96,17 @@ field name.
       for the next hour every other user of that datasource is served that
       table's primary key and column name→type map without the cluster
       authorizing them. Disclosure is schema shape, not rows.
-      - [ ] 4.1a Add the user (the forwarded token's subject) to both cache keys
-            in forwarding modes, or bypass these caches there. Keying on the
-            token itself would churn the cache on every refresh; the subject is
-            stable.
-      - [ ] 4.1b Test: two users, one table, second user must reach the cluster.
+      - [x] 4.1a **Done.** Both caches key on `(forwarded identity, …)` through
+            `cacheScope`/`scopedKey` in `metadata.go`. The scope is the
+            forwarded token's subject — stable across a refresh, distinct
+            between people. A mode that forwards no identity yields an empty
+            scope and the bare key the cache has always used, because one
+            credential is one legitimate view. A forwarded token whose subject
+            cannot be read falls back to a digest of the token: wasteful across
+            refreshes, and the right way to be wrong, since the alternative
+            shares one entry between different people. The cache log lines now
+            name the table or CTE rather than the key, which carries a subject.
+      - [x] 4.1b Test: two users, one table, second user must reach the cluster.
 - [ ] 4.2 Macros that run a schema lookup without a user context
       (`$__adHocFilter`, `$__timeFilter` with no column) lose the token. Confirm
       the behaviour and state it.
