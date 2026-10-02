@@ -31,8 +31,22 @@ Two ways out:
 browser attaches a token from its session manager at request time rather than
 binding one to a connection.
 
-The forwarded sign-in token remains the pool key. It is stable for a Grafana
-session, so one user gets one pooled connection, and two users never share one.
+**The pool key is the token's `sub`, not the token.** An earlier draft of this
+note said the forwarded token could stay the pool key because it is "stable for a
+Grafana session". That is wrong. Grafana refreshes the sign-in token
+(`use_refresh_token`), and the console realm's Grafana client takes the realm
+default lifetime — 300 s in the deployment measured. So the forwarded token
+string changes every few minutes, and keying anything on it means a new `*sql.DB`
+per refresh and a fresh exchange on every refresh even while the cluster token is
+still good.
+
+The subject claim is stable for the person, distinct between people, and not a
+secret. So `MutateQueryData` puts `sub` into `connectionArgs` in place of the
+token, the pool keys on that, and the token source caches on that. Two users
+still never share a connection, and a refresh costs nothing.
+
+The same key fixes the metadata caches, which today key on `database_table` and
+the CTE reference with no user component at all.
 
 ## The token source, ported from the console's session manager
 
@@ -92,6 +106,27 @@ RFC 8693 §2.2.2) and never includes token material, so these three can be
 distinguished without parsing prose. `temporarily_unavailable` is the console
 saying "not now" — a removal converging, Keycloak unreachable — and reads as
 unavailable rather than as a refusal of the person.
+
+## Failure modes this design has to answer
+
+- **Exchange latency lands in the query path.** A cold cache makes a panel wait on
+  a console round trip. Give the exchange a deadline shorter than the query's, and
+  surface a timeout as "console unavailable" rather than as a query error.
+- **Cold-start stampede.** Single-flight bounds one exchange per *user*; a Grafana
+  restart with fifty active users is fifty exchanges against one per-cluster
+  delegate whose quota is keyed on `client_id`. Needs a bound, and the console
+  side needs a quota sized for dashboards rather than for MCP clients.
+- **401 storms.** A removal hold or a Keycloak blip turns every panel into
+  invalidate-and-re-exchange. The console SPA has no guard for this because a
+  browser is one user; a server-side source needs a short negative cache or a
+  breaker so a refusal is not re-asked once per panel per load.
+- **Never fall back to the forwarded token.** If the exchange fails, the query
+  fails. Sending the console-realm token to the cluster must be impossible, not
+  merely unlikely — it is the invariant the whole model rests on, and it deserves
+  a test rather than a comment.
+- **`TransportFunc` is fork-only.** It exists in `hydrolix/clickhouse-go`, which
+  this module reaches through a `replace` directive. Dropping that replace breaks
+  this design, so either keep it or upstream the hook.
 
 ## Hygiene
 
