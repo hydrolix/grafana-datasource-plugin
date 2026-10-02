@@ -249,3 +249,86 @@ func TestTheTransportWorksAgainstARealServer(t *testing.T) {
 		t.Fatalf("the wire carried %q", got)
 	}
 }
+
+func TestARequestWithNoContextIsIdentifiedByTheConnectionItBelongsTo(t *testing.T) {
+	// What the first live run hit: the driver's own handshake ("server hello")
+	// runs when database/sql establishes the connection, and the context it gets
+	// is not the query's. The request was refused as carrying no signed-in user
+	// even though Grafana had forwarded a perfectly good token.
+	s, _, _ := newFixture(300 * time.Second)
+	principals := NewPrincipals(0, nil)
+	principals.Remember(Principal{Audience: aud, Subject: sub, SubjectToken: stok})
+
+	base := &recordingBase{}
+	tr := NewBoundTransport(base, s, principals, aud, sub)
+
+	// No principal on this context at all.
+	resp, err := tr.RoundTrip(newRequest(t, context.Background()))
+	if err != nil {
+		t.Fatalf("a handshake on a bound connection must be identified: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if seen := base.seen(); len(seen) != 1 || seen[0] != "Bearer cluster-token-1" {
+		t.Fatalf("authorization sent: %v", seen)
+	}
+}
+
+func TestTheContextWinsOverTheConnectionsBinding(t *testing.T) {
+	// The context carries the token of the very request being served, so it is
+	// the better answer where both exist.
+	s, _, _ := newFixture(300 * time.Second)
+	principals := NewPrincipals(0, nil)
+	principals.Remember(Principal{Audience: aud, Subject: "stale-subject", SubjectToken: "stale-token"})
+
+	base := &recordingBase{}
+	tr := NewBoundTransport(base, s, principals, aud, "stale-subject")
+
+	if _, err := tr.RoundTrip(newRequest(t, principalCtx())); err != nil {
+		t.Fatal(err)
+	}
+	// One exchange, for the context's subject rather than the bound one.
+	if tok := s.cachedToken(aud, sub); tok == "" {
+		t.Fatal("the context's subject was not the one exchanged for")
+	}
+	if tok := s.cachedToken(aud, "stale-subject"); tok != "" {
+		t.Fatal("the bound subject was used despite a context principal")
+	}
+}
+
+func TestAnUnboundConnectionWithNoContextIsStillRefused(t *testing.T) {
+	// The fallback must not become a way for an unidentified request to borrow
+	// somebody's token: it only answers for the connection's own subject.
+	s, _, _ := newFixture(300 * time.Second)
+	principals := NewPrincipals(0, nil)
+	principals.Remember(Principal{Audience: aud, Subject: sub, SubjectToken: stok})
+
+	base := &recordingBase{}
+	tr := NewTransport(base, s) // no binding, no registry
+	tr.Principals = principals  // registry present, binding absent
+
+	if _, err := tr.RoundTrip(newRequest(t, context.Background())); !errors.Is(err, ErrRefused) {
+		t.Fatalf("expected a refusal, got %v", err)
+	}
+	if len(base.seen()) != 0 {
+		t.Fatal("an unidentified request reached the cluster")
+	}
+}
+
+func TestAForgottenPrincipalIsNotServed(t *testing.T) {
+	// An entry unused past its idle window is dropped: a token Grafana has
+	// stopped refreshing is of no further use, and keeping it would mean serving
+	// a session nobody is in.
+	s, _, ck := newFixture(300 * time.Second)
+	principals := NewPrincipals(time.Minute, ck.now)
+	principals.Remember(Principal{Audience: aud, Subject: sub, SubjectToken: stok})
+
+	ck.advance(2 * time.Minute)
+
+	base := &recordingBase{}
+	tr := NewBoundTransport(base, s, principals, aud, sub)
+	if _, err := tr.RoundTrip(newRequest(t, context.Background())); !errors.Is(err, ErrRefused) {
+		t.Fatalf("expected a refusal once the entry lapsed, got %v", err)
+	}
+}

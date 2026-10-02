@@ -47,12 +47,34 @@ type Config struct {
 	Credentials map[string]Credential
 }
 
-// Env keys, read from Grafana's `[plugin.hydrolix-hydrolix-datasource]` section,
-// which Grafana exposes to the plugin process as environment variables.
+// Configuration arrives as environment variables, under either of two names.
+//
+// A backend plugin runs as a child process of Grafana and inherits its
+// environment, so the plain names work wherever an operator can set an
+// environment variable on the Grafana process — a container, a systemd unit.
+// Settings written in Grafana's own configuration under
+// `[plugin.hydrolix-hydrolix-datasource]` reach the plugin prefixed with
+// `GF_PLUGIN_`, so those names are read first and are the ones to document for
+// an operator who configures Grafana rather than its process.
+//
+// Supporting both costs one lookup and removes a guess about which mechanism a
+// given deployment uses.
 const (
-	EnvURL         = "HDX_EXCHANGE_URL"
-	EnvCredentials = "HDX_EXCHANGE_CREDENTIALS"
+	EnvURL            = "GF_PLUGIN_EXCHANGE_URL"
+	EnvCredentials    = "GF_PLUGIN_EXCHANGE_CREDENTIALS"
+	EnvURLAlt         = "HDX_EXCHANGE_URL"
+	EnvCredentialsAlt = "HDX_EXCHANGE_CREDENTIALS"
 )
+
+// firstSet answers the first name that is set, and its value.
+func firstSet(lookup func(string) (string, bool), names ...string) (string, string, bool) {
+	for _, n := range names {
+		if v, ok := lookup(n); ok {
+			return n, v, true
+		}
+	}
+	return "", "", false
+}
 
 // ErrNotConfigured means this instance has no exchange configuration at all, so
 // the exchanging credentials mode is unavailable here. It is not a failure of a
@@ -65,25 +87,25 @@ var ErrNotConfigured = errors.New("exchange: not configured")
 // set, and a descriptive error when one is set and unusable — a half-configured
 // instance is an operator mistake worth naming, not a silent fallback.
 func ConfigFromEnv(lookup func(string) (string, bool)) (Config, error) {
-	rawURL, hasURL := lookup(EnvURL)
-	rawCreds, hasCreds := lookup(EnvCredentials)
+	_, rawURL, hasURL := firstSet(lookup, EnvURL, EnvURLAlt)
+	credsName, rawCreds, hasCreds := firstSet(lookup, EnvCredentials, EnvCredentialsAlt)
 	if !hasURL && !hasCreds {
 		return Config{}, ErrNotConfigured
 	}
-	if strings.TrimSpace(rawURL) == "" {
-		return Config{}, fmt.Errorf("exchange: %s is empty", EnvURL)
+	if !hasURL || strings.TrimSpace(rawURL) == "" {
+		return Config{}, fmt.Errorf("exchange: %s is empty or unset", EnvURL)
 	}
-	if strings.TrimSpace(rawCreds) == "" {
-		return Config{}, fmt.Errorf("exchange: %s is empty", EnvCredentials)
+	if !hasCreds || strings.TrimSpace(rawCreds) == "" {
+		return Config{}, fmt.Errorf("exchange: %s is empty or unset", EnvCredentials)
 	}
 	var creds map[string]Credential
 	if err := json.Unmarshal([]byte(rawCreds), &creds); err != nil {
 		// The error is not wrapped: a JSON decoding error can quote the input,
 		// and the input holds client secrets.
-		return Config{}, fmt.Errorf("exchange: %s is not a JSON object of audience to credential", EnvCredentials)
+		return Config{}, fmt.Errorf("exchange: %s is not a JSON object of audience to credential", credsName)
 	}
 	if len(creds) == 0 {
-		return Config{}, fmt.Errorf("exchange: %s names no cluster", EnvCredentials)
+		return Config{}, fmt.Errorf("exchange: %s names no cluster", credsName)
 	}
 	for audience, c := range creds {
 		if c.ClientID == "" || c.ClientSecret == "" {

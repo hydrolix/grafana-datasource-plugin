@@ -40,6 +40,10 @@ type Hydrolix struct {
 	// exchangeConfigErr says why exchangeSource is nil, so a datasource set to
 	// the mode can fail with the reason rather than with an auth error.
 	exchangeConfigErr error
+	// exchangePrincipals holds the newest forwarded token per subject, for the
+	// requests whose context does not reach the transport — the driver's own
+	// handshake when a connection is established.
+	exchangePrincipals *exchange.Principals
 }
 
 var (
@@ -60,6 +64,7 @@ func NewHydrolix() *Hydrolix {
 	// mode, which nothing else depends on.
 	if cfg, err := exchange.ConfigFromEnv(os.LookupEnv); err == nil {
 		h.exchangeSource = exchange.NewSource(exchange.NewHTTPExchanger(cfg), nil, log.DefaultLogger)
+		h.exchangePrincipals = exchange.NewPrincipals(0, nil)
 	} else {
 		h.exchangeConfigErr = err
 	}
@@ -239,8 +244,14 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		}
 		// The credential is set per request by the transport, from the token
 		// source, rather than frozen into this connection's headers.
+		//
+		// The connection is bound to the subject that keys it, so a request
+		// whose context does not reach here — the driver's handshake, issued
+		// when database/sql establishes the connection — is still identified.
+		subject, _ := readConnArg(args, "sub")
 		opts.TransportFunc = func(t *http.Transport) (http.RoundTripper, error) {
-			return exchange.NewTransport(t, h.exchangeSource), nil
+			return exchange.NewBoundTransport(t, h.exchangeSource, h.exchangePrincipals,
+				exchangeAudienceOf(settings), subject), nil
 		}
 	}
 
@@ -343,11 +354,15 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 		if token := strings.TrimPrefix(headers.Get(backend.OAuthIdentityTokenHeaderName), "Bearer "); token != "" {
 			if subject := exchange.SubjectOf(token); subject != "" {
 				connArgs["sub"] = subject
-				ctx = exchange.WithPrincipal(ctx, exchange.Principal{
+				principal := exchange.Principal{
 					Audience:     exchangeAudienceOf(pluginSettings),
 					Subject:      subject,
 					SubjectToken: token,
-				})
+				}
+				ctx = exchange.WithPrincipal(ctx, principal)
+				if h.exchangePrincipals != nil {
+					h.exchangePrincipals.Remember(principal)
+				}
 			}
 		}
 	}
