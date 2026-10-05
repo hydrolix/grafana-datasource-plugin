@@ -23,8 +23,11 @@ var (
 	// mint just now — a role removal converging, Keycloak unreachable,
 	// provisioning deferred.
 	ErrUnavailable = errors.New("exchange: the console could not be reached")
-	// ErrMisconfigured: this cluster has no delegate credential here.
-	ErrMisconfigured = errors.New("exchange: no delegate credential is configured for this cluster")
+	// ErrMisconfigured: the operator's problem rather than this person's —
+	// no delegate credential for this cluster, a credential the console
+	// refuses, or an exchange URL that reaches something other than the
+	// console's facade.
+	ErrMisconfigured = errors.New("exchange: this Grafana's exchange configuration is not usable for this cluster")
 )
 
 // RFC 8693.
@@ -139,7 +142,16 @@ func classify(status int, body []byte) error {
 	case e.Error != "":
 		return fmt.Errorf("%w: %s", ErrRefused, describe(e))
 	default:
-		return fmt.Errorf("%w: the exchange answered %d", ErrRefused, status)
+		// Nothing in the facade's vocabulary came back. The facade answers
+		// every failure with one of its codes, so whatever replied is not the
+		// facade: an exchange URL pointing somewhere else, something in front
+		// of it, or a host the console itself rejects — a Django
+		// `DisallowedHost` 400 reads exactly like this. None of those is a
+		// statement about this person's access, and reporting one as a refusal
+		// sends an operator to look at someone's permissions when the cause is
+		// the URL.
+		return fmt.Errorf("%w: the exchange URL answered %d with no OAuth error, so it may not be the console's exchange endpoint",
+			ErrMisconfigured, status)
 	}
 }
 

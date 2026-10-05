@@ -178,6 +178,25 @@ deployed Grafana calls the console's real hostname, which is already allowed.
       playpen: refused.** So the exchange is what makes the query work, rather
       than the cluster having accepted the console token all along.
 
+## 5b. Found by running the rig again (2026-10-05)
+
+- [x] 5b.1 **A reply carrying no OAuth error was reported as a refusal of the
+      person.** Django answered the rig's exchange URL with a 400
+      `DisallowedHost`, and the panel said the console had refused this account
+      access to the cluster. The facade answers every failure with a code from
+      its own vocabulary, so a body without one did not come from the facade:
+      a wrong exchange URL, something in front of it, or a host the console
+      rejects. Those are the operator's problem, and calling one a refusal
+      sends somebody to look at permissions when the cause is the URL.
+      `classify`'s default is now `ErrMisconfigured`, whose sentinel widened
+      from "no delegate credential" to cover the whole family. Four cases
+      tested, plus the counterpart that a real OAuth error still reads as a
+      refusal.
+      - Worth noting *why* only a live run finds this: every unit test fed the
+        classifier a well-formed facade error, because that is what the facade
+        returns. Nothing was wrong with the tests; the case they missed was one
+        the facade cannot produce.
+
 ## 6. Landing
 
 - [x] 6.1 Spec deltas under `specs/`: the new `console-token-exchange`

@@ -223,3 +223,38 @@ func TestConfigFromEnv(t *testing.T) {
 		}
 	})
 }
+
+// A body with no OAuth error did not come from the facade (CFB-2612). Found
+// live: Django answered the rig's exchange URL with a 400 DisallowedHost, and
+// the panel said the console had refused this person access to the cluster —
+// which would send an operator to look at permissions rather than at the URL.
+func TestAReplyWithNoOAuthErrorIsTheOperatorsProblemNotTheUsers(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{"django DisallowedHost", 400, "<h1>Bad Request (400)</h1>"},
+		{"an html error page", 404, "<html><body>not found</body></html>"},
+		{"an empty body", 400, ""},
+		{"json that is not an oauth error", 400, `{"detail":"nope"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := classify(tc.status, []byte(tc.body))
+			if errors.Is(err, ErrRefused) {
+				t.Fatalf("reported as a refusal of the person: %v", err)
+			}
+			if !errors.Is(err, ErrMisconfigured) {
+				t.Fatalf("want ErrMisconfigured, got %v", err)
+			}
+		})
+	}
+}
+
+// The counterpart: a real refusal must still read as one.
+func TestAnOAuthErrorIsStillARefusal(t *testing.T) {
+	err := classify(400, []byte(`{"error":"invalid_grant","error_description":"access_denied"}`))
+	if !errors.Is(err, ErrRefused) {
+		t.Fatalf("want ErrRefused, got %v", err)
+	}
+}
