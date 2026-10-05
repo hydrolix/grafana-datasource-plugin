@@ -1,9 +1,9 @@
-import React, { FormEvent, useEffect, useMemo, useState } from 'react';
+import React, {FormEvent, useEffect, useMemo, useState} from "react";
 import {
   DataSourcePluginOptionsEditorProps,
   onUpdateDatasourceJsonDataOption,
   onUpdateDatasourceSecureJsonDataOption,
-} from '@grafana/data';
+} from "@grafana/data";
 import {
   Alert,
   Button,
@@ -19,16 +19,28 @@ import {
   Stack,
   Switch,
   TextArea,
-} from '@grafana/ui';
-import { ConfigSection } from '@grafana/plugin-ui';
-import { CredentialsType, HdxDataSourceOptions, HdxSecureJsonData, Protocol } from '../types';
-import allLabels from 'labels';
-import defaultConfigs from 'defaultConfigs';
-import { parseLookbackSeconds, QUERY_DURATION_REGEX } from '../editor/timeRangeUtils';
-import { getDefaultValue } from '../editor/editorUtils';
-import { SOLUTION_TEMPLATES } from '../errors/solutionTemplates';
+} from "@grafana/ui";
+import { ConfigSection } from "@grafana/plugin-ui";
+import {
+  CredentialsType,
+  HdxDataSourceOptions,
+  HdxSecureJsonData,
+  Protocol,
+} from "../types";
+import allLabels from "labels";
+import defaultConfigs from "defaultConfigs";
+import {
+  parseLookbackSeconds,
+  QUERY_DURATION_REGEX,
+} from "../editor/timeRangeUtils";
+import { getDefaultValue } from "../editor/editorUtils";
+import { SOLUTION_TEMPLATES } from "../errors/solutionTemplates";
 
-export interface Props extends DataSourcePluginOptionsEditorProps<HdxDataSourceOptions, HdxSecureJsonData> {}
+export interface Props
+  extends DataSourcePluginOptionsEditorProps<
+    HdxDataSourceOptions,
+    HdxSecureJsonData
+  > {}
 
 export function ConfigEditor(props: Props) {
   const { onOptionsChange, options } = props;
@@ -56,29 +68,28 @@ export function ConfigEditor(props: Props) {
   const querySettings = allLabels.components.querySettings;
   const secureJsonData = (options.secureJsonData || {}) as HdxSecureJsonData;
   const protocolOptions = [
-    { label: 'Native', value: Protocol.Native },
-    { label: 'HTTP', value: Protocol.Http },
+    { label: "Native", value: Protocol.Native },
+    { label: "HTTP", value: Protocol.Http },
   ];
   const credentialsTypesOptions = [
-    { label: 'User Account', value: CredentialsType.UserAccount },
-    { label: 'Service Account', value: CredentialsType.ServiceAccount },
-    { label: 'Forward OAuth Identity', value: CredentialsType.ForwardOAuth },
+    { label: "User Account", value: CredentialsType.UserAccount },
+    { label: "Service Account", value: CredentialsType.ServiceAccount },
+    { label: "Forward OAuth Identity", value: CredentialsType.ForwardOAuth },
     {
-      label: 'Forward OAuth + Exchange',
+      label: "Forward OAuth + Exchange",
       value: CredentialsType.ForwardOAuthExchange,
     },
   ];
   let querySettingDefinitions = useMemo(() => {
-    return querySettings.values.reduce(
-      (acc, cur) => {
-        acc[cur.setting] = cur;
-        return acc;
-      },
-      {} as { [setting: string]: any }
-    );
+    return querySettings.values.reduce((acc, cur) => {
+      acc[cur.setting] = cur;
+      return acc;
+    }, {} as { [setting: string]: any });
   }, [querySettings]);
 
-  const existingSettings = (jsonData?.querySettings ?? []).map((v) => v.setting);
+  const existingSettings = (jsonData?.querySettings ?? []).map(
+    (v) => v.setting
+  );
   let queryOptions = querySettings.values
     .filter((v) => !existingSettings.includes(v.setting))
     .map((v) => ({
@@ -96,22 +107,26 @@ export function ConfigEditor(props: Props) {
       const min = option?.min;
       if (
         type &&
-        ['number', 'text', 'duration'].includes(type) &&
-        (querySettings.value === '' || querySettings.value === undefined)
+        ["number", "text", "duration"].includes(type) &&
+        (querySettings.value === "" || querySettings.value === undefined)
       ) {
-        errors[querySettings.setting] = 'setting value is required';
-      } else if (type && type === 'number' && isNaN(querySettings.value as any)) {
+        errors[querySettings.setting] = "setting value is required";
+      } else if (
+        type &&
+        type === "number" &&
+        isNaN(querySettings.value as any)
+      ) {
         errors[querySettings.setting] = `value is not a valid number`;
       } else if (
         type &&
-        type === 'duration' &&
+        type === "duration" &&
         isNaN(querySettings.value as any) &&
         !QUERY_DURATION_REGEX.test(querySettings.value)
       ) {
         errors[querySettings.setting] = `value is not a valid duration`;
       } else if (
         type &&
-        type === 'number' &&
+        type === "number" &&
         min !== undefined &&
         min > +querySettings.value &&
         +querySettings.value !== option.default
@@ -128,12 +143,12 @@ export function ConfigEditor(props: Props) {
         ? labels.port.secureNativePort
         : labels.port.secureHttpPort
       : protocol === Protocol.Native
-        ? labels.port.insecureNativePort
-        : labels.port.insecureHttpPort;
+      ? labels.port.insecureNativePort
+      : labels.port.insecureHttpPort;
 
   const defaultPort = getDefaultPort(jsonData.protocol!, jsonData.secure!);
   const portDescription = `${labels.port.description} (default for ${
-    jsonData.secure ? 'secure' : ''
+    jsonData.secure ? "secure" : ""
   } ${jsonData.protocol}: ${defaultPort})`;
 
   const onPortChange = (port: string) => {
@@ -162,7 +177,9 @@ export function ConfigEditor(props: Props) {
       jsonData: {
         ...options.jsonData,
         protocol: protocol,
-        port: jsonData.useDefaultPort ? +getDefaultPort(protocol, jsonData.secure!) : jsonData.port,
+        port: jsonData.useDefaultPort
+          ? +getDefaultPort(protocol, jsonData.secure!)
+          : jsonData.port,
       },
     });
   };
@@ -172,10 +189,12 @@ export function ConfigEditor(props: Props) {
       jsonData: {
         ...options.jsonData,
         credentialsType,
-        // Both forwarding modes need Grafana to pass the token on; the
-        // exchanging one then swaps it for a cluster token before querying.
+        // Grafana forwards the sign-in token only when asked. The exchanging
+        // mode then swaps it for a cluster token before querying, so it needs
+        // the forward just as much as plain forwarding does.
         oauthPassThru:
-          credentialsType === CredentialsType.ForwardOAuth || credentialsType === CredentialsType.ForwardOAuthExchange,
+          credentialsType === CredentialsType.ForwardOAuth ||
+          credentialsType === CredentialsType.ForwardOAuthExchange,
       },
     });
   };
@@ -185,7 +204,9 @@ export function ConfigEditor(props: Props) {
       jsonData: {
         ...options.jsonData,
         secure: value,
-        port: jsonData.useDefaultPort ? +getDefaultPort(jsonData.protocol!, value) : jsonData.port,
+        port: jsonData.useDefaultPort
+          ? +getDefaultPort(jsonData.protocol!, value)
+          : jsonData.port,
       },
     });
   };
@@ -208,7 +229,7 @@ export function ConfigEditor(props: Props) {
       },
       secureJsonData: {
         ...options.secureJsonData,
-        token: '',
+        token: "",
       },
     });
   };
@@ -221,14 +242,16 @@ export function ConfigEditor(props: Props) {
       },
       secureJsonData: {
         ...options.secureJsonData,
-        password: '',
+        password: "",
       },
     });
   };
 
   const onQuerySettingsChange = (key: string) => {
     return (value: string) => {
-      const querySettings = (jsonData?.querySettings ?? []).map((s) => (s.setting === key ? { ...s, value } : s));
+      const querySettings = (jsonData?.querySettings ?? []).map((s) =>
+        s.setting === key ? { ...s, value } : s
+      );
       onOptionsChange({
         ...options,
         jsonData: {
@@ -242,7 +265,10 @@ export function ConfigEditor(props: Props) {
   const addQuerySetting = (setting: string) => {
     let defaultValue = querySettingDefinitions[setting]?.default;
     let type: string = querySettingDefinitions[setting]?.type;
-    let querySettings = [...(jsonData?.querySettings ?? []), { setting, value: getDefaultValue(defaultValue, type) }];
+    let querySettings = [
+      ...(jsonData?.querySettings ?? []),
+      { setting, value: getDefaultValue(defaultValue, type) },
+    ];
     onOptionsChange({
       ...options,
       jsonData: {
@@ -253,7 +279,9 @@ export function ConfigEditor(props: Props) {
   };
 
   const deleteQuerySetting = (setting: string) => {
-    let querySettings = (jsonData?.querySettings ?? []).filter((s) => s.setting !== setting);
+    let querySettings = (jsonData?.querySettings ?? []).filter(
+      (s) => s.setting !== setting
+    );
     onOptionsChange({
       ...options,
       jsonData: {
@@ -269,11 +297,11 @@ export function ConfigEditor(props: Props) {
       null,
       2
     );
-    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const dataBlob = new Blob([dataStr], { type: "application/json" });
     const url = URL.createObjectURL(dataBlob);
-    const link = document.createElement('a');
+    const link = document.createElement("a");
     link.href = url;
-    link.download = 'solution_templates.json';
+    link.download = "solution_templates.json";
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -298,7 +326,7 @@ export function ConfigEditor(props: Props) {
         ...options,
         jsonData: {
           ...options.jsonData,
-          defaultRound: '',
+          defaultRound: "",
         },
       });
     }
@@ -312,14 +340,16 @@ export function ConfigEditor(props: Props) {
     if (value === undefined || value === null) {
       return false;
     }
-    if (typeof value === 'string' && !value.trim()) {
+    if (typeof value === "string" && !value.trim()) {
       return false;
     }
     // Anything else, including a non-string provisioned from YAML, is up to
     // the shared parser.
     return parseLookbackSeconds(value) === undefined;
   };
-  const [invalidLookback, setInvalidLookback] = useState(() => isInvalidLookback(jsonData.adHocTimeRangeLookback));
+  const [invalidLookback, setInvalidLookback] = useState(() =>
+    isInvalidLookback(jsonData.adHocTimeRangeLookback)
+  );
   const onLookbackChange = (e: FormEvent<HTMLInputElement>) => {
     const lookback = e.currentTarget.value;
     setInvalidLookback(isInvalidLookback(lookback));
@@ -338,33 +368,35 @@ export function ConfigEditor(props: Props) {
         ...options,
         jsonData: {
           ...options.jsonData,
-          adHocTimeRangeLookback: '',
+          adHocTimeRangeLookback: "",
         },
       });
     }
   };
   const settingInput = (key: string, value: string) => {
     let type = querySettingDefinitions[key].type;
-    if (type === 'boolean') {
+    if (type === "boolean") {
       return (
         <Select
           width={80}
           options={[
-            { value: 'yes', label: 'Yes' },
-            { value: 'no', label: 'No' },
+            { value: "yes", label: "Yes" },
+            { value: "no", label: "No" },
           ]}
-          onChange={(v) => onQuerySettingsChange(key)(v.value === 'yes' ? '1' : '0')}
-          value={value === '1' ? 'yes' : 'no'}
+          onChange={(v) =>
+            onQuerySettingsChange(key)(v.value === "yes" ? "1" : "0")
+          }
+          value={value === "1" ? "yes" : "no"}
         ></Select>
       );
-    } else if (type === 'textarea') {
+    } else if (type === "textarea") {
       return (
-        <div style={{ width: '45.8em' }}>
+        <div style={{ width: "45.8em" }}>
           <TextArea
             name={key}
             cols={40}
             rows={2}
-            value={value ?? ''}
+            value={value ?? ""}
             onChange={(e) => onQuerySettingsChange(key)(e.currentTarget.value)}
             label={key}
             aria-label={key}
@@ -376,7 +408,7 @@ export function ConfigEditor(props: Props) {
         <Input
           name={key}
           width={80}
-          value={value ?? ''}
+          value={value ?? ""}
           //type={querySettingDefinitions[key].type}
           min={querySettingDefinitions[key].min}
           onChange={(e) => onQuerySettingsChange(key)(e.currentTarget.value)}
@@ -390,7 +422,7 @@ export function ConfigEditor(props: Props) {
   return (
     <>
       <div data-testid="data-testid hydrolix_config_page">
-        <ConfigSection title={'Server'}>
+        <ConfigSection title={"Server"}>
           <Field
             data-testid={labels.host.testId}
             required
@@ -402,8 +434,8 @@ export function ConfigEditor(props: Props) {
             <Input
               name="host"
               width={80}
-              value={jsonData.host || ''}
-              onChange={onUpdateDatasourceJsonDataOption(props, 'host')}
+              value={jsonData.host || ""}
+              onChange={onUpdateDatasourceJsonDataOption(props, "host")}
               label={labels.host.label}
               aria-label={labels.host.label}
               placeholder={labels.host.placeholder}
@@ -429,9 +461,15 @@ export function ConfigEditor(props: Props) {
                 label={labels.port.label}
                 aria-label={labels.port.label}
               />
-              <InlineField data-testId={labels.useDefaultPort.testId} label={labels.useDefaultPort.label} interactive>
+              <InlineField
+                data-testId={labels.useDefaultPort.testId}
+                label={labels.useDefaultPort.label}
+                interactive
+              >
                 <InlineSwitch
-                  onChange={(e) => onUseDefaultPortChange(e.currentTarget.checked)}
+                  onChange={(e) =>
+                    onUseDefaultPortChange(e.currentTarget.checked)
+                  }
                   value={jsonData.useDefaultPort}
                 />
               </InlineField>
@@ -450,12 +488,18 @@ export function ConfigEditor(props: Props) {
               onChange={(e) => onProtocolToggle(e!)}
             />
           </Field>
-          {jsonData.protocol === Protocol.Http && !jsonData.secure && secureJsonFields.password && (
-            <Alert title={labels.secure.alertTitle} severity={'warning'}>
-              {labels.secure.alertMessage}
-            </Alert>
-          )}
-          <Field data-testid={labels.secure.testId} label={labels.secure.label} description={labels.secure.description}>
+          {jsonData.protocol === Protocol.Http &&
+            !jsonData.secure &&
+            secureJsonFields.password && (
+              <Alert title={labels.secure.alertTitle} severity={"warning"}>
+                {labels.secure.alertMessage}
+              </Alert>
+            )}
+          <Field
+            data-testid={labels.secure.testId}
+            label={labels.secure.label}
+            description={labels.secure.description}
+          >
             <Switch
               id="secure"
               className="gf-form"
@@ -465,12 +509,16 @@ export function ConfigEditor(props: Props) {
           </Field>
 
           {jsonData.protocol === Protocol.Http && (
-            <Field data-testid={labels.path.testId} label={labels.path.label} description={labels.path.description}>
+            <Field
+              data-testid={labels.path.testId}
+              label={labels.path.label}
+              description={labels.path.description}
+            >
               <Input
                 value={jsonData.path}
                 name="path"
                 width={80}
-                onChange={onUpdateDatasourceJsonDataOption(props, 'path')}
+                onChange={onUpdateDatasourceJsonDataOption(props, "path")}
                 label={labels.path.label}
                 aria-label={labels.path.label}
                 placeholder={labels.path.placeholder}
@@ -513,7 +561,8 @@ export function ConfigEditor(props: Props) {
               onChange={(e) => onCredentialsTypeToggle(e!)}
             />
           </Field>
-          {(!jsonData.credentialsType || jsonData.credentialsType === CredentialsType.UserAccount) && (
+          {(!jsonData.credentialsType ||
+            jsonData.credentialsType === CredentialsType.UserAccount) && (
             <>
               <Field
                 data-testid={labels.username.testId}
@@ -521,10 +570,10 @@ export function ConfigEditor(props: Props) {
                 description={labels.username.description}
               >
                 <Input
-                  name={'username'}
+                  name={"username"}
                   width={40}
                   value={jsonData.username}
-                  onChange={onUpdateDatasourceJsonDataOption(props, 'username')}
+                  onChange={onUpdateDatasourceJsonDataOption(props, "username")}
                   label={labels.username.label}
                   aria-label={labels.username.label}
                   placeholder={labels.username.placeholder}
@@ -536,30 +585,39 @@ export function ConfigEditor(props: Props) {
                 description={labels.password.description}
               >
                 <SecretInput
-                  name={'password'}
+                  name={"password"}
                   width={40}
                   label={labels.password.label}
                   aria-label={labels.password.label}
                   placeholder={labels.password.placeholder}
-                  value={secureJsonData.password || ''}
-                  isConfigured={(secureJsonFields && secureJsonFields.password) as boolean}
+                  value={secureJsonData.password || ""}
+                  isConfigured={
+                    (secureJsonFields && secureJsonFields.password) as boolean
+                  }
                   onReset={onResetPassword}
-                  onChange={onUpdateDatasourceSecureJsonDataOption(props, 'password')}
+                  onChange={onUpdateDatasourceSecureJsonDataOption(
+                    props,
+                    "password"
+                  )}
                 />
               </Field>
             </>
           )}
-          {jsonData.credentialsType === CredentialsType.ForwardOAuthExchange && (
+          {jsonData.credentialsType ===
+            CredentialsType.ForwardOAuthExchange && (
             <Field
               data-testid={labels.exchangeAudience.testId}
               label={labels.exchangeAudience.label}
               description={labels.exchangeAudience.description}
             >
               <Input
-                name={'exchangeAudience'}
+                name={"exchangeAudience"}
                 width={40}
-                value={jsonData.exchangeAudience ?? ''}
-                onChange={onUpdateDatasourceJsonDataOption(props, 'exchangeAudience')}
+                value={jsonData.exchangeAudience ?? ""}
+                onChange={onUpdateDatasourceJsonDataOption(
+                  props,
+                  "exchangeAudience"
+                )}
                 label={labels.exchangeAudience.label}
                 aria-label={labels.exchangeAudience.label}
                 placeholder={labels.exchangeAudience.placeholder}
@@ -574,15 +632,20 @@ export function ConfigEditor(props: Props) {
                 description={labels.token.description}
               >
                 <SecretInput
-                  name={'token'}
+                  name={"token"}
                   width={40}
                   label={labels.token.label}
                   aria-label={labels.token.label}
                   placeholder={labels.token.placeholder}
-                  value={secureJsonData.token || ''}
-                  isConfigured={(secureJsonFields && secureJsonFields.token) as boolean}
+                  value={secureJsonData.token || ""}
+                  isConfigured={
+                    (secureJsonFields && secureJsonFields.token) as boolean
+                  }
                   onReset={onResetToken}
-                  onChange={onUpdateDatasourceSecureJsonDataOption(props, 'token')}
+                  onChange={onUpdateDatasourceSecureJsonDataOption(
+                    props,
+                    "token"
+                  )}
                 />
               </Field>
             </>
@@ -601,10 +664,13 @@ export function ConfigEditor(props: Props) {
             description={labels.defaultDatabase.description}
           >
             <Input
-              name={'defaultDatabase'}
+              name={"defaultDatabase"}
               width={40}
-              value={jsonData.defaultDatabase || ''}
-              onChange={onUpdateDatasourceJsonDataOption(props, 'defaultDatabase')}
+              value={jsonData.defaultDatabase || ""}
+              onChange={onUpdateDatasourceJsonDataOption(
+                props,
+                "defaultDatabase"
+              )}
               label={labels.defaultDatabase.label}
               aria-label={labels.defaultDatabase.label}
               placeholder={labels.defaultDatabase.placeholder}
@@ -612,12 +678,17 @@ export function ConfigEditor(props: Props) {
           </Field>
           <Field
             data-testid={labels.defaultRound.testId}
-            error={'invalid duration'}
+            error={"invalid duration"}
             label={labels.defaultRound.label}
             description={labels.defaultRound.description}
             invalid={invalidDuration}
           >
-            <Input width={40} onChange={onRoundChange} onBlur={onRoundBlur} value={jsonData.defaultRound} />
+            <Input
+              width={40}
+              onChange={onRoundChange}
+              onBlur={onRoundBlur}
+              value={jsonData.defaultRound}
+            />
           </Field>
           <Field
             data-testid={labels.adHocTableVariable.testId}
@@ -625,10 +696,13 @@ export function ConfigEditor(props: Props) {
             description={labels.adHocTableVariable.description}
           >
             <Input
-              name={'adHocTableVariable'}
+              name={"adHocTableVariable"}
               width={40}
-              value={jsonData.adHocTableVariable || ''}
-              onChange={onUpdateDatasourceJsonDataOption(props, 'adHocTableVariable')}
+              value={jsonData.adHocTableVariable || ""}
+              onChange={onUpdateDatasourceJsonDataOption(
+                props,
+                "adHocTableVariable"
+              )}
               label={labels.adHocTableVariable.label}
               aria-label={labels.adHocTableVariable.label}
             />
@@ -639,25 +713,28 @@ export function ConfigEditor(props: Props) {
             description={labels.adHocConditionVariable.description}
           >
             <Input
-              name={'adHocTableVariable'}
+              name={"adHocTableVariable"}
               width={40}
-              value={jsonData.adHocConditionVariable || ''}
-              onChange={onUpdateDatasourceJsonDataOption(props, 'adHocConditionVariable')}
+              value={jsonData.adHocConditionVariable || ""}
+              onChange={onUpdateDatasourceJsonDataOption(
+                props,
+                "adHocConditionVariable"
+              )}
               label={labels.adHocConditionVariable.label}
               aria-label={labels.adHocConditionVariable.label}
             />
           </Field>
           <Field
             data-testid={labels.adHocTimeRangeLookback.testId}
-            error={'invalid duration'}
+            error={"invalid duration"}
             label={labels.adHocTimeRangeLookback.label}
             description={labels.adHocTimeRangeLookback.description}
             invalid={invalidLookback}
           >
             <Input
-              name={'adHocTimeRangeLookback'}
+              name={"adHocTimeRangeLookback"}
               width={40}
-              value={jsonData.adHocTimeRangeLookback || ''}
+              value={jsonData.adHocTimeRangeLookback || ""}
               onChange={onLookbackChange}
               onBlur={onLookbackBlur}
               label={labels.adHocTimeRangeLookback.label}
@@ -671,10 +748,10 @@ export function ConfigEditor(props: Props) {
             description={labels.dialTimeout.description}
           >
             <Input
-              name={'dialTimeout'}
+              name={"dialTimeout"}
               width={40}
-              value={jsonData.dialTimeout || ''}
-              onChange={onUpdateDatasourceJsonDataOption(props, 'dialTimeout')}
+              value={jsonData.dialTimeout || ""}
+              onChange={onUpdateDatasourceJsonDataOption(props, "dialTimeout")}
               label={labels.dialTimeout.label}
               aria-label={labels.dialTimeout.label}
               placeholder={labels.dialTimeout.placeholder}
@@ -687,10 +764,10 @@ export function ConfigEditor(props: Props) {
             description={labels.queryTimeout.description}
           >
             <Input
-              name={'queryTimeout'}
+              name={"queryTimeout"}
               width={40}
-              value={jsonData.queryTimeout || ''}
-              onChange={onUpdateDatasourceJsonDataOption(props, 'queryTimeout')}
+              value={jsonData.queryTimeout || ""}
+              onChange={onUpdateDatasourceJsonDataOption(props, "queryTimeout")}
               label={labels.queryTimeout.label}
               aria-label={labels.queryTimeout.label}
               placeholder={labels.queryTimeout.placeholder}
@@ -730,9 +807,9 @@ export function ConfigEditor(props: Props) {
                   description={labels.exposeErrorsVariableName.description}
                 >
                   <Input
-                    name={'exposeErrorsVariableName'}
+                    name={"exposeErrorsVariableName"}
                     width={40}
-                    value={jsonData.exposeErrors?.variableName || ''}
+                    value={jsonData.exposeErrors?.variableName || ""}
                     onChange={(e) => {
                       onOptionsChange({
                         ...options,
@@ -756,9 +833,9 @@ export function ConfigEditor(props: Props) {
                   description={labels.exposeErrorsMaxCount.description}
                 >
                   <Input
-                    name={'exposeErrorsMaxCount'}
+                    name={"exposeErrorsMaxCount"}
                     width={40}
-                    value={jsonData.exposeErrors?.maxCount || ''}
+                    value={jsonData.exposeErrors?.maxCount || ""}
                     onChange={(e) => {
                       onOptionsChange({
                         ...options,
@@ -783,9 +860,9 @@ export function ConfigEditor(props: Props) {
                   description={labels.exposeErrorsTtl.description}
                 >
                   <Input
-                    name={'exposeErrorsTtl'}
+                    name={"exposeErrorsTtl"}
                     width={40}
-                    value={jsonData.exposeErrors?.ttl || ''}
+                    value={jsonData.exposeErrors?.ttl || ""}
                     onChange={(e) => {
                       onOptionsChange({
                         ...options,
@@ -804,13 +881,16 @@ export function ConfigEditor(props: Props) {
                     type="number"
                   />
                 </Field>
-                <Field label="Solution Templates" description="Download the error solution templates in JSON format">
+                <Field
+                  label="Solution Templates"
+                  description="Download the error solution templates in JSON format"
+                >
                   <IconButton
                     variant="secondary"
                     name="download-alt"
                     onClick={downloadSolutionTemplates}
                     aria-labelledby=""
-                    size={'xl'}
+                    size={"xl"}
                   >
                     Download Solution Templates
                   </IconButton>
@@ -820,8 +900,12 @@ export function ConfigEditor(props: Props) {
           </ConfigSection>
           <Divider />
           <ConfigSection title="Query Settings">
-            <div style={{ marginBottom: '20px' }}>
-              <Select options={queryOptions} onChange={(v) => addQuerySetting(v.value ?? '')} value={null}></Select>
+            <div style={{ marginBottom: "20px" }}>
+              <Select
+                options={queryOptions}
+                onChange={(v) => addQuerySetting(v.value ?? "")}
+                value={null}
+              ></Select>
             </div>
             {(jsonData?.querySettings ?? []).map((s) => {
               return (
@@ -833,14 +917,14 @@ export function ConfigEditor(props: Props) {
                   invalid={!!settingErrors[s.setting]}
                   description={querySettingDefinitions[s.setting].description}
                 >
-                  <Stack direction={'row'}>
+                  <Stack direction={"row"}>
                     {settingInput(s.setting, s.value)}
                     <Button
-                      aria-label={''}
-                      style={{ marginTop: '4.5px' }}
+                      aria-label={""}
+                      style={{ marginTop: "4.5px" }}
                       variant="destructive"
                       icon="times"
-                      size={'sm'}
+                      size={"sm"}
                       onClick={() => deleteQuerySetting(s.setting)}
                     />
                   </Stack>
