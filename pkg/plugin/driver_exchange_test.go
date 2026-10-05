@@ -270,3 +270,51 @@ func TestHealth_PlainForwardingNoLongerReportsFalseFailure(t *testing.T) {
 	assert.Equal(t, backend.HealthStatusOk, res.Status)
 	assert.Contains(t, res.Message, "signed-in user")
 }
+
+// CFB-2612 §4.2/6.6b. The open question was whether ad-hoc filter KEY
+// POPULATION carries the signed-in user, since it is reached from the editor
+// rather than from a panel. It does, and this pins the mechanism that makes it
+// so rather than the conclusion.
+//
+// Both routes end at the same place:
+//
+//   - the frontend's `getTagKeys` goes through `metadataProvider`'s query
+//     runner, which calls `ds.query(...)` — the ordinary /api/ds/query path;
+//   - the `/interpolate` RESOURCE call carries `req.Header` into the query it
+//     builds, and a macro's metadata lookup re-enters the backend through
+//     `MetadataProvider.executeQuery`, which copies those headers onto a
+//     `QueryDataRequest` and calls `ds.QueryData`.
+//
+// sqlds's QueryData calls MutateQueryData (datasource.go:189), so a metadata
+// lookup is mutated exactly as a panel's query is. What this test holds is
+// that a request built the way `MetadataProvider.executeQuery` builds one —
+// headers set with SetHTTPHeader, no connectionArgs of its own — still comes
+// out carrying the subject.
+func TestExchangeMode_AMetadataLookupCarriesTheSignedInUserToo(t *testing.T) {
+	token := jwtWithSubject("kc-sub-carol")
+	h := NewHydrolix()
+
+	// As MetadataProvider.executeQuery builds it: a bare query plus headers.
+	req := makeQueryDataReq(t, exchange.CredentialsType, nil, `{"rawSql":"DESCRIBE TABLE x","format":1}`)
+	req.SetHTTPHeader(backend.OAuthIdentityTokenHeaderName, "Bearer "+token)
+
+	ctx, out := h.MutateQueryData(context.Background(), req)
+
+	assert.Equal(t, "kc-sub-carol", connArgsOf(t, out)["sub"],
+		"a metadata lookup keys the pool on the same subject a panel's query does")
+	p, ok := exchange.PrincipalFrom(ctx)
+	require.True(t, ok, "without a principal the lookup would reach the cluster as nobody")
+	assert.Equal(t, token, p.SubjectToken)
+}
+
+// The counterpart: a metadata lookup arriving with no forwarded token must not
+// quietly become an anonymous cluster call.
+func TestExchangeMode_AMetadataLookupWithNoTokenYieldsNoPrincipal(t *testing.T) {
+	req := makeQueryDataReq(t, exchange.CredentialsType, nil, `{"rawSql":"DESCRIBE TABLE x","format":1}`)
+
+	ctx, out := NewHydrolix().MutateQueryData(context.Background(), req)
+
+	assert.NotContains(t, connArgsOf(t, out), "sub")
+	_, ok := exchange.PrincipalFrom(ctx)
+	assert.False(t, ok, "no token means no principal, and the transport refuses the request")
+}

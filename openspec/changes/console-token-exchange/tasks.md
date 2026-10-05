@@ -222,9 +222,22 @@ deployed Grafana calls the console's real hostname, which is already allowed.
       so the question was whether the ordinary ones still work. The full e2e
       suite drives them end to end — config save and test, queries, macros,
       ad-hoc filters, annotations, template variables — and passes.
-- [ ] 6.6b Still owed, and narrower than it was: ad-hoc filter **key
-      population** in `forwardOAuthExchange` specifically. The suite proves
-      that path works on a datasource holding its own credential. Whether the
-      editor's resource call carries the signed-in user the way the query path
-      does is a different question, and 4.2's live run did not cover it. Needs
-      the playpen rig.
+- [x] 6.6b **Answered, and the premise was wrong.** Ad-hoc filter key
+      population is not a resource call. The frontend's `getTagKeys` goes
+      through `metadataProvider`'s query runner, which calls `ds.query(...)` —
+      the ordinary `/api/ds/query` path, so it is mutated and carries the user
+      exactly as a panel does.
+
+      The resource calls that do exist are `/ast`, `/interpolate` and
+      `/macroCTE`, and the one that reaches a cluster is `/interpolate`, via a
+      macro's metadata lookup. It carries the user too, by a longer route:
+      `Interpolate` puts `req.Header` on the query it builds, and
+      `MetadataProvider.executeQuery` copies those headers onto a
+      `QueryDataRequest` and calls `ds.QueryData` — and sqlds's `QueryData`
+      calls `MutateQueryData` (`datasource.go:189`). So a metadata lookup
+      re-enters the same path a panel's query takes.
+
+      Two tests pin the mechanism rather than the conclusion: a request built
+      the way `executeQuery` builds one still comes out carrying the subject,
+      and one arriving with no forwarded token yields no principal rather than
+      becoming an anonymous cluster call.
