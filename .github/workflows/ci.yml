@@ -98,6 +98,11 @@ jobs:
       attestations: write
     with:
       node_version: '24'
+      # PR CI never requires a signature: Dependabot and fork PRs get no Actions
+      # secrets, and an unsigned package still passes e2e (unsigned loading is
+      # allowed) and the validator (unsigned is a warning). Any PR run without
+      # the token packages unsigned, with a warning annotation.
+      require_signature: false
     secrets:
       grafana_token: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
 
