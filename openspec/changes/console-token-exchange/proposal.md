@@ -36,6 +36,22 @@ cluster's **own** realm, so this is an additional mode, not a replacement.
   sign-in token, and the exchanged token is attached per request through the
   driver's `TransportFunc` hook, so a token refresh never churns the pool.
 
+## Capabilities
+
+### New Capabilities
+
+- `console-token-exchange`: the `forwardOAuthExchange` credentials type — how a
+  forwarded sign-in token becomes a cluster token, where the delegate
+  credential comes from and how it is scoped per cluster, how exchanged tokens
+  are cached and refreshed per user, which protocol the mode requires, and what
+  the health check reports.
+
+### Modified Capabilities
+
+- `hdx-oauth-keyed-pooling`: the exchanging mode keys the connection pool on the
+  forwarded token's subject rather than on the token, which is refreshed
+  independently of the connection. `forwardOAuth` is unchanged.
+
 ## What does not change
 
 - `forwardOAuth`, `serviceAccount` and `userAccount` keep their current behaviour.

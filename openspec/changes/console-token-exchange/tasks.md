@@ -84,8 +84,14 @@ field name.
       the host, which is the audience on every cluster the console registers
       today. Seven tests in `ConfigEditor.exchange.test.tsx`; the repo's 332
       frontend tests still pass.
-- [ ] 3.2 Read `exchange_url`, `exchange_audience`, `exchange_client_id`,
-      `exchange_client_secret` from server config. Never from `jsonData`.
+- [x] 3.2 Read the endpoint and the delegate credential from server config,
+      never from `jsonData`. **Built as a map, not four scalars.** Four names
+      can express one credential; a Grafana serving several clusters needs one
+      per cluster, so `GF_PLUGIN_EXCHANGE_CREDENTIALS` is a JSON object keyed by
+      audience and `GF_PLUGIN_EXCHANGE_URL` is the endpoint
+      (`HDX_`-prefixed names accepted too, for deployments that set the
+      environment on the process rather than through Grafana's config). A
+      half-configured instance is a named error, not a silent fallback.
 - [x] 3.3 **Done, and it also fixes plain `forwardOAuth`.** Upstream runs the
       check on the bootstrap connection, which has no user, so a working
       forward-mode datasource reported degraded health — and a green tick would
@@ -130,7 +136,7 @@ field name.
       - What this did **not** cover: ad-hoc filter *key population* in the
         editor, which is a frontend resource call rather than this backend path.
         Worth a look before anyone calls the mode finished.
-- [ ] 4.3 `hdx-query-attribution` already exists as a spec in this repo; the
+- [ ] 4.3 (not blocking) `hdx-query-attribution` already exists as a spec in this repo; the
       exchanged token's subject is the obvious thing to attribute a query to, and
       the cluster records nothing per user today. Worth connecting the two.
 
@@ -166,6 +172,29 @@ deployed Grafana calls the console's real hostname, which is already allowed.
       dashboard load causes one exchange per user; a 401 re-mints once; stopping
       the console leaves panels working until the cached token expires and then
       says so.
-- [ ] 5.3 The control: the same user's **unexchanged** token sent to the cluster
+- [x] 5.3 The control: the same user's **unexchanged** token sent to the cluster
       is refused. If it is ever accepted, the audience isolation is broken and
-      this change is not what makes queries work.
+      this change is not what makes queries work. **Run 2026-10-02 against
+      playpen: refused.** So the exchange is what makes the query work, rather
+      than the cluster having accepted the console token all along.
+
+## 6. Landing
+
+- [x] 6.1 Spec deltas under `specs/`: the new `console-token-exchange`
+      capability, and the `hdx-oauth-keyed-pooling` modification — the
+      exchanging mode keys the pool on the subject, while `forwardOAuth` keys
+      on the token as before.
+- [x] 6.2 `README` documents the mode and the two environment variables. Nobody
+      can deploy this by reading the source.
+- [x] 6.3 `CHANGELOG` entry for the feature and for the health-check fix, which
+      lands for plain `forwardOAuth` users too.
+- [x] 6.4 e2e: `tests/configEditorCredentials.spec.ts` — each credentials mode
+      asks for its own fields, and the exchanging mode asks for no credential
+      at all, which is the property that would be broken silently.
+- [ ] 6.5 **Not yet run locally** — the e2e stack needs Docker, and this machine
+      could not start it. The PR's CI matrix is the first real run.
+- [ ] 6.6 Against a live Grafana: ad-hoc filter **key population** in the
+      editor, which is a frontend resource call rather than the backend query
+      path tested in 4.2, and a plain `serviceAccount` data source left
+      untouched by the `Connect`, pooling and metadata-cache changes, which
+      apply to every mode.
