@@ -191,10 +191,21 @@ deployed Grafana calls the console's real hostname, which is already allowed.
 - [x] 6.4 e2e: `tests/configEditorCredentials.spec.ts` — each credentials mode
       asks for its own fields, and the exchanging mode asks for no credential
       at all, which is the property that would be broken silently.
-- [ ] 6.5 **Not yet run locally** — the e2e stack needs Docker, and this machine
-      could not start it. The PR's CI matrix is the first real run.
-- [ ] 6.6 Against a live Grafana: ad-hoc filter **key population** in the
-      editor, which is a frontend resource call rather than the backend query
-      path tested in 4.2, and a plain `serviceAccount` data source left
-      untouched by the `Connect`, pooling and metadata-cache changes, which
-      apply to every mode.
+- [x] 6.5 **Run: 61 passed, 0 failed** against Grafana 13.2.1, the new spec
+      included. One trap worth recording for the next person: run it as CI
+      does, `docker compose run --rm playwright`, not on the host. Two tests
+      reach ClickHouse directly at its container hostname, and
+      `CLICKHOUSE_HOSTNAME` is read both for that and for the datasource's own
+      host — which the plugin resolves from inside Grafana — so no host-side
+      value satisfies both. Run on the host, those two fail for reasons that
+      have nothing to do with the change.
+- [x] 6.6a The `Connect`, pooling and metadata-cache changes touch every mode,
+      so the question was whether the ordinary ones still work. The full e2e
+      suite drives them end to end — config save and test, queries, macros,
+      ad-hoc filters, annotations, template variables — and passes.
+- [ ] 6.6b Still owed, and narrower than it was: ad-hoc filter **key
+      population** in `forwardOAuthExchange` specifically. The suite proves
+      that path works on a datasource holding its own credential. Whether the
+      editor's resource call carries the signed-in user the way the query path
+      does is a different question, and 4.2's live run did not cover it. Needs
+      the playpen rig.
