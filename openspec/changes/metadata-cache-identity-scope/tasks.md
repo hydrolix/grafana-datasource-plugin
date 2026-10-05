@@ -26,6 +26,20 @@
       against a local ClickHouse, so an e2e here would assert nothing the Go
       tests do not. Recorded rather than silently skipped.
 
+## 2b. The cost, measured
+
+- [x] 2b.1 Per lookup against a local ClickHouse: primary key 3.7 ms / ~2.9 KB,
+      DESCRIBE 2.1 ms / ~2.8 KB (20 runs each). A real cluster adds round-trip
+      time; the sizes hold.
+- [x] 2b.2 Cache-key cardinality across the real bundle dashboards: **1–3
+      distinct tables each**, against 8–36 macro uses. Macro occurrences do not
+      each cost a lookup — they resolve onto the same few tables and share
+      entries, which is what keeps this cheap.
+- [x] 2b.3 So the added load is `(U−1) × K` lookups per hour for `U` users and
+      `K` tables: at 100 users and K=3, ~297/hour, one every 12 seconds,
+      ~870 KB/hour. It scales with distinct tables, not with panels or macro
+      use.
+
 ## 3. Landing
 
 - [x] 3.1 CHANGELOG entry, flagged as a behaviour change for anyone on
