@@ -17,7 +17,11 @@
 - [x] 2.1 Two users, one table: the second user's lookup must reach the cluster.
 - [x] 2.2 A mode forwarding no identity still shares one entry.
 - [x] 2.3 The existing suites are unaffected.
-- [ ] 2.4 No e2e. The crossing needs two signed-in users against one datasource
+- [x] 2.5 The repo's e2e suite run against this branch (Grafana 13.2.1): 59
+      passed, 1 flaky — `macroFunctions / fromTime_ms`, which passed on retry
+      and flaked on the untouched `develop` tree too. Nothing here is a
+      regression from scoping the caches.
+- [ ] 2.4 No e2e of the crossing itself. The crossing needs two signed-in users against one datasource
       and a cluster that refuses one of them; the e2e stack runs a single user
       against a local ClickHouse, so an e2e here would assert nothing the Go
       tests do not. Recorded rather than silently skipped.
