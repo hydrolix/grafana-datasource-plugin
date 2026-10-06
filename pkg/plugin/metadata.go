@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/hydrolix/plugin/pkg/identity"
 	"net/http"
 	"strings"
 	"time"
@@ -74,19 +75,28 @@ func NewMetadataProvider(ds metadataDS) *MetadataProvider {
 // schema reads out of another's.
 //
 // These caches hold what a schema query answered, and a schema query is
-// authorized like any other: the forwarded token reaches the cluster on a cache
-// MISS only. Keyed on (database, table) alone, the first user to look a table up
-// would serve its primary key and column types to every other user of the same
-// datasource for an hour, with the cluster never asked about them. That is a
-// disclosure of schema shape — not of rows, but not nothing either.
+// authorized like any other: in a forwarding credentials mode the user's token
+// reaches the cluster on a cache MISS only. Keyed on (database, table) alone,
+// the first user to look a table up serves its primary key and column types to
+// every other user of the same datasource for the cache's lifetime, with the
+// cluster never asked about them. That is a disclosure of schema shape — not of
+// rows, but not nothing either.
 //
 // The scope is the forwarded token's subject: stable for a person, so a token
-// refresh does not churn the cache, and distinct between people, which is the
-// point. Modes that forward no token (a service account, a stored user account)
-// have one credential and therefore one legitimate view, and share an entry as
-// before.
-func cacheScope(headers http.Header) string {
-	token := strings.TrimPrefix(headers.Get(backend.OAuthIdentityTokenHeaderName), "Bearer ")
+// refresh does not throw the cache away, and distinct between people, which is
+// the point. Modes that forward no token — a service account, a stored user
+// account — have one credential and therefore one legitimate view, and keep
+// sharing an entry.
+func cacheScope(ctx context.Context, headers http.Header) string {
+	// The context first: it is where the forwarded identity actually arrives
+	// (`pkg/identity`). The headers are the fallback, for the direct
+	// callers that still pass them — and a test that passes only headers is
+	// not exercising the production path, which is how the first version of
+	// this fix came to be inert.
+	token, _ := identity.ForwardedTokenFrom(ctx)
+	if token == "" {
+		token = identity.TokenOf(headers)
+	}
 	if token == "" {
 		return ""
 	}
@@ -124,7 +134,7 @@ func (p *MetadataProvider) GetPK(ctx context.Context, headers http.Header, datab
 		}
 		database = defaultDB
 	}
-	cacheKey := scopedKey(cacheScope(headers), database+"_"+table)
+	cacheKey := scopedKey(cacheScope(ctx, headers), database+"_"+table)
 
 	if entry := p.pkCache.Get(cacheKey); entry != nil {
 		log.DefaultLogger.Debug("MetadataProvider: PK cache hit", "table", database+"_"+table)
@@ -144,7 +154,7 @@ func (p *MetadataProvider) GetPK(ctx context.Context, headers http.Header, datab
 // table reference. Cache miss issues a DESCRIBE; subsequent calls within
 // the TTL hit the cache.
 func (p *MetadataProvider) GetKeys(ctx context.Context, headers http.Header, cte string) (map[string]string, error) {
-	cacheKey := scopedKey(cacheScope(headers), cte)
+	cacheKey := scopedKey(cacheScope(ctx, headers), cte)
 
 	if entry := p.keyCache.Get(cacheKey); entry != nil {
 		log.DefaultLogger.Debug("MetadataProvider: keys cache hit", "cte", cte)
@@ -337,6 +347,19 @@ func (p *MetadataProvider) executeQuery(ctx context.Context, headers http.Header
 	for k, vs := range headers {
 		for _, v := range vs {
 			req.SetHTTPHeader(k, v)
+		}
+	}
+	// A macro's lookup arrives with no headers of its own: sqlds hands the
+	// interpolator no header set, so `headers` here is nil and this inner
+	// request would reach the cluster carrying no credential at all. On a
+	// cache MISS that is a failed lookup, not a slow one — forwardOAuth
+	// answers it "missing OAuth token in connection args", and the exchanging
+	// mode refuses it for having no signed-in user. The identity the context
+	// carries is the one the outer request arrived with, so it is the right
+	// one to send (CFB-2612).
+	if req.GetHTTPHeader(backend.OAuthIdentityTokenHeaderName) == "" {
+		if token, ok := identity.ForwardedTokenFrom(ctx); ok {
+			req.SetHTTPHeader(backend.OAuthIdentityTokenHeaderName, "Bearer "+token)
 		}
 	}
 
