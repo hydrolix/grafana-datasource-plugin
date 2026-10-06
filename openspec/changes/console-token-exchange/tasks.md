@@ -222,22 +222,27 @@ deployed Grafana calls the console's real hostname, which is already allowed.
       so the question was whether the ordinary ones still work. The full e2e
       suite drives them end to end — config save and test, queries, macros,
       ad-hoc filters, annotations, template variables — and passes.
-- [x] 6.6b **Answered, and the premise was wrong.** Ad-hoc filter key
-      population is not a resource call. The frontend's `getTagKeys` goes
-      through `metadataProvider`'s query runner, which calls `ds.query(...)` —
-      the ordinary `/api/ds/query` path, so it is mutated and carries the user
-      exactly as a panel does.
+- [x] 6.6b **Answered twice, and the first answer was wrong.** Ad-hoc filter
+      key population is not a resource call: the frontend's `getTagKeys` goes
+      through `metadataProvider`'s query runner, which calls `ds.query(...)`,
+      the ordinary `/api/ds/query` path. That part stands.
 
-      The resource calls that do exist are `/ast`, `/interpolate` and
-      `/macroCTE`, and the one that reaches a cluster is `/interpolate`, via a
-      macro's metadata lookup. It carries the user too, by a longer route:
-      `Interpolate` puts `req.Header` on the query it builds, and
-      `MetadataProvider.executeQuery` copies those headers onto a
-      `QueryDataRequest` and calls `ds.QueryData` — and sqlds's `QueryData`
-      calls `MutateQueryData` (`datasource.go:189`). So a metadata lookup
-      re-enters the same path a panel's query takes.
+      What did not stand was the claim that `/interpolate` carries the user
+      too. It did not. `Interpolate` set the identity on `HdxQuery.Headers`
+      and then marshalled the query, and that field is `json:"-"`, so it was
+      dropped before the interpolator ever saw it; nothing put it on a context
+      either. I traced `executeQuery` to `ds.QueryData` to `MutateQueryData`
+      and stopped there, without asking whether anything upstream had put
+      identity on that request. For a panel it had. For a resource call it had
+      not.
 
-      Two tests pin the mechanism rather than the conclusion: a request built
-      the way `executeQuery` builds one still comes out carrying the subject,
-      and one arriving with no forwarded token yields no principal rather than
-      becoming an anonymous cluster call.
+      Two things followed from that one gap, and both are fixed by carrying
+      the identity on the context (`pkg/identity`): the metadata cache scope
+      was always empty, so every user shared one entry; and a macro's metadata
+      lookup reached the cluster with no credential, which on a cold cache is
+      a failed lookup rather than a slow one.
+
+      The tests now drive the entry points and were checked by making the fix
+      inert and watching them go red. The earlier ones passed by calling
+      `GetKeys` and `GetPK` directly, which is exactly the shape of test that
+      cannot catch an identity dropped on the way in.
