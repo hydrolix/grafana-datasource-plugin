@@ -14,29 +14,21 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 )
 
-// The forwarded identity travels on the CONTEXT, because the two places that
-// need it downstream cannot be reached any other way.
+// The forwarded identity travels on the CONTEXT.
 //
-// It used to travel on `models.HdxQuery.Headers`, which does not work and was
-// the defect behind CFB-2612's cache fix:
+// It cannot travel on `models.HdxQuery.Headers`, which is where the metadata
+// cache scope used to look for it: the `/interpolate` route sets that field
+// and then marshals the query, and the field is tagged `json:"-"`, so it is
+// dropped; and the QueryData path never fills it, because sqlds hands the
+// interpolator `(*sqlutil.Query, req.JSON)` and neither carries headers. The
+// macros still read `query.Headers` — that is unchanged — but what they find
+// there is nil, so the consumers that need an identity take it from here
+// instead (`metadata.go`'s `cacheScope` and `executeQuery`).
 //
-//   - the `/interpolate` route sets that field and then marshals the query,
-//     and the field is tagged `json:"-"`, so it is dropped before the
-//     interpolator ever unmarshals it;
-//   - the QueryData path never fills it at all, because sqlds hands the
-//     interpolator `(*sqlutil.Query, req.JSON)` and neither carries headers.
-//
-// So `query.Headers` is nil in production at every macro call site, the
-// metadata cache scope was always empty, and every user shared one entry —
-// exactly the disclosure the fix was meant to close. `interpolator.go` has
-// said for some time that the macros "pull headers from context"; this is the
-// code that makes that true.
-//
-// `ForwardHeaders: true` is NOT the alternative. It writes the whole HTTP
-// header map into `ConnectionArgs`, which is the connection pool's cache key,
-// so per-request header noise would fragment the pool (`driver.go`'s own
-// note). Dropping the `json:"-"` tag is not either: it would serialise a
-// bearer token into query JSON, and it would fix only the route path.
+// Why not the two alternatives: `ForwardHeaders: true` writes the whole HTTP
+// header map into `ConnectionArgs`, which is the connection pool's cache key
+// (`driver.go`'s own note); dropping the `json:"-"` tag would serialise a
+// bearer token into query JSON and fix only the route path.
 type forwardedTokenKey struct{}
 
 // WithForwardedToken returns a context carrying the signed-in user's

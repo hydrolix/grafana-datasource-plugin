@@ -83,16 +83,12 @@ func NewMetadataProvider(ds metadataDS) *MetadataProvider {
 // rows, but not nothing either.
 //
 // The scope is the forwarded token's subject: stable for a person, so a token
-// refresh does not throw the cache away, and distinct between people, which is
-// the point. Modes that forward no token — a service account, a stored user
-// account — have one credential and therefore one legitimate view, and keep
+// refresh does not throw the cache away, and distinct between people. A mode
+// that forwards no token has one credential and one legitimate view, and keeps
 // sharing an entry.
 func cacheScope(ctx context.Context, headers http.Header) string {
-	// The context first: it is where the forwarded identity actually arrives
-	// (`forwarded_identity.go`). The headers are the fallback, for the direct
-	// callers that still pass them — and a test that passes only headers is
-	// not exercising the production path, which is how the first version of
-	// this fix came to be inert.
+	// The context first: it is where the forwarded identity arrives
+	// (`pkg/identity`). Headers are the fallback, for direct callers.
 	token, _ := identity.ForwardedTokenFrom(ctx)
 	if token == "" {
 		token = identity.TokenOf(headers)
@@ -373,11 +369,10 @@ func (p *MetadataProvider) executeQuery(ctx context.Context, headers http.Header
 	// A macro's lookup arrives with no headers of its own: sqlds hands the
 	// interpolator no header set, so `headers` here is nil and this inner
 	// request would reach the cluster carrying no credential at all. On a
-	// cache MISS that is a failed lookup, not a slow one — forwardOAuth
-	// answers it "missing OAuth token in connection args", and the exchanging
-	// mode refuses it for having no signed-in user. The identity the context
-	// carries is the one the outer request arrived with, so it is the right
-	// one to send (CFB-2612).
+	// cache MISS that is a failed lookup, not a slow one: forwardOAuth answers
+	// it "missing OAuth token in connection args". The context carries the
+	// identity the outer request arrived with, which is the right one to
+	// send.
 	if req.GetHTTPHeader(backend.OAuthIdentityTokenHeaderName) == "" {
 		if token, ok := identity.ForwardedTokenFrom(ctx); ok {
 			req.SetHTTPHeader(backend.OAuthIdentityTokenHeaderName, "Bearer "+token)

@@ -2,6 +2,11 @@
 
 ## 0.13.0 (unreleased)
 
+- **Fix**: The signed-in user's auth header did not reach the plugin backend's metadata lookups. It is set on
+  `HdxQuery.Headers`, which is `json:"-"`, so the `/interpolate` route marshalled it away and the QueryData path never
+  filled it — the macros found nil. It now travels on the request context, set at both entry points. Two things were
+  broken by that and are fixed together: the per-user metadata cache scope below, and a macro's metadata lookup, which
+  on a cold cache reached the cluster with no credential at all (`forwardOAuth: missing OAuth token in connection args`)
 - **Fix**: Schema metadata was cached across users in `forwardOAuth` mode. `MetadataProvider` keyed a table's primary
   key and a CTE's columns on the table or CTE alone, for an hour per datasource instance, and the caller's token
   reached the cluster only on a miss — so one user's lookup served every other user of that datasource that table's
