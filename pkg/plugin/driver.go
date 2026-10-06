@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/hydrolix/plugin/pkg/identity"
 	"net/http"
 	"strconv"
 	"strings"
@@ -277,6 +278,10 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 	}
 
 	headers := req.GetHTTPHeaders()
+	// The forwarded identity onto the context, for everything downstream that
+	// sqlds's interpolator signature cannot reach — the metadata cache scope
+	// and the metadata lookups a macro makes (`forwarded_identity.go`).
+	ctx = identity.WithForwardedToken(ctx, identity.TokenOf(headers))
 	connArgs := map[string]string{}
 	if pluginSettings.CredentialsType == "forwardOAuth" {
 		if token := strings.TrimPrefix(headers.Get(backend.OAuthIdentityTokenHeaderName), "Bearer "); token != "" {
