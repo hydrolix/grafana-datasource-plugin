@@ -14,12 +14,8 @@ import { Props } from "../components/QueryEditor";
 import { applyHotKey, updateOptions } from "./editorUtils";
 import { v4 as uuidv4 } from "uuid";
 
-export const languageDefinition: (
-  props: Props,
-  setMonaco: (value: Monaco | null) => void
-) => LanguageDefinition = (
-  props: Props,
-  setMonaco: (value: Monaco | null) => void
+export const languageDefinition: (props: Props) => LanguageDefinition = (
+  props: Props
 ) => {
   return {
     id: "sql",
@@ -47,7 +43,6 @@ export const languageDefinition: (
       updateOptions(m);
       setKeywords(m, language);
       applyHotKey(m, props);
-      setMonaco(m);
 
       return completionProvider;
     },

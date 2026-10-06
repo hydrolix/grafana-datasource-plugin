@@ -15,6 +15,7 @@ import {
   InterpolationResult,
   QuerySetting,
   QueryType,
+  ValidationState,
 } from "../types";
 import { SQLEditor } from "@grafana/plugin-ui";
 import { languageDefinition } from "../editor/languageDefinition";
@@ -24,7 +25,6 @@ import {
   InlineField,
   InlineLabel,
   Input,
-  Monaco,
   Select,
   ToolbarButton,
 } from "@grafana/ui";
@@ -33,11 +33,13 @@ import {
   QUERY_DURATION_REGEX,
 } from "../editor/timeRangeUtils";
 import { InterpolatedQuery } from "./InterpolatedQuery";
-import { ValidationBar } from "./ValidationBar";
+import { toValidationState, ValidationBar } from "./ValidationBar";
 import { useDebounce } from "react-use";
+import { v4 } from "uuid";
+import { EmptyError } from "rxjs";
 import {
   SHOW_INTERPOLATED_QUERY_ERRORS,
-  SHOW_VALIDATION_BAR,
+  VALIDATION_DEBOUNCE_MS,
 } from "../constants";
 
 import { css } from "@emotion/css";
@@ -110,10 +112,7 @@ export function QueryEditor(props: Props) {
       originalSql: props.query.rawSql,
       interpolationId: "",
       hasError: false,
-      hasWarning: false,
     });
-
-  let [monaco, setMonaco] = useState<Monaco | null>(null);
 
   const onQueryTextChange = (queryText: string) => {
     props.onChange({ ...props.query, rawSql: queryText });
@@ -169,7 +168,7 @@ export function QueryEditor(props: Props) {
 
   useDebounce(
     async () => {
-      if (showSql || SHOW_VALIDATION_BAR) {
+      if (showSql) {
         let interpolatedQuery = await props.datasource.interpolateQuery(
           props.query,
           interpolationId,
@@ -183,6 +182,66 @@ export function QueryEditor(props: Props) {
   );
   // eslint-disable-next-line eqeqeq
   let dirty = interpolationResult?.interpolationId != interpolationId;
+
+  // Range and interval are left out of the key on purpose: they change on
+  // every refresh of a relative time range but cannot change whether the
+  // query is valid, and each validation costs a cluster round-trip. Ad hoc
+  // filters, which can, are already part of variablesString.
+  const validationKey = `${interpolationIdString}|${JSON.stringify(
+    props.query.querySettings ?? []
+  )}`;
+  const hasSql = !!props.query.rawSql?.trim();
+  // Each result is stored with the key it was computed for, so a result for
+  // anything but the current key reads as "validating" without an effect.
+  const [validation, setValidation] = useState<{
+    key: string;
+    state: ValidationState;
+  }>();
+  const latestValidationKey = useRef(validationKey);
+  useEffect(() => {
+    latestValidationKey.current = validationKey;
+  }, [validationKey]);
+  // A stable requestId makes backendSrv cancel the superseded in-flight
+  // validation.
+  const validationRequestId = useRef(v4());
+  useDebounce(
+    async () => {
+      if (!hasSql) {
+        return;
+      }
+      const key = validationKey;
+      let state: ValidationState;
+      try {
+        state = toValidationState(
+          await props.datasource.validateQuery(
+            props.query,
+            interpolationContext,
+            validationRequestId.current
+          )
+        );
+      } catch (e) {
+        // A request superseded by a newer one with the same requestId is
+        // cancelled; the newer request reports for the same key.
+        if (e instanceof EmptyError) {
+          return;
+        }
+        state = { status: "warning", message: labels.validation.unavailable };
+      }
+      // A late response for an older key must not replace a newer result.
+      if (key === latestValidationKey.current) {
+        setValidation({ key, state });
+      }
+    },
+    VALIDATION_DEBOUNCE_MS,
+    [validationKey]
+  );
+  let validationState: ValidationState = { status: "idle" };
+  if (hasSql) {
+    validationState =
+      validation?.key === validationKey
+        ? validation.state
+        : { status: "validating" };
+  }
 
   // In a Mixed panel props.queries includes other datasources' queries; keep
   // only ours before the cast. A query without a datasource ref can only
@@ -202,18 +261,12 @@ export function QueryEditor(props: Props) {
       <SQLEditor
         query={props.query.rawSql}
         onChange={onQueryTextChange}
-        language={languageDefinition(props, setMonaco)}
+        language={languageDefinition(props)}
       >
         {({ formatQuery }) => {
           return (
             <div>
-              {SHOW_VALIDATION_BAR && (
-                <ValidationBar
-                  monaco={monaco}
-                  interpolationResult={interpolationResult}
-                  query={props.query.rawSql}
-                />
-              )}
+              <ValidationBar state={validationState} />
               <div
                 style={{
                   display: "flex",

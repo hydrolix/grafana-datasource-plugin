@@ -130,15 +130,22 @@ export interface InterpolationResult {
   interpolatedSql?: string;
   finalSql?: string;
   hasError: boolean;
-  hasWarning: boolean;
   error?: string;
-  warning?: string;
 }
 
+/** Body of the /validate resource response. */
 export interface ValidationResult {
   error?: string;
   warning?: string;
+  /** The statement is not dry-run (DESCRIBE, SHOW, multi-statement, …). */
+  skipped?: boolean;
 }
+
+export type ValidationState =
+  | { status: "idle" }
+  | { status: "validating" }
+  | { status: "valid" }
+  | { status: "error" | "warning"; message: string };
 
 export interface SelectQuery {
   SelectItems: SelectItem[];

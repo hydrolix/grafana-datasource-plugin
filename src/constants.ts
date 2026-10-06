@@ -1,5 +1,11 @@
-export const SHOW_VALIDATION_BAR = false;
 export const SHOW_INTERPOLATED_QUERY_ERRORS = false;
+
+// Substituted for ${__hydrolix.query_source} / ${__hydrolix.app} in query
+// settings on validation dry-runs, so their EXPLAIN statements are
+// distinguishable in query logs.
+export const VALIDATION_QUERY_SOURCE = "query-validation";
+
+export const VALIDATION_DEBOUNCE_MS = 1000;
 
 export const SYNTHETIC_NULL = "__null__";
 export const SYNTHETIC_EMPTY = "__empty__";

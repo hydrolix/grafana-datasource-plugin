@@ -73,6 +73,9 @@ func (i *HdxInterpolator) Interpolate(
 			return "", backend.DownstreamError(fmt.Errorf("interpolator: unmarshal HdxQuery: %w", err))
 		}
 	}
+	if hdx.SkipInterpolation {
+		return query.RawSQL, nil
+	}
 	// Runtime fields from sqlds-side query take precedence over anything
 	// the rawJSON may have carried — the sqlds-derived values are what
 	// the request actually executed with.

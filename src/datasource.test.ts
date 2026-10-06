@@ -1602,6 +1602,148 @@ describe("HdxDataSource", () => {
     });
   });
 
+  describe("validateQuery", () => {
+    const context = {
+      range: undefined,
+      interval: "30s",
+      filters: [{ key: "status", operator: "=", value: "ok" }],
+    };
+
+    it("posts the prepared query with resolved settings and the requestId", async () => {
+      const { datasource } = setupDataSourceMock({
+        customInstanceSettings: {
+          ...MockDataSourceInstanceSettings,
+          jsonData: {
+            ...MockDataSourceInstanceSettings.jsonData,
+            querySettings: [
+              {
+                setting: "hdx_query_admin_comment",
+                value: "src=${__hydrolix.app}",
+              },
+            ],
+          },
+        },
+      });
+      const postResource = jest
+        .spyOn(datasource, "postResource")
+        .mockResolvedValue({ error: false, data: {} });
+
+      await expect(
+        datasource.validateQuery(
+          {
+            refId: "A",
+            rawSql: "SELECT 1",
+            round: "1m",
+            querySettings: [{ setting: "max_threads", value: "4" }],
+          } as HdxQuery,
+          context,
+          "req-1"
+        )
+      ).resolves.toEqual({});
+
+      expect(postResource).toHaveBeenCalledWith(
+        "validate",
+        {
+          data: {
+            rawSql: "SELECT 1",
+            range: undefined,
+            interval: "30s",
+            filters: context.filters,
+            round: "1m",
+            querySettings: [
+              {
+                setting: "hdx_query_admin_comment",
+                value: "src=query-validation",
+              },
+              { setting: "max_threads", value: "4" },
+            ],
+          },
+        },
+        { requestId: "req-1" }
+      );
+    });
+
+    it("beautifies a reported query error", async () => {
+      const { datasource } = setupDataSourceMock({});
+      jest.spyOn(datasource, "postResource").mockResolvedValue({
+        error: false,
+        data: {
+          error:
+            'prefix {"error": "Code: 47. DB::Exception: Missing columns: \'nope\'. (UNKNOWN_IDENTIFIER)", "query": "SELECT nope"}',
+        },
+      });
+
+      const result = await datasource.validateQuery(
+        { refId: "A", rawSql: "SELECT nope" } as HdxQuery,
+        context,
+        "req-1"
+      );
+
+      expect(result).toEqual({ error: "Missing columns: 'nope'" });
+    });
+
+    it("keeps an error the beautifier does not recognise", async () => {
+      const { datasource } = setupDataSourceMock({});
+      const native =
+        "Code: 47. DB::Exception: Unknown expression identifier `nope` in scope SELECT nope FROM e2e.macros";
+      jest
+        .spyOn(datasource, "postResource")
+        .mockResolvedValue({ error: false, data: { error: native } });
+
+      const result = await datasource.validateQuery(
+        { refId: "A", rawSql: "SELECT nope FROM e2e.macros" } as HdxQuery,
+        context,
+        "req-1"
+      );
+
+      expect(result).toEqual({ error: native });
+    });
+
+    it("passes warnings and skipped results through unchanged", async () => {
+      const { datasource } = setupDataSourceMock({});
+      const postResource = jest.spyOn(datasource, "postResource");
+
+      postResource.mockResolvedValueOnce({
+        error: false,
+        data: { warning: "Primary key not filtered" },
+      });
+      await expect(
+        datasource.validateQuery(
+          { refId: "A", rawSql: "SELECT 1" } as HdxQuery,
+          context,
+          "r"
+        )
+      ).resolves.toEqual({ warning: "Primary key not filtered" });
+
+      postResource.mockResolvedValueOnce({
+        error: false,
+        data: { skipped: true },
+      });
+      await expect(
+        datasource.validateQuery(
+          { refId: "A", rawSql: "SHOW TABLES" } as HdxQuery,
+          context,
+          "r"
+        )
+      ).resolves.toEqual({ skipped: true });
+    });
+
+    it("rejects when the resource itself fails", async () => {
+      const { datasource } = setupDataSourceMock({});
+      jest
+        .spyOn(datasource, "postResource")
+        .mockResolvedValue({ error: true, errorMessage: "bad interval" });
+
+      await expect(
+        datasource.validateQuery(
+          { refId: "A", rawSql: "SELECT 1" } as HdxQuery,
+          context,
+          "r"
+        )
+      ).rejects.toThrow("bad interval");
+    });
+  });
+
   describe("assistant support surface", () => {
     it("getQueryDisplayText returns the raw SQL", () => {
       const { datasource } = setupDataSourceMock({});

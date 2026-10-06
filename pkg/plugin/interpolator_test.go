@@ -164,6 +164,23 @@ func TestInterpolatorImplementsSqldsInterface(t *testing.T) {
 	assert.Contains(t, out, "UPPER(name)")
 }
 
+func TestInterpolate_SkipInterpolationReturnsSQLVerbatim(t *testing.T) {
+	macros := map[string]MacroFunc{
+		"timeFilter": func(context.Context, *models.HdxQuery, []string, parser.Pos, *MetadataProvider) (string, error) {
+			t.Fatal("no macro may run when skipInterpolation is set")
+			return "", nil
+		},
+	}
+	i := NewHdxInterpolator(NewMetadataProvider(nopMetadataDS{}), macros)
+	rawJSON, _ := json.Marshal(models.HdxQuery{SkipInterpolation: true, Round: "1m"})
+	sql := "EXPLAIN SELECT '$__timeFilter' AS a, '$$__timeFilter' AS b FROM t WHERE $__timeFilter(ts)"
+
+	out, err := i.Interpolate(context.Background(), &sqlutil.Query{RawSQL: sql}, rawJSON)
+
+	assert.NoError(t, err)
+	assert.Equal(t, sql, out)
+}
+
 func TestErrParseMacroArgs(t *testing.T) {
 	// Macro identifier appears with unbalanced parens.
 	i := NewHdxInterpolator(NewMetadataProvider(nopMetadataDS{}), map[string]MacroFunc{

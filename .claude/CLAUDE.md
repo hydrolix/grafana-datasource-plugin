@@ -143,6 +143,13 @@ Host Go picks up the wrong toolchain. See `build-plugin`.
 - Macro expansion lives server-side via the `/interpolate` backend resource
   (`getInterpolatedQuery` in `datasource.ts`). The frontend ships SQL +
   range + interval + filters; do not duplicate macro logic on the frontend.
+- The query editor's validation bar calls the `/validate` backend resource
+  (`pkg/plugin/validator.go`): it interpolates in-process (so request headers
+  survive), dry-runs `EXPLAIN` through `MetadataProvider.executeQueryJSON`
+  (the sqlds path, with `skipInterpolation: true` in the query JSON so
+  `HdxInterpolator` doesn't expand the already-expanded SQL again), then warns when a single-table SELECT's leading
+  primary-key column is absent from WHERE/PREWHERE. Query problems go in the
+  response `data`; the envelope `error` is only for failing to validate.
 - `pkg/plugin/driver.go:421-467` attributes queries by `panelId` /
   `panelName` with an `"unknown"` fallback. Annotation queries arrive
   without these — the fallback is expected.

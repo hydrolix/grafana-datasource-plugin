@@ -1,0 +1,320 @@
+package plugin
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
+	"github.com/hydrolix/clickhouse-sql-parser/parser"
+	"github.com/hydrolix/plugin/pkg/plugin/models"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestLeadingPKColumn(t *testing.T) {
+	tests := []struct {
+		name   string
+		pk     string
+		want   string
+		wantOK bool
+	}{
+		{"single column", "datetime", "datetime", true},
+		{"backtick-quoted", "`event time`", "event time", true},
+		{"composite takes the leading column", "ts, id", "ts", true},
+		{"expression key has no single column", "toStartOfHour(ts)", "", false},
+		{"empty means the table has no key", "", "", false},
+		{"blank", "  ", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := leadingPKColumn(tt.pk)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func parseSelect(t *testing.T, sql string) *parser.SelectQuery {
+	t.Helper()
+	stmts, err := parser.NewParser(sql).ParseStmts()
+	require.NoError(t, err)
+	require.Len(t, stmts, 1)
+	sel, ok := stmts[0].(*parser.SelectQuery)
+	require.True(t, ok, "expected a SELECT, got %T", stmts[0])
+	return sel
+}
+
+func TestUnconstrainedPKTables(t *testing.T) {
+	keys := map[string]string{
+		"t":         "ts",
+		"u":         "ts",
+		"db.t":      "ts",
+		"composite": "ts, id",
+		"expr":      "toStartOfHour(ts)",
+		"nokey":     "",
+	}
+	resolve := func(_ context.Context, _ http.Header, database, table string) (string, error) {
+		name := table
+		if database != "" {
+			name = database + "." + table
+		}
+		pk, ok := keys[name]
+		if !ok {
+			return "", ErrPrimaryKeyNotFound
+		}
+		return pk, nil
+	}
+
+	tests := []struct {
+		name string
+		sql  string
+		want []string
+	}{
+		{"no WHERE", "SELECT * FROM t", []string{"Primary key `ts` of `t`"}},
+		{"filtered in WHERE", "SELECT * FROM t WHERE ts > now()", nil},
+		{"alias-qualified column", "SELECT * FROM t AS a WHERE a.ts > now()", nil},
+		{"filtered in PREWHERE", "SELECT * FROM t PREWHERE ts > now() WHERE x = 1", nil},
+		{"expanded $__timeFilter", "SELECT * FROM t WHERE ts >= toDateTime(1) AND ts <= toDateTime(2)", nil},
+		{"other column only", "SELECT * FROM t WHERE other = 1", []string{"Primary key `ts` of `t`"}},
+		{"match is case-sensitive", "SELECT * FROM t WHERE TS > 1", []string{"Primary key `ts` of `t`"}},
+		{"database-qualified table", "SELECT * FROM db.t", []string{"Primary key `ts` of `db.t`"}},
+		{"CTE name is not a table", "WITH x AS (SELECT * FROM t WHERE ts > 1) SELECT * FROM x", nil},
+		{"unfiltered CTE body", "WITH x AS (SELECT * FROM t) SELECT * FROM x WHERE ts > 1", []string{"Primary key `ts` of `t`"}},
+		{"each UNION branch is checked", "SELECT * FROM t WHERE ts > 1 UNION ALL SELECT * FROM u", []string{"Primary key `ts` of `u`"}},
+		{"subquery in FROM", "SELECT * FROM (SELECT * FROM t WHERE ts > 1)", nil},
+		{"JOIN is skipped", "SELECT * FROM t JOIN u ON t.id = u.id", nil},
+		{"table function is skipped", "SELECT * FROM numbers(10)", nil},
+		{"composite key filtered on trailing column", "SELECT * FROM composite WHERE id = 1", []string{"Primary key `ts` of `composite`"}},
+		{"expression key is skipped", "SELECT * FROM expr", nil},
+		{"table without a key", "SELECT * FROM nokey", nil},
+		{"unknown table is skipped", "SELECT * FROM missing", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := unconstrainedPKTables(context.Background(), parseSelect(t, tt.sql), nil, resolve)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestUnconstrainedPKTables_ResolverErrorIsSkipped(t *testing.T) {
+	resolve := func(context.Context, http.Header, string, string) (string, error) {
+		return "", errors.New("cluster unreachable")
+	}
+	got := unconstrainedPKTables(context.Background(), parseSelect(t, "SELECT * FROM t"), nil, resolve)
+	assert.Empty(t, got)
+}
+
+// validatorFixture fakes the two schema-query shapes the validator issues —
+// the primary-key lookup and the EXPLAIN dry-run — and records every request.
+type validatorFixture struct {
+	mu         sync.Mutex
+	requests   []*backend.QueryDataRequest
+	pk         string
+	explainErr error
+	explainFn  func(ctx context.Context) error
+}
+
+func (f *validatorFixture) queryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
+	f.mu.Lock()
+	f.requests = append(f.requests, req)
+	f.mu.Unlock()
+
+	q := req.Queries[0]
+	switch q.RefID {
+	case "pk_query":
+		return respondWith(frameOf([]string{f.pk}), q.RefID), nil
+	case "validate_query":
+		err := f.explainErr
+		if f.explainFn != nil {
+			err = f.explainFn(ctx)
+		}
+		if err != nil {
+			return &backend.QueryDataResponse{Responses: map[string]backend.DataResponse{q.RefID: {Error: err}}}, nil
+		}
+		return respondWith(frameOf([]string{"Expression"}), q.RefID), nil
+	}
+	return nil, errors.New("unexpected query " + q.RefID)
+}
+
+func (f *validatorFixture) explainRequests() []map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []map[string]any
+	for _, r := range f.requests {
+		if r.Queries[0].RefID != "validate_query" {
+			continue
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(r.Queries[0].JSON, &payload); err == nil {
+			out = append(out, payload)
+		}
+	}
+	return out
+}
+
+func newTestValidator(f *validatorFixture) *QueryValidator {
+	md := NewMetadataProvider(&fakeMetadataDS{queryDataFn: f.queryData, defaultDB: "db"})
+	return NewQueryValidator(NewHdxInterpolator(md, Macros), md)
+}
+
+func validationQuery(sql string) models.HdxQuery {
+	return models.HdxQuery{
+		RawSQL:    sql,
+		TimeRange: backend.TimeRange{From: time.Unix(1000, 0).UTC(), To: time.Unix(2000, 0).UTC()},
+		Interval:  30 * time.Second,
+	}
+}
+
+func TestValidate_FilteredSelectIsValid(t *testing.T) {
+	f := &validatorFixture{pk: "ts"}
+	q := validationQuery("SELECT count() FROM t WHERE ts > now() - 60")
+	q.QuerySettings = []models.QuerySetting{{Setting: "max_threads", Value: "4"}}
+	q.Headers = http.Header{"Authorization": []string{"Bearer user-token"}}
+
+	res, err := newTestValidator(f).Validate(context.Background(), q)
+
+	require.NoError(t, err)
+	assert.Equal(t, models.ValidationResult{}, res)
+
+	explains := f.explainRequests()
+	require.Len(t, explains, 1)
+	assert.Equal(t, "EXPLAIN SELECT count() FROM t WHERE ts > now() - 60", explains[0]["rawSql"])
+	assert.Equal(t, []any{map[string]any{"setting": "max_threads", "value": "4"}}, explains[0]["querySettings"])
+	for _, r := range f.requests {
+		assert.Equal(t, "Bearer user-token", r.GetHTTPHeader("Authorization"), "every schema query carries the user's headers")
+	}
+}
+
+func TestValidate_UnfilteredPrimaryKeyWarns(t *testing.T) {
+	f := &validatorFixture{pk: "ts"}
+
+	res, err := newTestValidator(f).Validate(context.Background(), validationQuery("SELECT * FROM t"))
+
+	require.NoError(t, err)
+	assert.Empty(t, res.Error)
+	assert.Equal(t, "Primary key `ts` of `t` not filtered in WHERE; add $__timeFilter() to limit the scan.", res.Warning)
+}
+
+func TestValidate_TimeFilterMacroSatisfiesPKCheck(t *testing.T) {
+	f := &validatorFixture{pk: "ts"}
+
+	res, err := newTestValidator(f).Validate(context.Background(), validationQuery("SELECT * FROM t WHERE $__timeFilter()"))
+
+	require.NoError(t, err)
+	assert.Equal(t, models.ValidationResult{}, res)
+	explains := f.explainRequests()
+	require.Len(t, explains, 1)
+	assert.Equal(t, "EXPLAIN SELECT * FROM t WHERE ts >= toDateTime(1000) AND ts <= toDateTime(2000)", explains[0]["rawSql"])
+}
+
+func TestValidate_ExplainErrorIsReportedWithoutPKCheck(t *testing.T) {
+	f := &validatorFixture{pk: "ts", explainErr: errors.New("Code: 47. UNKNOWN_IDENTIFIER: Missing columns: 'nope'")}
+
+	res, err := newTestValidator(f).Validate(context.Background(), validationQuery("SELECT nope FROM t"))
+
+	require.NoError(t, err)
+	assert.Equal(t, models.ValidationResult{Error: "Code: 47. UNKNOWN_IDENTIFIER: Missing columns: 'nope'"}, res)
+	for _, r := range f.requests {
+		assert.NotEqual(t, "pk_query", r.Queries[0].RefID, "PK check must not run after a failed dry-run")
+	}
+}
+
+// The EXPLAIN goes through sqlds, which interpolates every query it runs. The
+// dry-run must reach the driver as the already-interpolated SQL, even when
+// macro text survives the first pass inside string literals.
+func TestValidate_ExplainSkipsSecondInterpolation(t *testing.T) {
+	f := &validatorFixture{pk: "ts"}
+	v := newTestValidator(f)
+	sql := "SELECT '$__fromTime' AS a, '$$__timeFilter' AS b FROM t WHERE $__timeFilter(ts)"
+	firstPass := "SELECT '$__fromTime' AS a, '$$__timeFilter' AS b FROM t WHERE ts >= toDateTime(1000) AND ts <= toDateTime(2000)"
+
+	res, err := v.Validate(context.Background(), validationQuery(sql))
+	require.NoError(t, err)
+	assert.Equal(t, models.ValidationResult{}, res)
+
+	f.mu.Lock()
+	var explain *backend.QueryDataRequest
+	for _, r := range f.requests {
+		if r.Queries[0].RefID == "validate_query" {
+			explain = r
+		}
+	}
+	f.mu.Unlock()
+	require.NotNil(t, explain)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(explain.Queries[0].JSON, &payload))
+	assert.Equal(t, true, payload["skipInterpolation"])
+	assert.Equal(t, "EXPLAIN "+firstPass, payload["rawSql"])
+
+	reached, err := v.interpolator.Interpolate(context.Background(), &sqlutil.Query{RawSQL: "EXPLAIN " + firstPass}, explain.Queries[0].JSON)
+	require.NoError(t, err)
+	assert.Equal(t, "EXPLAIN "+firstPass, reached)
+}
+
+func TestValidate_NonSelectStatementsAreSkipped(t *testing.T) {
+	for _, sql := range []string{"DESCRIBE TABLE t", "SHOW TABLES", "SELECT 1; SELECT 2"} {
+		t.Run(sql, func(t *testing.T) {
+			f := &validatorFixture{}
+
+			res, err := newTestValidator(f).Validate(context.Background(), validationQuery(sql))
+
+			require.NoError(t, err)
+			assert.Equal(t, models.ValidationResult{Skipped: true}, res)
+			assert.Empty(t, f.requests)
+		})
+	}
+}
+
+func TestValidate_UnparseableSQLStillGoesToExplain(t *testing.T) {
+	f := &validatorFixture{explainErr: errors.New("Code: 62. SYNTAX_ERROR")}
+
+	res, err := newTestValidator(f).Validate(context.Background(), validationQuery("SELECT FROM WHERE ("))
+
+	require.NoError(t, err)
+	assert.Equal(t, models.ValidationResult{Error: "Code: 62. SYNTAX_ERROR"}, res)
+	assert.Len(t, f.explainRequests(), 1)
+}
+
+func TestValidate_InterpolationErrorIsReportedWithoutExplain(t *testing.T) {
+	f := &validatorFixture{pk: "ts"}
+
+	res, err := newTestValidator(f).Validate(context.Background(), validationQuery("SELECT * FROM t WHERE $__timeFilter(ts"))
+
+	require.NoError(t, err)
+	assert.Equal(t, ErrParseMacroArgs.Error(), res.Error)
+	assert.Empty(t, f.explainRequests())
+}
+
+func TestValidate_ExplainTimeoutWarns(t *testing.T) {
+	f := &validatorFixture{pk: "ts", explainFn: func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}}
+	v := newTestValidator(f)
+	v.timeout = 10 * time.Millisecond
+
+	res, err := v.Validate(context.Background(), validationQuery("SELECT * FROM t WHERE ts > 1"))
+
+	require.NoError(t, err)
+	assert.Equal(t, models.ValidationResult{Warning: msgValidationTimedOut}, res)
+}
+
+func TestValidate_CancelledCallerReturnsError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	f := &validatorFixture{pk: "ts", explainFn: func(context.Context) error {
+		cancel()
+		return context.Canceled
+	}}
+
+	_, err := newTestValidator(f).Validate(ctx, validationQuery("SELECT * FROM t WHERE ts > 1"))
+
+	assert.ErrorIs(t, err, context.Canceled)
+}

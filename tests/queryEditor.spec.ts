@@ -70,9 +70,14 @@ test("should show beautified Hydrolix error in query row on syntax error", async
 
   // Grafana renders the beautified per-query error inside the QueryEditorRow,
   // not in the panel's "No data" status element (which fires when the backend
-  // returns an empty frame alongside the error).
+  // returns an empty frame alongside the error). The validation bar in the
+  // same row reports the same syntax error from its dry-run, so exclude it.
   const queryRow = panelEditPage.getQueryEditorRow("A");
-  const errorText = queryRow.getByText(/Syntax error/i);
+  const errorText = queryRow
+    .getByText(/Syntax error/i)
+    .and(
+      queryRow.locator(':not([data-testid="query-validation-bar"] *)')
+    );
   await expect(errorText).toBeVisible({ timeout: 30000 });
 
   // Beautified content from ErrorMessageBeautifier — the message extracted

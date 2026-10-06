@@ -42,6 +42,23 @@ func (s *stubInterpolator) Interpolate(_ context.Context, q *sqlutil.Query, raw 
 	return s.out, s.err
 }
 
+// stubValidator records the query the Validate handler builds and returns a
+// canned result.
+type stubValidator struct {
+	calls  int
+	gotCtx context.Context
+	got    models.HdxQuery
+	out    models.ValidationResult
+	err    error
+}
+
+func (s *stubValidator) Validate(ctx context.Context, q models.HdxQuery) (models.ValidationResult, error) {
+	s.calls++
+	s.gotCtx = ctx
+	s.got = q
+	return s.out, s.err
+}
+
 func postJSON(t *testing.T, handler http.HandlerFunc, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	raw, err := json.Marshal(body)
@@ -235,8 +252,8 @@ func TestRoutes_ExposesExpectedKeysAndWiresInterpolate(t *testing.T) {
 	stub := &stubInterpolator{out: "rewritten"}
 	ds := &sqlds.SQLDatasource{Interpolator: stub.Interpolate}
 
-	routes := Routes(ds)
-	assert.ElementsMatch(t, []string{"/ast", "/interpolate", "/macroCTE"}, keysOf(routes))
+	routes := Routes(ds, &stubValidator{})
+	assert.ElementsMatch(t, []string{"/ast", "/interpolate", "/macroCTE", "/validate"}, keysOf(routes))
 
 	// Hit /interpolate through the factory-returned closure and confirm the
 	// ds-bound interpolator is the one that runs.
@@ -258,7 +275,7 @@ func TestRoutes_ASTAndMacroCTEAreDirectHandlers(t *testing.T) {
 	// /ast and /macroCTE are package-level functions in the map, not closures.
 	// Driving them via the map exercises the wire-up the plugin's Routes call
 	// installs into sqlds.CustomRoutes.
-	routes := Routes(&sqlds.SQLDatasource{})
+	routes := Routes(&sqlds.SQLDatasource{}, &stubValidator{})
 
 	{
 		body, _ := json.Marshal(Request[ASTData]{Data: ASTData{Query: "SELECT 1 FROM t"}})
@@ -272,6 +289,82 @@ func TestRoutes_ASTAndMacroCTEAreDirectHandlers(t *testing.T) {
 		routes["/macroCTE"](rr, httptest.NewRequest(http.MethodPost, "/macroCTE", strings.NewReader(string(body))))
 		assert.Equal(t, http.StatusOK, rr.Code)
 	}
+}
+
+func TestValidate_HappyPathForwardsQueryAndReturnsResult(t *testing.T) {
+	stub := &stubValidator{out: models.ValidationResult{Warning: "unfiltered"}}
+	body := Request[QueryData]{Data: QueryData{
+		RawSql:        "SELECT 1 FROM t",
+		Round:         "1m",
+		Filters:       []models.AdHocFilter{{Key: "host", Operator: "=", Value: "prod-1"}},
+		Range:         Range{From: rangeFrom, To: rangeTo},
+		Interval:      "30s",
+		QuerySettings: []models.QuerySetting{{Setting: "max_threads", Value: "4"}},
+	}}
+	raw, err := json.Marshal(body)
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(raw)))
+	req.Header.Set("Authorization", "Bearer token")
+	rr := httptest.NewRecorder()
+	Validate(stub, rr, req)
+
+	resp := decodeResponse[models.ValidationResult](t, rr)
+	assert.False(t, resp.Error)
+	assert.Equal(t, stub.out, resp.Data)
+
+	require.Equal(t, 1, stub.calls)
+	assert.Equal(t, "SELECT 1 FROM t", stub.got.RawSQL)
+	assert.Equal(t, "1m", stub.got.Round)
+	assert.Equal(t, body.Data.Filters, stub.got.Filters)
+	assert.Equal(t, body.Data.QuerySettings, stub.got.QuerySettings)
+	assert.Equal(t, 30*time.Second, stub.got.Interval)
+	assert.Equal(t, rangeFrom, stub.got.TimeRange.From)
+	assert.Equal(t, rangeTo, stub.got.TimeRange.To)
+	assert.Equal(t, "Bearer token", stub.got.Headers.Get("Authorization"))
+}
+
+func TestValidate_BadIntervalIsReportedAsError(t *testing.T) {
+	stub := &stubValidator{}
+	rr := postJSON(t, func(w http.ResponseWriter, r *http.Request) { Validate(stub, w, r) },
+		Request[QueryData]{Data: QueryData{RawSql: "SELECT 1", Interval: "not-a-duration"}})
+
+	resp := decodeResponse[any](t, rr)
+	assert.True(t, resp.Error)
+	assert.Contains(t, resp.ErrorMessage, "not-a-duration")
+	assert.Zero(t, stub.calls)
+}
+
+func TestValidate_InvalidJSONIsReportedAsError(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("not-json"))
+	rr := httptest.NewRecorder()
+	Validate(&stubValidator{}, rr, req)
+
+	resp := decodeResponse[any](t, rr)
+	assert.True(t, resp.Error)
+	assert.NotEmpty(t, resp.ErrorMessage)
+}
+
+func TestValidate_ValidatorErrorIsReportedAsError(t *testing.T) {
+	stub := &stubValidator{err: context.Canceled}
+	rr := postJSON(t, func(w http.ResponseWriter, r *http.Request) { Validate(stub, w, r) },
+		Request[QueryData]{Data: QueryData{RawSql: "SELECT 1", Interval: "30s"}})
+
+	resp := decodeResponse[any](t, rr)
+	assert.True(t, resp.Error)
+	assert.Equal(t, context.Canceled.Error(), resp.ErrorMessage)
+}
+
+func TestRoutes_WiresValidate(t *testing.T) {
+	stub := &stubValidator{}
+	routes := Routes(&sqlds.SQLDatasource{}, stub)
+
+	body, _ := json.Marshal(Request[QueryData]{Data: QueryData{RawSql: "SELECT 1", Interval: "30s"}})
+	rr := httptest.NewRecorder()
+	routes["/validate"](rr, httptest.NewRequest(http.MethodPost, "/validate", strings.NewReader(string(body))))
+
+	assert.Equal(t, 1, stub.calls, "validate closure should dispatch to the injected Validator")
+	resp := decodeResponse[models.ValidationResult](t, rr)
+	assert.False(t, resp.Error)
 }
 
 func keysOf(m map[string]func(http.ResponseWriter, *http.Request)) []string {

@@ -36,6 +36,7 @@ import {
   TableIdentifier,
   InterpolationResponse,
   QuerySetting,
+  ValidationResult,
 } from "./types";
 import { from, Observable, switchMap } from "rxjs";
 import { map } from "rxjs/operators";
@@ -50,6 +51,7 @@ import {
   NULLABLE_TYPES,
   SYNTHETIC_EMPTY,
   SYNTHETIC_NULL,
+  VALIDATION_QUERY_SOURCE,
 } from "./constants";
 import { replace } from "./syntheticVariables";
 import { applyConditionalAll } from "./macros/macrosApplier";
@@ -163,25 +165,31 @@ export class DataSource extends DataSourceWithBackend<
     t: HdxQuery,
     request: DataQueryRequest<HdxQuery>
   ) {
-    const builder = this.querySettingsBuilder({
-      raw_query: () => t.rawSql,
-      query_source: () => request.app,
-      "panel.id": () =>
-        request.panelId !== undefined ? String(request.panelId) : "",
-      "panel.name": () => request.panelName ?? "",
-      app: () => request.app,
-      ref_id: () => t.refId,
-    });
-    builder.addSettings(this.instanceSettings.jsonData.querySettings ?? []);
-    builder.addSettings(t.querySettings ?? []);
-
     return {
       ...t,
-      querySettings: builder.build(),
+      querySettings: this.resolveQuerySettings(t, {
+        raw_query: () => t.rawSql,
+        query_source: () => request.app,
+        "panel.id": () =>
+          request.panelId !== undefined ? String(request.panelId) : "",
+        "panel.name": () => request.panelName ?? "",
+        app: () => request.app,
+        ref_id: () => t.refId,
+      }),
       meta: {
         timezone: this.resolveTimezone(request),
       },
     };
+  }
+
+  private resolveQuerySettings(
+    t: HdxQuery,
+    vars: { [v: string]: () => string }
+  ): QuerySetting[] {
+    const builder = this.querySettingsBuilder(vars);
+    builder.addSettings(this.instanceSettings.jsonData.querySettings ?? []);
+    builder.addSettings(t.querySettings ?? []);
+    return builder.build();
   }
 
   private querySettingsBuilder(vars: { [v: string]: () => string }) {
@@ -211,13 +219,7 @@ export class DataSource extends DataSourceWithBackend<
     interpolationId: string,
     context: InterpolationContext
   ): Promise<InterpolationResult> {
-    let macroContext: Context = {
-      templateVars: this.templateSrv.getVariables(),
-      query: query.rawSql,
-    };
-    let sql = applyConditionalAll(query.rawSql, macroContext);
-
-    sql = this.templateSrv.replace(sql);
+    const sql = this.prepareSql(query.rawSql);
 
     let result: InterpolationResult = {
       originalSql: query.rawSql,
@@ -225,7 +227,6 @@ export class DataSource extends DataSourceWithBackend<
       interpolatedSql: sql,
       finalSql: sql,
       hasError: false,
-      hasWarning: false,
     };
     try {
       let interpolationResponse = await this.getInterpolatedQuery(
@@ -256,6 +257,61 @@ export class DataSource extends DataSourceWithBackend<
       };
     }
     return result;
+  }
+
+  // Template-variable expansion that runs on the frontend before SQL is sent
+  // to a backend resource; macro expansion happens server-side.
+  private prepareSql(rawSql: string): string {
+    const macroContext: Context = {
+      templateVars: this.templateSrv.getVariables(),
+      query: rawSql,
+    };
+    return this.templateSrv.replace(applyConditionalAll(rawSql, macroContext));
+  }
+
+  /**
+   * Dry-runs the query through the /validate resource. Passing the same
+   * requestId on every call lets backendSrv cancel the previous in-flight
+   * validation; the cancelled call rejects, so callers must discard results
+   * they no longer want.
+   */
+  async validateQuery(
+    query: HdxQuery,
+    context: InterpolationContext,
+    requestId: string
+  ): Promise<ValidationResult> {
+    const response: {
+      error: boolean;
+      errorMessage?: string;
+      data?: ValidationResult;
+    } = await this.postResource(
+      "validate",
+      {
+        data: {
+          rawSql: this.prepareSql(query.rawSql),
+          range: context.range,
+          interval: context.interval,
+          filters: context.filters,
+          round: query.round,
+          querySettings: this.resolveQuerySettings(query, {
+            raw_query: () => query.rawSql,
+            query_source: () => VALIDATION_QUERY_SOURCE,
+            "panel.id": () => "",
+            "panel.name": () => "",
+            app: () => VALIDATION_QUERY_SOURCE,
+            ref_id: () => query.refId,
+          }),
+        },
+      },
+      { requestId }
+    );
+    if (response.error || !response.data) {
+      throw new Error(response.errorMessage || "Query validation failed");
+    }
+    const { error } = response.data;
+    return error
+      ? { ...response.data, error: this.beautifier.beautify(error) ?? error }
+      : response.data;
   }
 
   wrapSyntaxError(errorMessage: string, query: string) {

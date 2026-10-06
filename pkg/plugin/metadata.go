@@ -282,10 +282,16 @@ func describeSubquery(sq *parser.SelectQuery) (string, error) {
 // SetHTTPHeader so non-special headers (notably X-Grafana-Org-Id) survive
 // the SDK's getHTTPHeadersFromStringMap round-trip.
 func (p *MetadataProvider) executeQuery(ctx context.Context, headers http.Header, sql, queryID string) (*data.Frame, error) {
-	queryJSON, err := json.Marshal(map[string]any{
+	return p.executeQueryJSON(ctx, headers, map[string]any{
 		"rawSql": sql,
 		"format": 1,
-	})
+	}, queryID)
+}
+
+// executeQueryJSON is executeQuery for callers that need more than rawSql in
+// the query JSON — e.g. querySettings, which the driver's MutateQuery applies.
+func (p *MetadataProvider) executeQueryJSON(ctx context.Context, headers http.Header, payload map[string]any, queryID string) (*data.Frame, error) {
+	queryJSON, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
