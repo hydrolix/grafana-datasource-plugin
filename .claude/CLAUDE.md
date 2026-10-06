@@ -146,10 +146,12 @@ Host Go picks up the wrong toolchain. See `build-plugin`.
 - The query editor's validation bar calls the `/validate` backend resource
   (`pkg/plugin/validator.go`): it interpolates in-process (so request headers
   survive), dry-runs `EXPLAIN` through `MetadataProvider.executeQueryJSON`
-  (the sqlds path, with `skipInterpolation: true` in the query JSON so
-  `HdxInterpolator` doesn't expand the already-expanded SQL again), then warns when a single-table SELECT's leading
-  primary-key column is absent from WHERE/PREWHERE. Query problems go in the
-  response `data`; the envelope `error` is only for failing to validate.
+  (the sqlds path; `withoutInterpolation(ctx)` stops `HdxInterpolator` from
+  expanding the already-expanded SQL again), then warns when no filter —
+  its own, or every reader's for a CTE body or FROM subquery — references a
+  table's leading primary-key column. Query problems go in the response
+  `data`; the envelope `error` is only for failing to validate. The frontend
+  expands template variables, including the panel's `scopedVars`, first.
 - `pkg/plugin/driver.go:421-467` attributes queries by `panelId` /
   `panelName` with an `"unknown"` fallback. Annotation queries arrive
   without these — the fallback is expected.

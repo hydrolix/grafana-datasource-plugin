@@ -37,10 +37,9 @@ type HdxSqlDatasource struct {
 	// Settings is the parsed plugin settings (nil on parse failure).
 	Settings *models.PluginSettings
 	// instanceSettings holds the original DataSourceInstanceSettings used
-	// to synthesise schema-query requests in MetadataProvider.executeQuery.
+	// to synthesise requests in MetadataProvider.executeQueryJSON.
 	instanceSettings backend.DataSourceInstanceSettings
-	// Validator backs the /validate resource; it shares the interpolator and
-	// metadata caches with the query path.
+	// Validator shares the interpolator and metadata caches with queries.
 	Validator *QueryValidator
 }
 

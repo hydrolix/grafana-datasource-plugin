@@ -164,21 +164,34 @@ func TestInterpolatorImplementsSqldsInterface(t *testing.T) {
 	assert.Contains(t, out, "UPPER(name)")
 }
 
-func TestInterpolate_SkipInterpolationReturnsSQLVerbatim(t *testing.T) {
+func TestInterpolate_SkipsWhenContextSaysSo(t *testing.T) {
 	macros := map[string]MacroFunc{
 		"timeFilter": func(context.Context, *models.HdxQuery, []string, parser.Pos, *MetadataProvider) (string, error) {
-			t.Fatal("no macro may run when skipInterpolation is set")
+			t.Fatal("no macro may run when interpolation is skipped")
 			return "", nil
 		},
 	}
 	i := NewHdxInterpolator(NewMetadataProvider(nopMetadataDS{}), macros)
-	rawJSON, _ := json.Marshal(models.HdxQuery{SkipInterpolation: true, Round: "1m"})
+	rawJSON, _ := json.Marshal(models.HdxQuery{Round: "1m"})
 	sql := "EXPLAIN SELECT '$__timeFilter' AS a, '$$__timeFilter' AS b FROM t WHERE $__timeFilter(ts)"
 
-	out, err := i.Interpolate(context.Background(), &sqlutil.Query{RawSQL: sql}, rawJSON)
+	out, err := i.Interpolate(withoutInterpolation(context.Background()), &sqlutil.Query{RawSQL: sql}, rawJSON)
 
 	assert.NoError(t, err)
 	assert.Equal(t, sql, out)
+}
+
+func TestInterpolate_QueryJSONCannotSkip(t *testing.T) {
+	i := NewHdxInterpolator(NewMetadataProvider(nopMetadataDS{}), Macros)
+
+	out, err := i.Interpolate(
+		context.Background(),
+		&sqlutil.Query{RawSQL: "SELECT $__fromTime", TimeRange: backend.TimeRange{From: time.Unix(1000, 0), To: time.Unix(2000, 0)}},
+		json.RawMessage(`{"skipInterpolation": true}`),
+	)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "SELECT toDateTime(1000)", out)
 }
 
 func TestErrParseMacroArgs(t *testing.T) {

@@ -23,11 +23,7 @@ type HdxQuery struct {
 	Round         string         `json:"round,omitempty"`
 	QuerySettings []QuerySetting `json:"querySettings,omitempty"`
 	Filters       []AdHocFilter  `json:"filters,omitempty"`
-	// SkipInterpolation marks SQL the plugin has already interpolated itself
-	// (the query validator's EXPLAIN dry-run), so the interpolation sqlds
-	// applies to every query it executes must leave it untouched.
-	SkipInterpolation bool `json:"skipInterpolation,omitempty"`
-	Meta              struct {
+	Meta          struct {
 		TimeZone string `json:"timezone"`
 	} `json:"meta"`
 	TimeRange backend.TimeRange `json:"-"`
@@ -51,15 +47,14 @@ type AdHocFilter struct {
 // stays consistent. Ported from the fork's HDXQuery.WithSQL.
 func (q *HdxQuery) WithSQL(rawSQL string) *HdxQuery {
 	return &HdxQuery{
-		RawSQL:            rawSQL,
-		Format:            q.Format,
-		Round:             q.Round,
-		QuerySettings:     q.QuerySettings,
-		Filters:           q.Filters,
-		SkipInterpolation: q.SkipInterpolation,
-		Meta:              q.Meta,
-		TimeRange:         q.TimeRange,
-		Interval:          q.Interval,
-		Headers:           q.Headers,
+		RawSQL:        rawSQL,
+		Format:        q.Format,
+		Round:         q.Round,
+		QuerySettings: q.QuerySettings,
+		Filters:       q.Filters,
+		Meta:          q.Meta,
+		TimeRange:     q.TimeRange,
+		Interval:      q.Interval,
+		Headers:       q.Headers,
 	}
 }

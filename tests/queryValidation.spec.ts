@@ -3,11 +3,8 @@ import { test, expect, PanelEditPage } from "@grafana/plugin-e2e";
 import { closeWhatsNewDialog, ConfigPageSteps, queryTextSet, tableViewSet } from "./helpers";
 
 /**
- * Covers the query editor's validation bar: a debounced EXPLAIN dry-run of the
- * interpolated query plus the unfiltered-primary-key warning. `e2e.macros` is
- * keyed on `datetime`.
- *
- * Runs sequentially in order to avoid multiple datasource creation.
+ * The query editor's validation bar. `e2e.macros` is keyed on `datetime`.
+ * Serial so the datasource is created once.
  */
 test.describe.configure({ mode: "serial" });
 
@@ -42,6 +39,18 @@ test("reports a query filtered by $__timeFilter() as valid", async () => {
   await queryTextSet(
     "A",
     "SELECT * FROM e2e.macros WHERE $__timeFilter()",
+    panelEditPage
+  );
+
+  await expect(validationBar()).toContainText("Query is valid", {
+    timeout: 30000,
+  });
+});
+
+test("expands the panel's own variables like $__interval_ms before validating", async () => {
+  await queryTextSet(
+    "A",
+    "SELECT toStartOfInterval(datetime, INTERVAL $__interval_ms millisecond) AS t, count() FROM e2e.macros WHERE $__timeFilter() GROUP BY t",
     panelEditPage
   );
 

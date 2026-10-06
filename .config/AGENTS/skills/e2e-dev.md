@@ -291,9 +291,13 @@ panelEditPage.getByGrafanaSelector(
   selectors.components.Panels.Panel.PanelDataErrorMessage
 );
 
-// ✓ scope to the query row, find by text
+// ✓ scope to the query row, find by text — excluding the validation bar,
+//   which repeats the same error (see "Validation bar" below)
 const queryRow = panelEditPage.getQueryEditorRow("A");
-await expect(queryRow.getByText(/Syntax error/i)).toBeVisible({ timeout: 30000 });
+const errorText = queryRow
+  .getByText(/Syntax error/i)
+  .and(queryRow.locator(':not([data-testid="query-validation-bar"] *)'));
+await expect(errorText).toBeVisible({ timeout: 30000 });
 // And separately assert the raw transport noise doesn't leak through:
 await expect(queryRow).not.toContainText(/error querying the database|sendQuery|HTTP 400|DB::Exception/i);
 ```
@@ -339,8 +343,9 @@ was the old workaround — it is no longer load-bearing.
 `QueryEditor` always renders `data-testid="query-validation-bar"` under the
 SQL editor. ~1s after the last edit it POSTs the query to the `/validate`
 resource (EXPLAIN dry-run + unfiltered-primary-key check) and shows
-"Validating query...", "Query is valid", an error, or a warning. Range-only
-changes do not re-validate.
+"Validating query...", "Query is valid", an error, or a warning. It stays
+empty for blank SQL and for statements it does not dry-run (anything that is
+not a single SELECT). Range-only changes do not re-validate.
 
 The bar repeats ClickHouse errors that Grafana also renders in the same
 `QueryEditorRow` after a run, so a row-scoped `getByText(/Syntax error/i)`

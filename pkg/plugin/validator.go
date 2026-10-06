@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,16 +16,20 @@ import (
 	"github.com/hydrolix/plugin/pkg/plugin/models"
 )
 
-// validationTimeout bounds the EXPLAIN dry-run. Plain EXPLAIN reads no table
-// data, but ClickHouse evaluates scalar subqueries during analysis, so a
-// pathological query can still run long.
+// EXPLAIN reads no data, but ClickHouse evaluates scalar subqueries during
+// analysis, so a dry-run can still run long.
 const validationTimeout = 10 * time.Second
 
 const msgValidationTimedOut = "Validation timed out"
 
-// QueryValidator backs the /validate resource: it interpolates the editor's
-// query, dry-runs it with EXPLAIN through the regular sqlds query path, and
-// warns when a table's primary (timestamp) key is not filtered.
+const explainPrefix = "EXPLAIN "
+
+var (
+	syntaxErrorPosition = regexp.MustCompile(`failed at position (\d+)`)
+	firstLineColumn     = regexp.MustCompile(`\(line 1, col (\d+)\)`)
+)
+
+// QueryValidator backs the /validate resource.
 type QueryValidator struct {
 	interpolator     *HdxInterpolator
 	metadataProvider *MetadataProvider
@@ -38,95 +44,149 @@ func NewQueryValidator(interp *HdxInterpolator, md *MetadataProvider) *QueryVali
 	}
 }
 
-// Validate reports query problems in the result and returns an error only
-// when the caller's context is done (the client is gone, so the result would
-// be discarded anyway).
+// Validate reports query problems in the result; it returns an error only
+// when the caller is gone.
 func (v *QueryValidator) Validate(ctx context.Context, q models.HdxQuery) (models.ValidationResult, error) {
-	sql, err := v.interpolator.interpolate(ctx, &q)
+	validateCtx, cancel := context.WithTimeout(ctx, v.timeout)
+	defer cancel()
+
+	sql, err := v.interpolator.interpolate(validateCtx, &q)
 	if err != nil {
-		if ctx.Err() != nil {
-			return models.ValidationResult{}, ctx.Err()
-		}
-		return models.ValidationResult{Error: err.Error()}, nil
+		return failure(ctx, validateCtx, err)
 	}
 
-	// A parse failure still goes to EXPLAIN: ClickHouse is the authority on
-	// syntax and the plugin's parser has known gaps. Only the PK check, which
-	// needs the AST, is skipped.
 	stmts, parseErr := parser.NewParser(sql).ParseStmts()
 	var selectQuery *parser.SelectQuery
 	if parseErr == nil && len(stmts) == 1 {
 		selectQuery, _ = stmts[0].(*parser.SelectQuery)
 	}
-	if parseErr == nil && selectQuery == nil {
+	// Our parser has gaps, so unparseable but query-like SQL still goes to
+	// EXPLAIN; only the PK check needs the AST.
+	if selectQuery == nil && (parseErr == nil || !looksLikeQuery(sql)) {
 		return models.ValidationResult{Skipped: true}, nil
 	}
 
-	problem, err := v.explain(ctx, q, sql)
-	if err != nil {
-		return models.ValidationResult{}, err
-	}
-	if problem != nil {
-		return *problem, nil
+	if err := v.explain(validateCtx, q, sql); err != nil {
+		result, err := failure(ctx, validateCtx, err)
+		result.Error = positionsInUserSQL(result.Error)
+		return result, err
 	}
 
-	if selectQuery != nil {
-		if tables := unconstrainedPKTables(ctx, selectQuery, q.Headers, v.metadataProvider.GetPK); len(tables) > 0 {
-			return models.ValidationResult{Warning: pkWarning(tables)}, nil
-		}
+	if selectQuery == nil {
+		return models.ValidationResult{}, nil
+	}
+	if tables := unconstrainedPKTables(validateCtx, selectQuery, q.Headers, v.metadataProvider.GetPK); len(tables) > 0 {
+		return models.ValidationResult{Warning: pkWarning(tables)}, nil
 	}
 	return models.ValidationResult{}, nil
 }
 
-// explain dry-runs sql and returns the problem it found, or nil when the
-// cluster accepted the query.
-func (v *QueryValidator) explain(ctx context.Context, q models.HdxQuery, sql string) (*models.ValidationResult, error) {
-	explainCtx, cancel := context.WithTimeout(ctx, v.timeout)
-	defer cancel()
-
-	// sql is already interpolated; without skipInterpolation the sqlds path
-	// would run the macros again over the EXPLAIN text.
+func (v *QueryValidator) explain(ctx context.Context, q models.HdxQuery, sql string) error {
 	payload := map[string]any{
-		"rawSql":            "EXPLAIN " + sql,
-		"format":            1,
-		"querySettings":     q.QuerySettings,
-		"skipInterpolation": true,
+		"rawSql":        explainPrefix + sql,
+		"format":        1,
+		"querySettings": q.QuerySettings,
 	}
-	_, err := v.metadataProvider.executeQueryJSON(explainCtx, q.Headers, payload, "validate_query")
+	_, err := v.metadataProvider.executeQueryJSON(withoutInterpolation(ctx), q.Headers, payload, "validate_query")
+	return err
+}
+
+// failure treats any timeout as a warning: sqlds applies the datasource's own
+// query timeout, which may expire before ours.
+func failure(ctx, validateCtx context.Context, err error) (models.ValidationResult, error) {
 	switch {
-	case err == nil:
-		return nil, nil
 	case ctx.Err() != nil:
-		return nil, ctx.Err()
-	case errors.Is(explainCtx.Err(), context.DeadlineExceeded):
-		return &models.ValidationResult{Warning: msgValidationTimedOut}, nil
+		return models.ValidationResult{}, ctx.Err()
+	case validateCtx.Err() != nil || errors.Is(err, context.DeadlineExceeded):
+		return models.ValidationResult{Warning: msgValidationTimedOut}, nil
 	default:
-		return &models.ValidationResult{Error: err.Error()}, nil
+		return models.ValidationResult{Error: errorText(err)}, nil
 	}
+}
+
+// errorText keeps an empty error message from reading as "valid".
+func errorText(err error) string {
+	if msg := err.Error(); strings.TrimSpace(msg) != "" {
+		return msg
+	}
+	return fmt.Sprintf("query rejected (%T)", err)
+}
+
+// positionsInUserSQL removes the EXPLAIN prefix from syntax-error offsets;
+// only the absolute position and line-1 columns include it.
+func positionsInUserSQL(msg string) string {
+	msg = shiftOffset(msg, syntaxErrorPosition, "failed at position %d")
+	return shiftOffset(msg, firstLineColumn, "(line 1, col %d)")
+}
+
+func shiftOffset(msg string, re *regexp.Regexp, format string) string {
+	return re.ReplaceAllStringFunc(msg, func(match string) string {
+		n, err := strconv.Atoi(re.FindStringSubmatch(match)[1])
+		if err != nil || n <= len(explainPrefix) {
+			return match
+		}
+		return fmt.Sprintf(format, n-len(explainPrefix))
+	})
+}
+
+// looksLikeQuery reports whether sql starts like a SELECT, ignoring leading
+// comments.
+func looksLikeQuery(sql string) bool {
+	rest := strings.TrimSpace(sql)
+	for {
+		switch {
+		case strings.HasPrefix(rest, "--"), strings.HasPrefix(rest, "#"):
+			end := strings.IndexByte(rest, '\n')
+			if end < 0 {
+				return false
+			}
+			rest = strings.TrimSpace(rest[end+1:])
+		case strings.HasPrefix(rest, "/*"):
+			end := strings.Index(rest, "*/")
+			if end < 0 {
+				return false
+			}
+			rest = strings.TrimSpace(rest[end+2:])
+		default:
+			return strings.HasPrefix(rest, "(") || startsWithKeyword(rest, "SELECT") || startsWithKeyword(rest, "WITH")
+		}
+	}
+}
+
+func startsWithKeyword(s, keyword string) bool {
+	if len(s) < len(keyword) || !strings.EqualFold(s[:len(keyword)], keyword) {
+		return false
+	}
+	if len(s) == len(keyword) {
+		return true
+	}
+	return !isIdentifierByte(s[len(keyword)])
+}
+
+func isIdentifierByte(b byte) bool {
+	return b == '_' || ('a' <= b && b <= 'z') || ('A' <= b && b <= 'Z') || ('0' <= b && b <= '9')
 }
 
 func pkWarning(tables []string) string {
 	return fmt.Sprintf("%s not filtered in WHERE; add $__timeFilter() to limit the scan.", strings.Join(tables, ", "))
 }
 
-// pkResolver matches MetadataProvider.GetPK; injected so the PK check can be
-// tested without a schema query.
+// pkResolver matches MetadataProvider.GetPK, injectable for tests.
 type pkResolver func(ctx context.Context, headers http.Header, database, table string) (string, error)
 
-// unconstrainedPKTables returns a description of every single-table SELECT in
-// stmt whose leading primary-key column is not referenced by its WHERE or
-// PREWHERE. Lookup failures and tables without a usable key are skipped:
-// a metadata problem must never surface as a query warning.
+// unconstrainedPKTables lists tables whose leading primary-key column no
+// filter references. Lookup failures are skipped: a metadata problem must not
+// become a query warning.
 func unconstrainedPKTables(ctx context.Context, stmt *parser.SelectQuery, headers http.Header, resolve pkResolver) []string {
-	cteNames := map[string]bool{}
+	cteBodies := map[string]*parser.SelectQuery{}
 	var selects []*parser.SelectQuery
 	parser.Walk(stmt, func(node parser.Expr) bool {
 		switch n := node.(type) {
 		case *parser.CTEStmt:
 			// Subquery-form CTEs store the name in Expr and the body in Alias.
-			if _, ok := n.Alias.(*parser.SelectQuery); ok {
+			if body, ok := n.Alias.(*parser.SelectQuery); ok {
 				if name, ok := cte.IdentName(n.Expr); ok {
-					cteNames[name] = true
+					cteBodies[name] = body
 				}
 			}
 		case *parser.SelectQuery:
@@ -134,11 +194,16 @@ func unconstrainedPKTables(ctx context.Context, stmt *parser.SelectQuery, header
 		}
 		return true
 	})
+	readers := readersOf(selects, cteBodies)
 
+	seen := map[string]bool{}
 	var found []string
 	for _, sq := range selects {
+		if ctx.Err() != nil {
+			break
+		}
 		table := singleTable(sq)
-		if table == nil || (table.Database == nil && cteNames[table.Table.Name]) {
+		if table == nil || (table.Database == nil && cteBodies[table.Table.Name] != nil) {
 			continue
 		}
 		database := ""
@@ -147,27 +212,85 @@ func unconstrainedPKTables(ctx context.Context, stmt *parser.SelectQuery, header
 		}
 		primaryKey, err := resolve(ctx, headers, database, table.Table.Name)
 		if err != nil {
-			log.DefaultLogger.Debug("query validation: skipping PK check", "table", table.Table.Name, "err", err)
+			if !errors.Is(err, ErrPrimaryKeyNotFound) && ctx.Err() == nil {
+				log.DefaultLogger.Warn("query validation: skipping PK check", "database", database, "table", table.Table.Name, "err", err)
+			}
 			continue
 		}
 		column, ok := leadingPKColumn(primaryKey)
-		if !ok {
+		if !ok || filtersColumn(sq, readers, column, map[*parser.SelectQuery]bool{}) {
 			continue
 		}
-		if sq.Prewhere != nil && referencesColumn(sq.Prewhere.Expr, column) {
-			continue
+		description := fmt.Sprintf("Primary key `%s` of `%s`", column, parser.Format(table))
+		if !seen[description] {
+			seen[description] = true
+			found = append(found, description)
 		}
-		if sq.Where != nil && referencesColumn(sq.Where.Expr, column) {
-			continue
-		}
-		found = append(found, fmt.Sprintf("Primary key `%s` of `%s`", column, parser.Format(table)))
 	}
 	return found
 }
 
-// singleTable returns the table a SELECT reads when its FROM is exactly one
-// plain table reference; JOINs, subqueries and table functions yield nil.
-func singleTable(sq *parser.SelectQuery) *parser.TableIdentifier {
+// readersOf maps each FROM subquery or CTE body to the SELECTs reading it.
+// ClickHouse pushes a reader's WHERE down into its source.
+func readersOf(selects []*parser.SelectQuery, cteBodies map[string]*parser.SelectQuery) map[*parser.SelectQuery][]*parser.SelectQuery {
+	readers := map[*parser.SelectQuery][]*parser.SelectQuery{}
+	for _, sq := range selects {
+		var source *parser.SelectQuery
+		switch s := singleSource(sq).(type) {
+		case *parser.SubQuery:
+			source = s.Select
+		case *parser.SelectQuery:
+			source = s
+		case *parser.TableIdentifier:
+			if s.Database == nil && s.Table != nil {
+				source = cteBodies[s.Table.Name]
+			}
+		}
+		for _, branch := range setBranches(source) {
+			readers[branch] = append(readers[branch], sq)
+		}
+	}
+	return readers
+}
+
+// setBranches returns sq and its UNION / EXCEPT / INTERSECT branches.
+func setBranches(sq *parser.SelectQuery) []*parser.SelectQuery {
+	var branches []*parser.SelectQuery
+	for sq != nil {
+		branches = append(branches, sq)
+		switch {
+		case sq.Union != nil:
+			sq = sq.Union
+		case sq.Except != nil:
+			sq = sq.Except
+		default:
+			sq = sq.Intersect
+		}
+	}
+	return branches
+}
+
+// filtersColumn reports whether sq, or every reader of sq, filters on col.
+// visiting guards against CTEs that read each other.
+func filtersColumn(sq *parser.SelectQuery, readers map[*parser.SelectQuery][]*parser.SelectQuery, col string, visiting map[*parser.SelectQuery]bool) bool {
+	if (sq.Prewhere != nil && referencesColumn(sq.Prewhere.Expr, col)) || (sq.Where != nil && referencesColumn(sq.Where.Expr, col)) {
+		return true
+	}
+	if len(readers[sq]) == 0 || visiting[sq] {
+		return false
+	}
+	visiting[sq] = true
+	defer delete(visiting, sq)
+	for _, reader := range readers[sq] {
+		if !filtersColumn(reader, readers, col, visiting) {
+			return false
+		}
+	}
+	return true
+}
+
+// singleSource returns a SELECT's only FROM source, or nil for a JOIN.
+func singleSource(sq *parser.SelectQuery) parser.Expr {
 	if sq.From == nil {
 		return nil
 	}
@@ -179,17 +302,20 @@ func singleTable(sq *parser.SelectQuery) *parser.TableIdentifier {
 	if alias, ok := source.(*parser.AliasExpr); ok {
 		source = alias.Expr
 	}
-	ti, ok := source.(*parser.TableIdentifier)
+	return source
+}
+
+// singleTable returns a SELECT's only FROM source when it is a plain table.
+func singleTable(sq *parser.SelectQuery) *parser.TableIdentifier {
+	ti, ok := singleSource(sq).(*parser.TableIdentifier)
 	if !ok || ti.Table == nil {
 		return nil
 	}
 	return ti
 }
 
-// leadingPKColumn extracts the first column of a system.tables.primary_key
-// value. Only the leading key column lets the sparse primary index skip data,
-// so it is the one a filter must hit. Expression keys (toStartOfHour(ts))
-// have no single column to look for and report false.
+// leadingPKColumn returns the first column of a primary_key value: the one
+// the sparse index mainly skips data on. Expression keys report false.
 func leadingPKColumn(primaryKey string) (string, bool) {
 	if strings.TrimSpace(primaryKey) == "" {
 		return "", false
@@ -205,11 +331,8 @@ func leadingPKColumn(primaryKey string) (string, bool) {
 	return cte.IdentName(sel.SelectItems[0].Expr)
 }
 
-// referencesColumn reports whether expr mentions col anywhere, bare or
-// qualified (`t.col` parses to a Path whose fields are visited as Idents).
-// ClickHouse identifiers are case-sensitive, so the match is exact. Mentions
-// inside a nested subquery count too: that can only suppress a warning, never
-// raise a false one, which is the right side to err on.
+// referencesColumn matches col exactly (ClickHouse is case-sensitive), bare or
+// qualified. Mentions in nested subqueries count; that can only hide a warning.
 func referencesColumn(expr parser.Expr, col string) bool {
 	found := false
 	parser.Walk(expr, func(node parser.Expr) bool {

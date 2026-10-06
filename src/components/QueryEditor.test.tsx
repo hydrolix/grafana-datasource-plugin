@@ -37,12 +37,8 @@
  *   - Showing the interpolated query calls interpolateQuery with context built
  *     from props (range, derived interval, panel-request filters) and issues no
  *     preparatory panel run.
- *   - Validation (fake timers): the bar is always rendered; edits go to
- *     "validating" immediately and call validateQuery once after the
- *     debounce with a stable requestId; results map to valid / error /
- *     warning; a rejected call degrades to a warning; empty SQL stays idle;
- *     a response superseded by a newer edit is dropped; a range change alone
- *     does not re-validate.
+ *   - Validation (fake timers): debounce, result mapping, failures,
+ *     cancellation, stale responses, and what triggers re-validation.
  *
  * Not covered here:
  *   - The Query Type Select dropdown change (react-select portal — better
@@ -104,6 +100,11 @@ jest.mock("./InterpolatedQuery", () => ({
   ),
 }));
 
+jest.mock("@grafana/runtime", () => ({
+  ...jest.requireActual("@grafana/runtime"),
+  logError: jest.fn(),
+}));
+
 jest.mock("./ValidationBar", () => ({
   ...jest.requireActual("./ValidationBar"),
   ValidationBar: ({ state }: any) => (
@@ -139,6 +140,7 @@ jest.mock("@grafana/assistant", () => {
 
 // Imports must come after jest.mock calls so the mocks are applied.
 import { useAssistant, useProvidePageContext } from "@grafana/assistant";
+import { logError } from "@grafana/runtime";
 import { QueryEditor, Props } from "./QueryEditor";
 import { HdxQuery, QueryType } from "../types";
 import { deriveInterpolationInterval } from "../editor/timeRangeUtils";
@@ -422,6 +424,7 @@ describe("QueryEditor", () => {
 describe("QueryEditor validation", () => {
   beforeEach(() => {
     jest.useFakeTimers();
+    jest.mocked(logError).mockClear();
   });
   afterEach(() => {
     jest.useRealTimers();
@@ -472,17 +475,48 @@ describe("QueryEditor validation", () => {
     expect(bar()).toHaveAttribute("data-message", message);
   });
 
-  it("degrades a failed validation call to a warning", async () => {
+  it("turns a failed validation call into a warning that names the reason", async () => {
     const props = makeProps({ format: QueryType.Table });
-    (props.datasource as any).validateQuery.mockRejectedValue(
-      new Error("network")
-    );
+    const failure = new Error("An error occurred within the plugin");
+    (props.datasource as any).validateQuery.mockRejectedValue(failure);
     render(<QueryEditor {...props} />);
 
     await flushDebounce();
 
     expect(bar()).toHaveAttribute("data-status", "warning");
-    expect(bar()).toHaveAttribute("data-message", "Could not validate query");
+    expect(bar()).toHaveAttribute(
+      "data-message",
+      "Could not validate query: An error occurred within the plugin"
+    );
+    expect(logError).toHaveBeenCalledWith(
+      failure,
+      expect.objectContaining({ source: "query-validation" })
+    );
+  });
+
+  it("ignores a cancelled validation", async () => {
+    const props = makeProps({ format: QueryType.Table });
+    (props.datasource as any).validateQuery.mockResolvedValue(undefined);
+    render(<QueryEditor {...props} />);
+
+    await flushDebounce();
+
+    expect(bar()).toHaveAttribute("data-status", "validating");
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it("passes the panel's scoped variables to validation", async () => {
+    const scopedVars = { __interval_ms: { text: "60000", value: "60000" } };
+    const props = makeProps(
+      { format: QueryType.Table },
+      { data: { request: { scopedVars } } as any }
+    );
+    render(<QueryEditor {...props} />);
+
+    await flushDebounce();
+
+    const context = (props.datasource as any).validateQuery.mock.calls[0][1];
+    expect(context.scopedVars).toBe(scopedVars);
   });
 
   it("stays idle and does not validate empty SQL", async () => {
@@ -495,7 +529,7 @@ describe("QueryEditor validation", () => {
     expect((props.datasource as any).validateQuery).not.toHaveBeenCalled();
   });
 
-  it("drops a response superseded by a newer edit and reuses the requestId", async () => {
+  it("reuses the requestId and shows validating until the newer edit is checked", async () => {
     const props = makeProps({ format: QueryType.Table });
     const validateQuery = (props.datasource as any).validateQuery;
     let resolveFirst: (v: object) => void = () => {};
@@ -519,6 +553,61 @@ describe("QueryEditor validation", () => {
     expect(validateQuery.mock.calls[1][0].rawSql).toBe("SELECT 2");
     expect(validateQuery.mock.calls[1][2]).toBe(validateQuery.mock.calls[0][2]);
     expect(bar()).toHaveAttribute("data-status", "valid");
+  });
+
+  it("keeps the newer result when an older response arrives late", async () => {
+    const props = makeProps({ format: QueryType.Table });
+    const validateQuery = (props.datasource as any).validateQuery;
+    let resolveFirst: (v: object) => void = () => {};
+    validateQuery
+      .mockImplementationOnce(
+        () => new Promise((resolve) => (resolveFirst = resolve))
+      )
+      .mockResolvedValueOnce({});
+    const { rerender } = render(<QueryEditor {...props} />);
+    await flushDebounce();
+    rerender(
+      <QueryEditor {...props} query={{ ...props.query, rawSql: "SELECT 2" }} />
+    );
+    await flushDebounce();
+    expect(bar()).toHaveAttribute("data-status", "valid");
+
+    await act(async () => resolveFirst({ error: "stale" }));
+
+    expect(bar()).toHaveAttribute("data-status", "valid");
+  });
+
+  it("re-validates when the query settings change", async () => {
+    const props = makeProps({ format: QueryType.Table });
+    const { rerender } = render(<QueryEditor {...props} />);
+    await flushDebounce();
+
+    rerender(
+      <QueryEditor
+        {...props}
+        query={{
+          ...props.query,
+          querySettings: [{ setting: "max_threads", value: "4" }],
+        }}
+      />
+    );
+    await flushDebounce();
+
+    expect((props.datasource as any).validateQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-validates when a dashboard variable changes", async () => {
+    const props = makeProps({ format: QueryType.Table });
+    const variables = [{ current: { value: "a" } }];
+    (props.datasource as any).templateSrv.getVariables = () => variables;
+    const { rerender } = render(<QueryEditor {...props} />);
+    await flushDebounce();
+
+    variables[0].current.value = "b";
+    rerender(<QueryEditor {...props} />);
+    await flushDebounce();
+
+    expect((props.datasource as any).validateQuery).toHaveBeenCalledTimes(2);
   });
 
   it("does not re-validate when only the time range changes", async () => {

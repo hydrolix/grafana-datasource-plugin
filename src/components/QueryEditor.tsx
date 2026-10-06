@@ -36,7 +36,7 @@ import { InterpolatedQuery } from "./InterpolatedQuery";
 import { toValidationState, ValidationBar } from "./ValidationBar";
 import { useDebounce } from "react-use";
 import { v4 } from "uuid";
-import { EmptyError } from "rxjs";
+import { logError } from "@grafana/runtime";
 import {
   SHOW_INTERPOLATED_QUERY_ERRORS,
   VALIDATION_DEBOUNCE_MS,
@@ -156,12 +156,13 @@ export function QueryEditor(props: Props) {
       range: props.range,
       // Not `undefined`: JSON.stringify drops the key, the backend decodes
       // Interval as "" and time.ParseDuration("") fails the whole interpolate
-      // request before any macro runs. The interval macros floor at 1, so a
-      // zero interval degrades cleanly instead.
+      // or validate request before any macro runs. The interval macros floor
+      // at 1, so a zero interval degrades cleanly instead.
       interval: props.range
         ? deriveInterpolationInterval(props.range, panelRequest?.maxDataPoints)
         : "0ms",
       filters: panelRequest?.filters,
+      scopedVars: panelRequest?.scopedVars,
     }),
     [props.range, panelRequest]
   );
@@ -183,16 +184,13 @@ export function QueryEditor(props: Props) {
   // eslint-disable-next-line eqeqeq
   let dirty = interpolationResult?.interpolationId != interpolationId;
 
-  // Range and interval are left out of the key on purpose: they change on
-  // every refresh of a relative time range but cannot change whether the
-  // query is valid, and each validation costs a cluster round-trip. Ad hoc
-  // filters, which can, are already part of variablesString.
+  // Range and interval are left out: they change on every refresh but rarely
+  // affect validity, and each validation hits the cluster.
   const validationKey = `${interpolationIdString}|${JSON.stringify(
     props.query.querySettings ?? []
   )}`;
   const hasSql = !!props.query.rawSql?.trim();
-  // Each result is stored with the key it was computed for, so a result for
-  // anything but the current key reads as "validating" without an effect.
+  // A result stored for another key renders as "validating".
   const [validation, setValidation] = useState<{
     key: string;
     state: ValidationState;
@@ -201,8 +199,7 @@ export function QueryEditor(props: Props) {
   useEffect(() => {
     latestValidationKey.current = validationKey;
   }, [validationKey]);
-  // A stable requestId makes backendSrv cancel the superseded in-flight
-  // validation.
+  // A stable requestId lets backendSrv cancel superseded validations.
   const validationRequestId = useRef(v4());
   useDebounce(
     async () => {
@@ -212,22 +209,28 @@ export function QueryEditor(props: Props) {
       const key = validationKey;
       let state: ValidationState;
       try {
-        state = toValidationState(
-          await props.datasource.validateQuery(
-            props.query,
-            interpolationContext,
-            validationRequestId.current
-          )
+        const result = await props.datasource.validateQuery(
+          props.query,
+          interpolationContext,
+          validationRequestId.current
         );
-      } catch (e) {
-        // A request superseded by a newer one with the same requestId is
-        // cancelled; the newer request reports for the same key.
-        if (e instanceof EmptyError) {
+        // Cancelled by a newer validation, which will report instead.
+        if (!result) {
           return;
         }
-        state = { status: "warning", message: labels.validation.unavailable };
+        state = toValidationState(result);
+      } catch (e) {
+        const error = e instanceof Error ? e : new Error(String(e));
+        logError(error, {
+          refId: props.query.refId,
+          source: "query-validation",
+        });
+        state = {
+          status: "warning",
+          message: `${labels.validation.unavailable}: ${error.message}`,
+        };
       }
-      // A late response for an older key must not replace a newer result.
+      // A late response must not replace a newer result.
       if (key === latestValidationKey.current) {
         setValidation({ key, state });
       }

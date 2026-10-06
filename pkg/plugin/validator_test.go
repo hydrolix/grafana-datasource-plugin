@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
 	"github.com/hydrolix/plugin/pkg/plugin/models"
 	"github.com/stretchr/testify/assert"
@@ -55,6 +55,7 @@ func TestUnconstrainedPKTables(t *testing.T) {
 		"t":         "ts",
 		"u":         "ts",
 		"db.t":      "ts",
+		"db.x":      "ts",
 		"composite": "ts, id",
 		"expr":      "toStartOfHour(ts)",
 		"nokey":     "",
@@ -85,7 +86,17 @@ func TestUnconstrainedPKTables(t *testing.T) {
 		{"match is case-sensitive", "SELECT * FROM t WHERE TS > 1", []string{"Primary key `ts` of `t`"}},
 		{"database-qualified table", "SELECT * FROM db.t", []string{"Primary key `ts` of `db.t`"}},
 		{"CTE name is not a table", "WITH x AS (SELECT * FROM t WHERE ts > 1) SELECT * FROM x", nil},
-		{"unfiltered CTE body", "WITH x AS (SELECT * FROM t) SELECT * FROM x WHERE ts > 1", []string{"Primary key `ts` of `t`"}},
+		{"CTE body filtered by its reader", "WITH x AS (SELECT * FROM t) SELECT * FROM x WHERE ts > 1", nil},
+		{"CTE body read without a key filter", "WITH x AS (SELECT * FROM t) SELECT * FROM x WHERE other = 1", []string{"Primary key `ts` of `t`"}},
+		{"CTE read twice, once unfiltered", "WITH x AS (SELECT * FROM t) SELECT * FROM x WHERE ts > 1 UNION ALL SELECT * FROM x", []string{"Primary key `ts` of `t`"}},
+		{"database-qualified name is a table, not the CTE", "WITH x AS (SELECT * FROM t WHERE ts > 1) SELECT * FROM db.x", []string{"Primary key `ts` of `db.x`"}},
+		{"CTEs reading each other terminate", "WITH x AS (SELECT * FROM y), y AS (SELECT * FROM x) SELECT * FROM x", nil},
+		{"FROM subquery filtered by its reader", "SELECT * FROM (SELECT * FROM t) WHERE ts > 1", nil},
+		{"nested subqueries filtered at the top", "SELECT * FROM (SELECT * FROM (SELECT * FROM t)) WHERE ts > 1", nil},
+		{"UNION inside a subquery filtered by its reader", "SELECT * FROM (SELECT * FROM t UNION ALL SELECT * FROM u) WHERE ts > 1", nil},
+		{"FROM subquery read without a key filter", "SELECT * FROM (SELECT * FROM t) WHERE other = 1", []string{"Primary key `ts` of `t`"}},
+		{"same table in two branches is reported once", "SELECT * FROM t UNION ALL SELECT * FROM t", []string{"Primary key `ts` of `t`"}},
+		{"string literal naming the column does not count", "SELECT * FROM t WHERE other = 'ts'", []string{"Primary key `ts` of `t`"}},
 		{"each UNION branch is checked", "SELECT * FROM t WHERE ts > 1 UNION ALL SELECT * FROM u", []string{"Primary key `ts` of `u`"}},
 		{"subquery in FROM", "SELECT * FROM (SELECT * FROM t WHERE ts > 1)", nil},
 		{"JOIN is skipped", "SELECT * FROM t JOIN u ON t.id = u.id", nil},
@@ -111,14 +122,72 @@ func TestUnconstrainedPKTables_ResolverErrorIsSkipped(t *testing.T) {
 	assert.Empty(t, got)
 }
 
-// validatorFixture fakes the two schema-query shapes the validator issues —
-// the primary-key lookup and the EXPLAIN dry-run — and records every request.
+func TestUnconstrainedPKTables_StopsWhenContextIsDone(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	calls := 0
+	resolve := func(context.Context, http.Header, string, string) (string, error) {
+		calls++
+		cancel()
+		return "", context.Canceled
+	}
+	got := unconstrainedPKTables(ctx, parseSelect(t, "SELECT * FROM t UNION ALL SELECT * FROM u"), nil, resolve)
+	assert.Empty(t, got)
+	assert.Equal(t, 1, calls)
+}
+
+func TestLooksLikeQuery(t *testing.T) {
+	tests := []struct {
+		sql  string
+		want bool
+	}{
+		{"SELECT FROM WHERE (", true},
+		{"  select 1", true},
+		{"WITH x AS (SELECT 1) SELECT * FROM x", true},
+		{"(SELECT 1) UNION ALL (SELECT 2)", true},
+		{"-- note\nSELECT 1", true},
+		{"# note\n/* block */ SELECT 1", true},
+		{"EXISTS TABLE t", false},
+		{"SELECTED", false},
+		{"WITHOUT", false},
+		{"-- only a comment", false},
+		{"/* unterminated SELECT", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.sql, func(t *testing.T) {
+			assert.Equal(t, tt.want, looksLikeQuery(tt.sql))
+		})
+	}
+}
+
+func TestPositionsInUserSQL(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  string
+		want string
+	}{
+		{"single-line position", "Syntax error: failed at position 42 (ORDER): ORDER BY t.", "Syntax error: failed at position 34 (ORDER): ORDER BY t."},
+		{"first-line column", "failed at position 20 (FROM) (line 1, col 20): FROM", "failed at position 12 (FROM) (line 1, col 12): FROM"},
+		{"later lines keep their column", "failed at position 42 (ORDER) (line 2, col 25): ORDER", "failed at position 34 (ORDER) (line 2, col 25): ORDER"},
+		{"offset inside the prefix is left alone", "failed at position 3 (EXPLAIN)", "failed at position 3 (EXPLAIN)"},
+		{"other errors are untouched", "Code: 47. Unknown identifier `position`", "Code: 47. Unknown identifier `position`"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, positionsInUserSQL(tt.msg))
+		})
+	}
+}
+
+// validatorFixture fakes the PK lookup and the EXPLAIN, recording requests.
 type validatorFixture struct {
-	mu         sync.Mutex
-	requests   []*backend.QueryDataRequest
-	pk         string
-	explainErr error
-	explainFn  func(ctx context.Context) error
+	mu             sync.Mutex
+	requests       []*backend.QueryDataRequest
+	pk             string
+	pkFn           func(ctx context.Context) error
+	explainErr     error
+	explainFn      func(ctx context.Context) error
+	explainSkipped bool
 }
 
 func (f *validatorFixture) queryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
@@ -129,8 +198,16 @@ func (f *validatorFixture) queryData(ctx context.Context, req *backend.QueryData
 	q := req.Queries[0]
 	switch q.RefID {
 	case "pk_query":
+		if f.pkFn != nil {
+			if err := f.pkFn(ctx); err != nil {
+				return &backend.QueryDataResponse{Responses: map[string]backend.DataResponse{q.RefID: {Error: err}}}, nil
+			}
+		}
 		return respondWith(frameOf([]string{f.pk}), q.RefID), nil
 	case "validate_query":
+		f.mu.Lock()
+		f.explainSkipped = interpolationSkipped(ctx)
+		f.mu.Unlock()
 		err := f.explainErr
 		if f.explainFn != nil {
 			err = f.explainFn(ctx)
@@ -204,14 +281,18 @@ func TestValidate_UnfilteredPrimaryKeyWarns(t *testing.T) {
 
 func TestValidate_TimeFilterMacroSatisfiesPKCheck(t *testing.T) {
 	f := &validatorFixture{pk: "ts"}
+	q := validationQuery("SELECT * FROM t WHERE $__timeFilter()")
+	q.Headers = http.Header{"Authorization": []string{"Bearer user-token"}}
 
-	res, err := newTestValidator(f).Validate(context.Background(), validationQuery("SELECT * FROM t WHERE $__timeFilter()"))
+	res, err := newTestValidator(f).Validate(context.Background(), q)
 
 	require.NoError(t, err)
 	assert.Equal(t, models.ValidationResult{}, res)
 	explains := f.explainRequests()
 	require.Len(t, explains, 1)
 	assert.Equal(t, "EXPLAIN SELECT * FROM t WHERE ts >= toDateTime(1000) AND ts <= toDateTime(2000)", explains[0]["rawSql"])
+	require.Equal(t, "pk_query", f.requests[0].Queries[0].RefID, "the macro's own primary-key lookup runs first")
+	assert.Equal(t, "Bearer user-token", f.requests[0].GetHTTPHeader("Authorization"), "the macro lookup carries the user's headers")
 }
 
 func TestValidate_ExplainErrorIsReportedWithoutPKCheck(t *testing.T) {
@@ -226,41 +307,34 @@ func TestValidate_ExplainErrorIsReportedWithoutPKCheck(t *testing.T) {
 	}
 }
 
-// The EXPLAIN goes through sqlds, which interpolates every query it runs. The
-// dry-run must reach the driver as the already-interpolated SQL, even when
-// macro text survives the first pass inside string literals.
+// sqlds interpolates every query, so the EXPLAIN's context must say to skip.
 func TestValidate_ExplainSkipsSecondInterpolation(t *testing.T) {
 	f := &validatorFixture{pk: "ts"}
-	v := newTestValidator(f)
 	sql := "SELECT '$__fromTime' AS a, '$$__timeFilter' AS b FROM t WHERE $__timeFilter(ts)"
 	firstPass := "SELECT '$__fromTime' AS a, '$$__timeFilter' AS b FROM t WHERE ts >= toDateTime(1000) AND ts <= toDateTime(2000)"
 
-	res, err := v.Validate(context.Background(), validationQuery(sql))
+	res, err := newTestValidator(f).Validate(context.Background(), validationQuery(sql))
 	require.NoError(t, err)
 	assert.Equal(t, models.ValidationResult{}, res)
 
-	f.mu.Lock()
-	var explain *backend.QueryDataRequest
-	for _, r := range f.requests {
-		if r.Queries[0].RefID == "validate_query" {
-			explain = r
-		}
-	}
-	f.mu.Unlock()
-	require.NotNil(t, explain)
-
-	var payload map[string]any
-	require.NoError(t, json.Unmarshal(explain.Queries[0].JSON, &payload))
-	assert.Equal(t, true, payload["skipInterpolation"])
-	assert.Equal(t, "EXPLAIN "+firstPass, payload["rawSql"])
-
-	reached, err := v.interpolator.Interpolate(context.Background(), &sqlutil.Query{RawSQL: "EXPLAIN " + firstPass}, explain.Queries[0].JSON)
-	require.NoError(t, err)
-	assert.Equal(t, "EXPLAIN "+firstPass, reached)
+	explains := f.explainRequests()
+	require.Len(t, explains, 1)
+	assert.Equal(t, "EXPLAIN "+firstPass, explains[0]["rawSql"])
+	assert.NotContains(t, explains[0], "skipInterpolation")
+	assert.True(t, f.explainSkipped, "the EXPLAIN context must tell the interpolator to skip")
 }
 
 func TestValidate_NonSelectStatementsAreSkipped(t *testing.T) {
-	for _, sql := range []string{"DESCRIBE TABLE t", "SHOW TABLES", "SELECT 1; SELECT 2"} {
+	for _, sql := range []string{
+		"DESCRIBE TABLE t",
+		"SHOW TABLES",
+		"SELECT 1; SELECT 2",
+		"INSERT INTO t SELECT * FROM u",
+		"DROP TABLE t",
+		"ALTER TABLE t DELETE WHERE 1",
+		"EXPLAIN SYNTAX SELECT 1",
+		"EXISTS TABLE t",
+	} {
 		t.Run(sql, func(t *testing.T) {
 			f := &validatorFixture{}
 
@@ -273,14 +347,36 @@ func TestValidate_NonSelectStatementsAreSkipped(t *testing.T) {
 	}
 }
 
-func TestValidate_UnparseableSQLStillGoesToExplain(t *testing.T) {
-	f := &validatorFixture{explainErr: errors.New("Code: 62. SYNTAX_ERROR")}
+func TestValidate_UnparseableQueryStillGoesToExplain(t *testing.T) {
+	for _, sql := range []string{"SELECT FROM WHERE (", "-- note\nSELECT FROM WHERE ("} {
+		t.Run(sql, func(t *testing.T) {
+			f := &validatorFixture{explainErr: errors.New("Code: 62. SYNTAX_ERROR")}
 
-	res, err := newTestValidator(f).Validate(context.Background(), validationQuery("SELECT FROM WHERE ("))
+			res, err := newTestValidator(f).Validate(context.Background(), validationQuery(sql))
+
+			require.NoError(t, err)
+			assert.Equal(t, models.ValidationResult{Error: "Code: 62. SYNTAX_ERROR"}, res)
+			assert.Len(t, f.explainRequests(), 1)
+		})
+	}
+}
+
+func TestValidate_SyntaxErrorPositionsPointIntoTheQuery(t *testing.T) {
+	f := &validatorFixture{explainErr: errors.New("Code: 62. DB::Exception: Syntax error: failed at position 42 (ORDER): ORDER BY ts.")}
+
+	res, err := newTestValidator(f).Validate(context.Background(), validationQuery("SELECT * FROM t LIMIT 1 ORDER BY ts"))
 
 	require.NoError(t, err)
-	assert.Equal(t, models.ValidationResult{Error: "Code: 62. SYNTAX_ERROR"}, res)
-	assert.Len(t, f.explainRequests(), 1)
+	assert.Equal(t, "Code: 62. DB::Exception: Syntax error: failed at position 34 (ORDER): ORDER BY ts.", res.Error)
+}
+
+func TestValidate_EmptyErrorMessageIsNotValid(t *testing.T) {
+	f := &validatorFixture{explainErr: errors.New("")}
+
+	res, err := newTestValidator(f).Validate(context.Background(), validationQuery("SELECT * FROM t WHERE ts > 1"))
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, res.Error)
 }
 
 func TestValidate_InterpolationErrorIsReportedWithoutExplain(t *testing.T) {
@@ -305,6 +401,31 @@ func TestValidate_ExplainTimeoutWarns(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, models.ValidationResult{Warning: msgValidationTimedOut}, res)
+}
+
+func TestValidate_DatasourceQueryTimeoutWarns(t *testing.T) {
+	// sqlds's own query timeout can expire before ours.
+	f := &validatorFixture{pk: "ts", explainErr: fmt.Errorf("error querying the database: %w", context.DeadlineExceeded)}
+
+	res, err := newTestValidator(f).Validate(context.Background(), validationQuery("SELECT * FROM t WHERE ts > 1"))
+
+	require.NoError(t, err)
+	assert.Equal(t, models.ValidationResult{Warning: msgValidationTimedOut}, res)
+}
+
+func TestValidate_MacroLookupTimeoutWarns(t *testing.T) {
+	f := &validatorFixture{pkFn: func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}}
+	v := newTestValidator(f)
+	v.timeout = 10 * time.Millisecond
+
+	res, err := v.Validate(context.Background(), validationQuery("SELECT * FROM t WHERE $__timeFilter()"))
+
+	require.NoError(t, err)
+	assert.Equal(t, models.ValidationResult{Warning: msgValidationTimedOut}, res)
+	assert.Empty(t, f.explainRequests())
 }
 
 func TestValidate_CancelledCallerReturnsError(t *testing.T) {

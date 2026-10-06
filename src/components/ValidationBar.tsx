@@ -24,8 +24,7 @@ export function ValidationBar({ state }: Props) {
   const theme = useTheme2();
   const styles = useMemo(() => {
     return {
-      // The container renders in every state, including idle, so the editor
-      // layout does not jump as validation results come and go.
+      // Rendered even when idle, so the layout doesn't jump.
       container: css`
         border: 1px solid ${theme.colors.border.medium};
         border-top: none;

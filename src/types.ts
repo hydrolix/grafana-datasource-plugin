@@ -1,6 +1,7 @@
 import {
   AdHocVariableFilter,
   DataSourceJsonData,
+  ScopedVars,
   TimeRange,
   TypedVariableModel,
 } from "@grafana/data";
@@ -122,6 +123,7 @@ export interface InterpolationContext {
   range?: TimeRange;
   interval?: string;
   filters?: AdHocVariableFilter[];
+  scopedVars?: ScopedVars;
 }
 
 export interface InterpolationResult {
@@ -133,11 +135,11 @@ export interface InterpolationResult {
   error?: string;
 }
 
-/** Body of the /validate resource response. */
+/** The `data` of a /validate resource response. */
 export interface ValidationResult {
   error?: string;
   warning?: string;
-  /** The statement is not dry-run (DESCRIBE, SHOW, multi-statement, …). */
+  /** Not a single SELECT, so not dry-run. */
   skipped?: boolean;
 }
 

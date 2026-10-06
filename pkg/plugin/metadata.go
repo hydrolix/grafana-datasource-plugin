@@ -277,10 +277,7 @@ func describeSubquery(sq *parser.SelectQuery) (string, error) {
 	}
 }
 
-// executeQuery synthesises a *backend.QueryDataRequest carrying the schema
-// SQL and routes it through ds.QueryData. Headers are propagated via
-// SetHTTPHeader so non-special headers (notably X-Grafana-Org-Id) survive
-// the SDK's getHTTPHeadersFromStringMap round-trip.
+// executeQuery runs schema SQL through executeQueryJSON.
 func (p *MetadataProvider) executeQuery(ctx context.Context, headers http.Header, sql, queryID string) (*data.Frame, error) {
 	return p.executeQueryJSON(ctx, headers, map[string]any{
 		"rawSql": sql,
@@ -288,8 +285,9 @@ func (p *MetadataProvider) executeQuery(ctx context.Context, headers http.Header
 	}, queryID)
 }
 
-// executeQueryJSON is executeQuery for callers that need more than rawSql in
-// the query JSON — e.g. querySettings, which the driver's MutateQuery applies.
+// executeQueryJSON routes payload through ds.QueryData as the query JSON.
+// Headers are propagated via SetHTTPHeader so non-special headers (notably
+// X-Grafana-Org-Id) survive the SDK's getHTTPHeadersFromStringMap round-trip.
 func (p *MetadataProvider) executeQueryJSON(ctx context.Context, headers http.Header, payload map[string]any, queryID string) (*data.Frame, error) {
 	queryJSON, err := json.Marshal(payload)
 	if err != nil {

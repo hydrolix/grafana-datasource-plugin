@@ -1659,8 +1659,70 @@ describe("HdxDataSource", () => {
             ],
           },
         },
-        { requestId: "req-1" }
+        { requestId: "req-1", showErrorAlert: false }
       );
+    });
+
+    it("expands template variables and the panel's scoped variables before posting", async () => {
+      const { datasource, templateService } = setupDataSourceMock({
+        variables: [fooVariable],
+      });
+      const postResource = jest
+        .spyOn(datasource, "postResource")
+        .mockResolvedValue({ error: false, data: {} });
+      const scopedVars = {
+        __interval_ms: { text: "60000", value: "60000" },
+      };
+
+      await datasource.validateQuery(
+        { refId: "A", rawSql: "SELECT * FROM $foo" } as HdxQuery,
+        { ...context, scopedVars },
+        "req-1"
+      );
+
+      expect(postResource.mock.calls[0][1]).toMatchObject({
+        data: { rawSql: "SELECT * FROM templatedFoo" },
+      });
+      expect(templateService.replace).toHaveBeenCalledWith(
+        "SELECT * FROM $foo",
+        scopedVars
+      );
+    });
+
+    it("resolves to undefined when a newer validation cancels the request", async () => {
+      const { datasource } = setupDataSourceMock({});
+      jest.spyOn(datasource, "postResource").mockRejectedValue({
+        type: "cancelled",
+        cancelled: true,
+        data: null,
+        status: -1,
+        statusText: "Request was aborted",
+      });
+
+      await expect(
+        datasource.validateQuery(
+          { refId: "A", rawSql: "SELECT 1" } as HdxQuery,
+          context,
+          "req-1"
+        )
+      ).resolves.toBeUndefined();
+    });
+
+    it("rejects with the server's message when the request fails", async () => {
+      const { datasource } = setupDataSourceMock({});
+      jest.spyOn(datasource, "postResource").mockRejectedValue({
+        status: 500,
+        statusText: "Internal Server Error",
+        data: { message: "An error occurred within the plugin" },
+      });
+
+      await expect(
+        datasource.validateQuery(
+          { refId: "A", rawSql: "SELECT 1" } as HdxQuery,
+          context,
+          "req-1"
+        )
+      ).rejects.toThrow("An error occurred within the plugin");
     });
 
     it("beautifies a reported query error", async () => {

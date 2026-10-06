@@ -68,15 +68,14 @@ func TestHdxQuery_NonJSONFieldsNotMarshalled(t *testing.T) {
 func TestHdxQuery_WithSQL(t *testing.T) {
 	t0 := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
 	orig := &HdxQuery{
-		RawSQL:            "SELECT $__timeFilter FROM events",
-		Format:            1,
-		Round:             "1m",
-		QuerySettings:     []QuerySetting{{Setting: "max_threads", Value: "4"}},
-		Filters:           []AdHocFilter{{Key: "host", Operator: "=", Value: "prod-1"}},
-		SkipInterpolation: true,
-		TimeRange:         backend.TimeRange{From: t0, To: t0.Add(time.Hour)},
-		Interval:          30 * time.Second,
-		Headers:           http.Header{"Authorization": []string{"Bearer t"}},
+		RawSQL:        "SELECT $__timeFilter FROM events",
+		Format:        1,
+		Round:         "1m",
+		QuerySettings: []QuerySetting{{Setting: "max_threads", Value: "4"}},
+		Filters:       []AdHocFilter{{Key: "host", Operator: "=", Value: "prod-1"}},
+		TimeRange:     backend.TimeRange{From: t0, To: t0.Add(time.Hour)},
+		Interval:      30 * time.Second,
+		Headers:       http.Header{"Authorization": []string{"Bearer t"}},
 	}
 	orig.Meta.TimeZone = "UTC"
 
@@ -88,7 +87,6 @@ func TestHdxQuery_WithSQL(t *testing.T) {
 	assert.Equal(t, orig.Round, clone.Round)
 	assert.Equal(t, orig.QuerySettings, clone.QuerySettings)
 	assert.Equal(t, orig.Filters, clone.Filters)
-	assert.Equal(t, orig.SkipInterpolation, clone.SkipInterpolation)
 	assert.Equal(t, orig.Meta, clone.Meta)
 	assert.Equal(t, orig.TimeRange, clone.TimeRange)
 	assert.Equal(t, orig.Interval, clone.Interval)

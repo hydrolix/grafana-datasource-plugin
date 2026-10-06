@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"net/http"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
 	"github.com/grafana/sqlds/v5"
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
@@ -65,15 +68,16 @@ func Interpolate(ds *sqlds.SQLDatasource, rw http.ResponseWriter, req *http.Requ
 	// json.RawMessage). Hydrolix-specific fields (filters, round, etc.)
 	// travel via the rawJSON payload — shape preserved from the fork's
 	// HDXQuery so the plugin-local interpolator (C5) decodes it the same
-	// way. NewHdxSqlDatasource always installs the Hydrolix interpolator,
-	// so a nil field here means the datasource was not constructed through
-	// that path — surface it as an error rather than silently degrading.
+	// way. Headers are not serialised.
 	rawJSON, err := json.Marshal(hdxQuery)
 	if err != nil {
 		wrapError(rw, err)
 		return
 	}
 
+	// NewHdxSqlDatasource always installs the Hydrolix interpolator, so a nil
+	// field here means the datasource was not constructed through that path —
+	// surface it as an error rather than silently degrading.
 	if ds.Interpolator == nil {
 		wrapError(rw, errors.New("interpolator not configured"))
 		return
@@ -101,22 +105,24 @@ func Interpolate(ds *sqlds.SQLDatasource, rw http.ResponseWriter, req *http.Requ
 
 }
 
-// Validator dry-runs a query for the editor's validation bar. Implemented by
-// plugin.QueryValidator; declared here because pkg/plugin imports pkg/api.
+// Validator is declared here because pkg/plugin imports pkg/api.
 type Validator interface {
 	Validate(ctx context.Context, q models.HdxQuery) (models.ValidationResult, error)
 }
 
-// Validate reports query problems (invalid SQL, unfiltered primary key) in
-// the response data; the envelope's error flag is reserved for failures to
-// validate at all (bad request, client gone).
+// Validate puts query problems in the response data; the envelope error is
+// only for failing to validate.
 func Validate(v Validator, responseWriter http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if r := recover(); r != nil {
-			rawMessage, _ := json.Marshal(r)
-			wrapError(responseWriter, errors.New((string(rawMessage))))
+			log.DefaultLogger.Error("validate: recovered panic", "panic", fmt.Sprint(r), "stack", string(debug.Stack()))
+			wrapError(responseWriter, fmt.Errorf("internal error while validating query: %v", r))
 		}
 	}()
+	if v == nil {
+		wrapError(responseWriter, errors.New("query validation is not configured"))
+		return
+	}
 	var request Request[QueryData]
 	if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
 		wrapError(responseWriter, err)

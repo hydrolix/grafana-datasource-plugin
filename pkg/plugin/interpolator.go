@@ -52,29 +52,40 @@ func NewHdxInterpolator(md *MetadataProvider, macros map[string]MacroFunc) *HdxI
 	return &HdxInterpolator{md: md, macros: macros}
 }
 
+type skipInterpolationKey struct{}
+
+// withoutInterpolation makes Interpolate pass already-interpolated SQL through
+// sqlds untouched. A context value, so saved queries cannot set it.
+func withoutInterpolation(ctx context.Context) context.Context {
+	return context.WithValue(ctx, skipInterpolationKey{}, true)
+}
+
+func interpolationSkipped(ctx context.Context) bool {
+	skip, _ := ctx.Value(skipInterpolationKey{}).(bool)
+	return skip
+}
+
 // Interpolate implements sqlds.Interpolator. The func type passes
 // (*sqlutil.Query, json.RawMessage); the plugin reconstitutes the
 // Hydrolix-specific HdxQuery by unmarshalling rawJSON and overlaying the
 // runtime fields from query (TimeRange, Interval). The datasource itself
 // is not a parameter — it is captured via md/macros at construction.
 //
-// Headers are not part of the sqlds Interpolator signature. The macros
-// that need them (C7's adHocFilter) pull headers from context; the
-// route handler at /interpolate (pkg/api/routes.go) is responsible for
-// putting them there.
+// Request headers don't reach this path, so macro metadata lookups run without
+// them; callers holding headers call interpolate directly.
 func (i *HdxInterpolator) Interpolate(
 	ctx context.Context,
 	query *sqlutil.Query,
 	rawJSON json.RawMessage,
 ) (string, error) {
+	if interpolationSkipped(ctx) {
+		return query.RawSQL, nil
+	}
 	hdx := &models.HdxQuery{}
 	if len(rawJSON) > 0 {
 		if err := json.Unmarshal(rawJSON, hdx); err != nil {
 			return "", backend.DownstreamError(fmt.Errorf("interpolator: unmarshal HdxQuery: %w", err))
 		}
-	}
-	if hdx.SkipInterpolation {
-		return query.RawSQL, nil
 	}
 	// Runtime fields from sqlds-side query take precedence over anything
 	// the rawJSON may have carried — the sqlds-derived values are what

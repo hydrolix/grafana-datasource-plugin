@@ -21,6 +21,7 @@ import {
 import {
   DataSourceWithBackend,
   getTemplateSrv,
+  isFetchError,
   logError,
   logWarning,
   TemplateSrv,
@@ -62,6 +63,22 @@ import {
   isAnnotationRequest,
   prepareQuery,
 } from "./annotations";
+
+// backendSrv rejects a cancelled request with `{cancelled: true}`, no Error.
+const isCancelledRequest = (e: unknown): boolean =>
+  typeof e === "object" &&
+  e !== null &&
+  (e as { cancelled?: unknown }).cancelled === true;
+
+const requestErrorMessage = (e: unknown): string => {
+  if (isFetchError(e)) {
+    const message = e.data?.message;
+    return typeof message === "string" && message
+      ? message
+      : e.statusText || `HTTP ${e.status}`;
+  }
+  return e instanceof Error ? e.message : String(e);
+};
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -219,7 +236,7 @@ export class DataSource extends DataSourceWithBackend<
     interpolationId: string,
     context: InterpolationContext
   ): Promise<InterpolationResult> {
-    const sql = this.prepareSql(query.rawSql);
+    const sql = this.prepareSql(query.rawSql, context.scopedVars);
 
     let result: InterpolationResult = {
       originalSql: query.rawSql,
@@ -259,52 +276,59 @@ export class DataSource extends DataSourceWithBackend<
     return result;
   }
 
-  // Template-variable expansion that runs on the frontend before SQL is sent
-  // to a backend resource; macro expansion happens server-side.
-  private prepareSql(rawSql: string): string {
+  // Mirrors applyTemplateVariables: template variables (incl. the panel's
+  // scopedVars) and $__conditionalAll; other macros expand server-side.
+  private prepareSql(rawSql: string, scopedVars?: ScopedVars): string {
     const macroContext: Context = {
       templateVars: this.templateSrv.getVariables(),
       query: rawSql,
     };
-    return this.templateSrv.replace(applyConditionalAll(rawSql, macroContext));
+    return this.templateSrv.replace(
+      applyConditionalAll(rawSql, macroContext),
+      scopedVars
+    );
   }
 
-  /**
-   * Dry-runs the query through the /validate resource. Passing the same
-   * requestId on every call lets backendSrv cancel the previous in-flight
-   * validation; the cancelled call rejects, so callers must discard results
-   * they no longer want.
-   */
+  /** Resolves to undefined when cancelled by a newer call. */
   async validateQuery(
     query: HdxQuery,
     context: InterpolationContext,
     requestId: string
-  ): Promise<ValidationResult> {
-    const response: {
+  ): Promise<ValidationResult | undefined> {
+    let response: {
       error: boolean;
       errorMessage?: string;
       data?: ValidationResult;
-    } = await this.postResource(
-      "validate",
-      {
-        data: {
-          rawSql: this.prepareSql(query.rawSql),
-          range: context.range,
-          interval: context.interval,
-          filters: context.filters,
-          round: query.round,
-          querySettings: this.resolveQuerySettings(query, {
-            raw_query: () => query.rawSql,
-            query_source: () => VALIDATION_QUERY_SOURCE,
-            "panel.id": () => "",
-            "panel.name": () => "",
-            app: () => VALIDATION_QUERY_SOURCE,
-            ref_id: () => query.refId,
-          }),
+    };
+    try {
+      response = await this.postResource(
+        "validate",
+        {
+          data: {
+            rawSql: this.prepareSql(query.rawSql, context.scopedVars),
+            range: context.range,
+            interval: context.interval,
+            filters: context.filters,
+            round: query.round,
+            querySettings: this.resolveQuerySettings(query, {
+              raw_query: () => query.rawSql,
+              query_source: () => VALIDATION_QUERY_SOURCE,
+              "panel.id": () => "",
+              "panel.name": () => "",
+              app: () => VALIDATION_QUERY_SOURCE,
+              ref_id: () => query.refId,
+            }),
+          },
         },
-      },
-      { requestId }
-    );
+        // The bar shows failures; a toast would fire on every editing pause.
+        { requestId, showErrorAlert: false }
+      );
+    } catch (e) {
+      if (isCancelledRequest(e)) {
+        return undefined;
+      }
+      throw new Error(requestErrorMessage(e));
+    }
     if (response.error || !response.data) {
       throw new Error(response.errorMessage || "Query validation failed");
     }

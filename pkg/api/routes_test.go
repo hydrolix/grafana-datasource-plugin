@@ -42,8 +42,7 @@ func (s *stubInterpolator) Interpolate(_ context.Context, q *sqlutil.Query, raw 
 	return s.out, s.err
 }
 
-// stubValidator records the query the Validate handler builds and returns a
-// canned result.
+// stubValidator records the query it receives and returns a canned result.
 type stubValidator struct {
 	calls  int
 	gotCtx context.Context
@@ -352,6 +351,30 @@ func TestValidate_ValidatorErrorIsReportedAsError(t *testing.T) {
 	resp := decodeResponse[any](t, rr)
 	assert.True(t, resp.Error)
 	assert.Equal(t, context.Canceled.Error(), resp.ErrorMessage)
+}
+
+type panickingValidator struct{}
+
+func (panickingValidator) Validate(context.Context, models.HdxQuery) (models.ValidationResult, error) {
+	panic("boom")
+}
+
+func TestValidate_PanicIsReportedAsError(t *testing.T) {
+	rr := postJSON(t, func(w http.ResponseWriter, r *http.Request) { Validate(panickingValidator{}, w, r) },
+		Request[QueryData]{Data: QueryData{RawSql: "SELECT 1", Interval: "30s"}})
+
+	resp := decodeResponse[any](t, rr)
+	assert.True(t, resp.Error)
+	assert.Equal(t, "internal error while validating query: boom", resp.ErrorMessage)
+}
+
+func TestValidate_MissingValidatorIsReportedAsError(t *testing.T) {
+	rr := postJSON(t, func(w http.ResponseWriter, r *http.Request) { Validate(nil, w, r) },
+		Request[QueryData]{Data: QueryData{RawSql: "SELECT 1", Interval: "30s"}})
+
+	resp := decodeResponse[any](t, rr)
+	assert.True(t, resp.Error)
+	assert.Equal(t, "query validation is not configured", resp.ErrorMessage)
 }
 
 func TestRoutes_WiresValidate(t *testing.T) {
