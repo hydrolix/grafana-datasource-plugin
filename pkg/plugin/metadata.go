@@ -29,6 +29,13 @@ var (
 	// ErrPrimaryKeyNotFound is returned by QueryPK when the schema query
 	// yields no rows for the requested (database, table).
 	ErrPrimaryKeyNotFound = backend.PluginError(errors.New("primary key not found"))
+	// ErrPrimaryKeyEmpty is raised by getPK when the table exists but its
+	// primary_key is the empty string, so a PK-lookup macro has no column to
+	// expand against. Deliberately carries no error source: the SDK's
+	// ErrorWithSource.Is compares only the source, so a source-wrapped
+	// sentinel would make errors.Is match every error of that source. The
+	// downstream classification is added on the wrapper at the return site.
+	ErrPrimaryKeyEmpty = errors.New("table has no primary key")
 	// ErrAdHocKeysNotFound is returned by QueryKeys when DESCRIBE yields
 	// fewer than two columns (name + type) — the ad-hoc filter macro
 	// needs both to operate.
@@ -83,16 +90,12 @@ func NewMetadataProvider(ds metadataDS) *MetadataProvider {
 // rows, but not nothing either.
 //
 // The scope is the forwarded token's subject: stable for a person, so a token
-// refresh does not throw the cache away, and distinct between people, which is
-// the point. Modes that forward no token — a service account, a stored user
-// account — have one credential and therefore one legitimate view, and keep
+// refresh does not throw the cache away, and distinct between people. A mode
+// that forwards no token has one credential and one legitimate view, and keeps
 // sharing an entry.
 func cacheScope(ctx context.Context, headers http.Header) string {
-	// The context first: it is where the forwarded identity actually arrives
-	// (`pkg/identity`). The headers are the fallback, for the direct
-	// callers that still pass them — and a test that passes only headers is
-	// not exercising the production path, which is how the first version of
-	// this fix came to be inert.
+	// The context first: it is where the forwarded identity arrives
+	// (`pkg/identity`). Headers are the fallback, for direct callers.
 	token, _ := identity.ForwardedTokenFrom(ctx)
 	if token == "" {
 		token = identity.TokenOf(headers)
@@ -171,7 +174,10 @@ func (p *MetadataProvider) GetKeys(ctx context.Context, headers http.Header, cte
 }
 
 // QueryPK issues the primary-key lookup SQL and returns the first cell of
-// the first column. Empty result → ErrPrimaryKeyNotFound.
+// the first column. Empty result → ErrPrimaryKeyNotFound. A row whose cell
+// is the empty string is a table that declares no primary key; that is a
+// value, returned as ("", nil) and stored like any other, so a keyless table
+// is looked up once per TTL and a failed lookup is never mistaken for one.
 func (p *MetadataProvider) QueryPK(ctx context.Context, headers http.Header, database, table string) (string, error) {
 	// database and table are string literals in PrimaryKeyQuery, so escape
 	// them — a quote in an identifier name would otherwise break out of the
@@ -352,11 +358,12 @@ func (p *MetadataProvider) executeQuery(ctx context.Context, headers http.Header
 	// A macro's lookup arrives with no headers of its own: sqlds hands the
 	// interpolator no header set, so `headers` here is nil and this inner
 	// request would reach the cluster carrying no credential at all. On a
-	// cache MISS that is a failed lookup, not a slow one — forwardOAuth
-	// answers it "missing OAuth token in connection args", and the exchanging
-	// mode refuses it for having no signed-in user. The identity the context
-	// carries is the one the outer request arrived with, so it is the right
-	// one to send (CFB-2612).
+	// cache MISS that is a lookup carrying nobody: with no connection args on
+	// it, the connector takes the default connection and `Connect` builds it
+	// with no credential at all, so the request reaches the cluster
+	// unauthenticated rather than as the person who triggered it. The context
+	// carries the identity the outer request arrived with, which is the right
+	// one to send.
 	if req.GetHTTPHeader(backend.OAuthIdentityTokenHeaderName) == "" {
 		if token, ok := identity.ForwardedTokenFrom(ctx); ok {
 			req.SetHTTPHeader(backend.OAuthIdentityTokenHeaderName, "Bearer "+token)
@@ -408,6 +415,12 @@ func GetStringSafe(v any) (string, error) {
 // at pos, and delegates to MetadataProvider.GetPK. Used by C6's PK-lookup
 // macros (`TimeFilter`, `TimeFilterMs`, `TimeInterval`, `TimeIntervalMs`)
 // when their column argument is omitted.
+//
+// This is the one place that turns an empty primary key into an error: the
+// lookup treats "" as a legitimate result, but a macro cannot expand against
+// an empty column name — the cluster would reject the SQL with a parse error
+// naming neither the table nor the cause. A keyless table is a fact about
+// the user's schema, hence downstream.
 func getPK(ctx context.Context, rawSQL string, pos parser.Pos, mdProvider *MetadataProvider, headers http.Header) (string, error) {
 	exprs, err := parser.NewParser(rawSQL).ParseStmts()
 	if err != nil {
@@ -419,7 +432,24 @@ func getPK(ctx context.Context, rawSQL string, pos parser.Pos, mdProvider *Metad
 	}
 	for _, c := range macroCTEs {
 		if c.MacroPos == pos {
-			return mdProvider.GetPK(ctx, headers, c.Database, c.Table)
+			pk, err := mdProvider.GetPK(ctx, headers, c.Database, c.Table)
+			if err != nil {
+				return "", err
+			}
+			if pk == "" {
+				// An unqualified FROM resolved against the default database
+				// inside GetPK; name that database so the message points at
+				// the table the lookup actually hit.
+				db := c.Database
+				if db == "" {
+					db = mdProvider.ds.DefaultDatabase()
+				}
+				return "", backend.DownstreamError(fmt.Errorf(
+					"%w: %s.%s; pass the time column as the macro argument, e.g. $__timeFilter(<column>)",
+					ErrPrimaryKeyEmpty, db, c.Table,
+				))
+			}
+			return pk, nil
 		}
 	}
 	return rawSQL, fmt.Errorf("no CTE found for macro at pos %d", pos)

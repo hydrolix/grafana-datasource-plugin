@@ -374,8 +374,9 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 
 	headers := req.GetHTTPHeaders()
 	// The forwarded identity onto the context, for everything downstream that
-	// sqlds's interpolator signature cannot reach — the metadata cache scope
-	// and the metadata lookups a macro makes (`forwarded_identity.go`).
+	// sqlds's interpolator signature cannot reach. Helpers in
+	// `pkg/identity/identity.go`; the consumers are `cacheScope` and
+	// `executeQuery` in `pkg/plugin/metadata.go`.
 	ctx = identity.WithForwardedToken(ctx, identity.TokenOf(headers))
 	connArgs := map[string]string{}
 	if pluginSettings.CredentialsType == "forwardOAuth" {

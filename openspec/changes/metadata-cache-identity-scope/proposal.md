@@ -16,10 +16,23 @@ schema shape, not rows — but it is served to people the cluster may refuse.
 This is in the plugin as it ships. It is not introduced by any new mode, and it
 needs none of the work around it to be fixed.
 
+There is no workaround short of this change. An operator cannot scope the cache
+from configuration, and the only setting that touches it — shortening the TTL —
+narrows the window without closing it, at the cost of a cluster round trip per
+table per user per window. Turning a datasource over to one user each would
+avoid it and defeat the point of a shared instance.
+
 ## What changes
 
-- `pkg/plugin/metadata.go`: both caches key on the forwarded identity as well as
-  the table or CTE.
+- `pkg/identity` (new): carries the forwarded token on the request context. Its
+  own package because `pkg/plugin` imports `pkg/api` for the resource routes,
+  so the route handler cannot reach back into `pkg/plugin`.
+- `pkg/plugin/driver.go`: `MutateQueryData` puts the identity on the context.
+- `pkg/api/routes.go`: the `/interpolate` route does the same, from its own
+  request headers.
+- `pkg/plugin/metadata.go`: both caches key on that identity as well as the
+  table or CTE; and `executeQuery` sets the auth header on the inner request it
+  builds, which previously carried none.
 - A mode that forwards no identity keeps the key it has always used.
 - Cache log lines name the table or the CTE rather than the key, which now
   carries a subject.
