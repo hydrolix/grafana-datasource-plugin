@@ -29,6 +29,13 @@ var (
 	// ErrPrimaryKeyNotFound is returned by QueryPK when the schema query
 	// yields no rows for the requested (database, table).
 	ErrPrimaryKeyNotFound = backend.PluginError(errors.New("primary key not found"))
+	// ErrPrimaryKeyEmpty is raised by getPK when the table exists but its
+	// primary_key is the empty string, so a PK-lookup macro has no column to
+	// expand against. Deliberately carries no error source: the SDK's
+	// ErrorWithSource.Is compares only the source, so a source-wrapped
+	// sentinel would make errors.Is match every error of that source. The
+	// downstream classification is added on the wrapper at the return site.
+	ErrPrimaryKeyEmpty = errors.New("table has no primary key")
 	// ErrAdHocKeysNotFound is returned by QueryKeys when DESCRIBE yields
 	// fewer than two columns (name + type) — the ad-hoc filter macro
 	// needs both to operate.
@@ -188,7 +195,10 @@ func (p *MetadataProvider) GetKeys(ctx context.Context, headers http.Header, cte
 }
 
 // QueryPK issues the primary-key lookup SQL and returns the first cell of
-// the first column. Empty result → ErrPrimaryKeyNotFound.
+// the first column. Empty result → ErrPrimaryKeyNotFound. A row whose cell
+// is the empty string is a table that declares no primary key; that is a
+// value, returned as ("", nil) and stored like any other, so a keyless table
+// is looked up once per TTL and a failed lookup is never mistaken for one.
 func (p *MetadataProvider) QueryPK(ctx context.Context, headers http.Header, database, table string) (string, error) {
 	// database and table are string literals in PrimaryKeyQuery, so escape
 	// them — a quote in an identifier name would otherwise break out of the
@@ -426,6 +436,12 @@ func GetStringSafe(v any) (string, error) {
 // at pos, and delegates to MetadataProvider.GetPK. Used by C6's PK-lookup
 // macros (`TimeFilter`, `TimeFilterMs`, `TimeInterval`, `TimeIntervalMs`)
 // when their column argument is omitted.
+//
+// This is the one place that turns an empty primary key into an error: the
+// lookup treats "" as a legitimate result, but a macro cannot expand against
+// an empty column name — the cluster would reject the SQL with a parse error
+// naming neither the table nor the cause. A keyless table is a fact about
+// the user's schema, hence downstream.
 func getPK(ctx context.Context, rawSQL string, pos parser.Pos, mdProvider *MetadataProvider, headers http.Header) (string, error) {
 	exprs, err := parser.NewParser(rawSQL).ParseStmts()
 	if err != nil {
@@ -437,7 +453,24 @@ func getPK(ctx context.Context, rawSQL string, pos parser.Pos, mdProvider *Metad
 	}
 	for _, c := range macroCTEs {
 		if c.MacroPos == pos {
-			return mdProvider.GetPK(ctx, headers, c.Database, c.Table)
+			pk, err := mdProvider.GetPK(ctx, headers, c.Database, c.Table)
+			if err != nil {
+				return "", err
+			}
+			if pk == "" {
+				// An unqualified FROM resolved against the default database
+				// inside GetPK; name that database so the message points at
+				// the table the lookup actually hit.
+				db := c.Database
+				if db == "" {
+					db = mdProvider.ds.DefaultDatabase()
+				}
+				return "", backend.DownstreamError(fmt.Errorf(
+					"%w: %s.%s; pass the time column as the macro argument, e.g. $__timeFilter(<column>)",
+					ErrPrimaryKeyEmpty, db, c.Table,
+				))
+			}
+			return pk, nil
 		}
 	}
 	return rawSQL, fmt.Errorf("no CTE found for macro at pos %d", pos)
