@@ -12,7 +12,10 @@ import {
 import { adHocTableVariable, fooVariable } from "./__mocks__/variable";
 import { AdHocFilterKeys, HdxQuery } from "./types";
 import { DataSource } from "./datasource";
-import { AD_HOC_PRELOAD_LOOKBACK_SECONDS } from "./constants";
+import {
+  AD_HOC_PRELOAD_LOOKBACK_SECONDS,
+  AD_HOC_PRELOAD_ROUND_INTERVAL,
+} from "./constants";
 
 describe("HdxDataSource", () => {
   beforeEach(() => {
@@ -108,6 +111,13 @@ describe("HdxDataSource", () => {
       variables: [adHocTableVariable],
     });
     const getKeysMock = jest.spyOn(datasource.metadataProvider, "tableKeys");
+    // These cases exercise value and synthetic-entry handling on a keyed
+    // table. Without a stub the first `queryMock` answer would be consumed by
+    // the primary-key lookup and memoized on this shared datasource, changing
+    // the branch every later case takes.
+    jest
+      .spyOn(datasource.metadataProvider, "primaryKey")
+      .mockResolvedValue("ts");
 
     it("should return keys", async () => {
       let response = ["key1", "key2", "key3"].map(
@@ -920,30 +930,62 @@ describe("HdxDataSource", () => {
     });
   });
 
+  const STRING_KEY = {
+    text: "key1",
+    value: "key1",
+    type: "String",
+  } as AdHocFilterKeys;
+  const MAP_KEY = {
+    text: "labels",
+    value: "labels",
+    type: "Map(String, String)",
+  } as AdHocFilterKeys;
+
+  /**
+   * One builder for every preload test. `primaryKey` is what the memoized
+   * lookup resolves to ("ts" for a keyed table, "" for a keyless one) or a
+   * rejection when the lookup itself fails; `keys` is the DESCRIBE result;
+   * `values` is the single-column response every preload query returns.
+   */
+  function setupPreloadMock({
+    primaryKey = "ts",
+    keys = [STRING_KEY],
+    values = [],
+  }: {
+    primaryKey?: string | Error;
+    keys?: AdHocFilterKeys[];
+    values?: unknown[];
+  } = {}) {
+    const mock = setupDataSourceMock({ variables: [adHocTableVariable] });
+    jest
+      .spyOn(mock.datasource.metadataProvider, "tableKeys")
+      .mockReturnValue(Promise.resolve(keys));
+    const primaryKeyMock = jest
+      .spyOn(mock.datasource.metadataProvider, "primaryKey")
+      .mockImplementation(() =>
+        primaryKey instanceof Error
+          ? Promise.reject(primaryKey)
+          : Promise.resolve(primaryKey)
+      );
+    mock.queryMock.mockReturnValue(
+      of({ data: [toDataFrame({ fields: [{ values }] })] })
+    );
+    return { ...mock, primaryKeyMock };
+  }
+
+  function makeRange(fromMs: number, toMs: number) {
+    const from = dateTime(fromMs);
+    const to = dateTime(toMs);
+    return { from, to, raw: { from, to } };
+  }
+
   describe("preload time range capping", () => {
     beforeEach(() => {
       jest.clearAllMocks();
     });
 
-    function makeRange(fromMs: number, toMs: number) {
-      const from = dateTime(fromMs);
-      const to = dateTime(toMs);
-      return { from, to, raw: { from, to } };
-    }
-
     it("caps a 90-day range to the trailing 24h for getTagValues", async () => {
-      const { datasource, queryMock } = setupDataSourceMock({
-        variables: [adHocTableVariable],
-      });
-      jest.spyOn(datasource.metadataProvider, "tableKeys").mockReturnValue(
-        Promise.resolve([
-          { text: "key1", value: "key1", type: "String" },
-        ] as AdHocFilterKeys[])
-      );
-      jest
-        .spyOn(datasource.metadataProvider, "primaryKey")
-        .mockReturnValue(Promise.resolve("ts"));
-      queryMock.mockReturnValue(of({ data: [] }));
+      const { datasource, queryMock } = setupPreloadMock();
 
       const to = 1_700_000_000_000;
       const from = to - 90 * 24 * 60 * 60 * 1000;
@@ -961,18 +1003,7 @@ describe("HdxDataSource", () => {
     });
 
     it("leaves a 6-hour range untouched for getTagValues", async () => {
-      const { datasource, queryMock } = setupDataSourceMock({
-        variables: [adHocTableVariable],
-      });
-      jest.spyOn(datasource.metadataProvider, "tableKeys").mockReturnValue(
-        Promise.resolve([
-          { text: "key1", value: "key1", type: "String" },
-        ] as AdHocFilterKeys[])
-      );
-      jest
-        .spyOn(datasource.metadataProvider, "primaryKey")
-        .mockReturnValue(Promise.resolve("ts"));
-      queryMock.mockReturnValue(of({ data: [] }));
+      const { datasource, queryMock } = setupPreloadMock();
 
       const to = 1_700_000_000_000;
       const from = to - 6 * 60 * 60 * 1000;
@@ -989,22 +1020,8 @@ describe("HdxDataSource", () => {
 
     // makeRange builds an absolute `raw`, so these two use relative
     // expressions: the cap must only rewrite `raw` on ranges it actually caps.
-    function setupValuesMock() {
-      const mock = setupDataSourceMock({ variables: [adHocTableVariable] });
-      jest.spyOn(mock.datasource.metadataProvider, "tableKeys").mockReturnValue(
-        Promise.resolve([
-          { text: "key1", value: "key1", type: "String" },
-        ] as AdHocFilterKeys[])
-      );
-      jest
-        .spyOn(mock.datasource.metadataProvider, "primaryKey")
-        .mockReturnValue(Promise.resolve("ts"));
-      mock.queryMock.mockReturnValue(of({ data: [] }));
-      return mock;
-    }
-
     it("preserves a relative raw range when nothing is capped", async () => {
-      const { datasource, queryMock } = setupValuesMock();
+      const { datasource, queryMock } = setupPreloadMock();
 
       const to = 1_700_000_000_000;
       const from = to - 6 * 60 * 60 * 1000;
@@ -1023,7 +1040,7 @@ describe("HdxDataSource", () => {
     });
 
     it("rewrites raw.from to the capped instant on a capped range", async () => {
-      const { datasource, queryMock } = setupValuesMock();
+      const { datasource, queryMock } = setupPreloadMock();
 
       const to = 1_700_000_000_000;
       const from = to - 90 * 24 * 60 * 60 * 1000;
@@ -1046,16 +1063,14 @@ describe("HdxDataSource", () => {
     });
 
     it("caps the supplied range for getTagKeysForMap on a long dashboard range", async () => {
-      const { datasource, queryMock } = setupDataSourceMock({
-        variables: [adHocTableVariable],
-      });
-      queryMock.mockReturnValue(of({ data: [] }));
+      const { datasource, queryMock } = setupPreloadMock({ keys: [MAP_KEY] });
 
       const to = 1_700_000_000_000;
       const from = to - 90 * 24 * 60 * 60 * 1000;
       await datasource.getTagKeysForMap(
         "labels",
         "sample.table",
+        "ts",
         makeRange(from, to) as any
       );
 
@@ -1067,18 +1082,7 @@ describe("HdxDataSource", () => {
     });
 
     it("caps range.raw.from alongside range.from for getTagValues", async () => {
-      const { datasource, queryMock } = setupDataSourceMock({
-        variables: [adHocTableVariable],
-      });
-      jest.spyOn(datasource.metadataProvider, "tableKeys").mockReturnValue(
-        Promise.resolve([
-          { text: "key1", value: "key1", type: "String" },
-        ] as AdHocFilterKeys[])
-      );
-      jest
-        .spyOn(datasource.metadataProvider, "primaryKey")
-        .mockReturnValue(Promise.resolve("ts"));
-      queryMock.mockReturnValue(of({ data: [] }));
+      const { datasource, queryMock } = setupPreloadMock();
 
       const to = 1_700_000_000_000;
       const from = to - 90 * 24 * 60 * 60 * 1000;
@@ -1098,15 +1102,7 @@ describe("HdxDataSource", () => {
     });
 
     it("caps the tag-keys range supplied by Grafana for map-key discovery", async () => {
-      const { datasource, queryMock } = setupDataSourceMock({
-        variables: [adHocTableVariable],
-      });
-      jest.spyOn(datasource.metadataProvider, "tableKeys").mockReturnValue(
-        Promise.resolve([
-          { text: "labels", value: "labels", type: "Map(String, String)" },
-        ] as AdHocFilterKeys[])
-      );
-      queryMock.mockReturnValue(of({ data: [] }));
+      const { datasource, queryMock } = setupPreloadMock({ keys: [MAP_KEY] });
 
       const to = 1_700_000_000_000;
       const from = to - 90 * 24 * 60 * 60 * 1000;
@@ -1122,24 +1118,15 @@ describe("HdxDataSource", () => {
       expect(sentRange.to.valueOf()).toBe(to);
     });
 
-    function setupMapKeysMock() {
-      const mock = setupDataSourceMock({ variables: [adHocTableVariable] });
-      jest.spyOn(mock.datasource.metadataProvider, "tableKeys").mockReturnValue(
-        Promise.resolve([
-          { text: "labels", value: "labels", type: "Map(String, String)" },
-        ] as AdHocFilterKeys[])
-      );
-      mock.queryMock.mockReturnValue(of({ data: [] }));
-      return mock;
-    }
-
     // Defensive fallback, pinned here because its failure mode is silent:
     // every Grafana at or above the >=11.0.0 floor populates `timeRange` on
     // the tag-keys options, but an unresolved range yields a relative window,
     // no rows, and a column that vanishes from the dropdown without an error.
     // Covered end-to-end by adHocMapKeys.spec.ts.
     it("falls back to the template service range for tag-keys preload", async () => {
-      const { datasource, queryMock, templateService } = setupMapKeysMock();
+      const { datasource, queryMock, templateService } = setupPreloadMock({
+        keys: [MAP_KEY],
+      });
 
       const to = 1_700_000_000_000;
       const from = to - 90 * 24 * 60 * 60 * 1000;
@@ -1176,7 +1163,9 @@ describe("HdxDataSource", () => {
     it.each(malformedRanges)(
       "ignores a malformed template service range (%s)",
       async (_label, malformed) => {
-        const { datasource, queryMock, templateService } = setupMapKeysMock();
+        const { datasource, queryMock, templateService } = setupPreloadMock({
+          keys: [MAP_KEY],
+        });
 
         (templateService as any).timeRange = malformed;
 
@@ -1193,27 +1182,12 @@ describe("HdxDataSource", () => {
       }
     );
 
-    // ZERO_TIME_RANGE means "this metadata query has no time macro". Both
-    // preload statements carry $__timeFilter(), so the sentinel would resolve
-    // to a 1970 window, return no rows, and silently erase the Map column from
-    // the dropdown. Neither preload path may reach it.
-    function setupNoRangeMock() {
-      const mock = setupDataSourceMock({ variables: [adHocTableVariable] });
-      // One setup serves both entry points: a Map column for key expansion and
-      // a scalar column (plus a primary key) for value lookup.
-      jest.spyOn(mock.datasource.metadataProvider, "tableKeys").mockReturnValue(
-        Promise.resolve([
-          { text: "labels", value: "labels", type: "Map(String, String)" },
-          { text: "key1", value: "key1", type: "String" },
-        ] as AdHocFilterKeys[])
-      );
-      jest
-        .spyOn(mock.datasource.metadataProvider, "primaryKey")
-        .mockReturnValue(Promise.resolve("ts"));
-      mock.queryMock.mockReturnValue(of({ data: [] }));
-      return mock;
-    }
-
+    // ZERO_TIME_RANGE means "this metadata query has no time macro". The
+    // time-filtered statements carry $__timeFilter(), so the sentinel would
+    // resolve to a 1970 window, return no rows, and silently erase the Map
+    // column from the dropdown. Neither preload path may reach it while the
+    // target table resolves a primary key.
+    //
     // Both entry points must keep the *fallback*, not just the cap: the capping
     // tests above still pass when a call site bypasses adHocPreloadRange, so
     // each entry point needs its own no-range case. Losing the fallback on one
@@ -1231,7 +1205,11 @@ describe("HdxDataSource", () => {
     it.each(noRangeEntryPoints)(
       "falls back to a trailing 24h window for %s with no range",
       async (_label, call) => {
-        const { datasource, queryMock, templateService } = setupNoRangeMock();
+        // One setup serves both entry points: a Map column for key expansion
+        // and a scalar column (plus a primary key) for value lookup.
+        const { datasource, queryMock, templateService } = setupPreloadMock({
+          keys: [MAP_KEY, STRING_KEY],
+        });
         // Neither source offers a range: options carries none and the template
         // service has none either.
         expect((templateService as any).timeRange).toBeUndefined();
@@ -1407,6 +1385,220 @@ describe("HdxDataSource", () => {
       expect(req.targets[0].rawSql).toContain(
         "hdx_query_max_timerange_sec = 87000"
       );
+    });
+  });
+
+  describe("preload on a table with no primary key", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    const NINETY_DAYS = {
+      from: dateTime(1_700_000_000_000 - 90 * 24 * 3600 * 1000),
+      to: dateTime(1_700_000_000_000),
+      raw: { from: "now-90d", to: "now" },
+    };
+    const SETTINGS_SUFFIX =
+      "SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000";
+
+    // No range passed means executeQuery substitutes ZERO_TIME_RANGE, a
+    // zero-width 1970 window - correct only because the keyless statement
+    // carries no time macro to expand against it.
+    function expectZeroRange(request: DataQueryRequest<HdxQuery>) {
+      expect(request.range.from.valueOf()).toBe(0);
+      expect(request.range.to.valueOf()).toBe(0);
+    }
+
+    it("getTagValues returns the response values without a time filter", async () => {
+      const { datasource, queryMock } = setupPreloadMock({
+        primaryKey: "",
+        values: ["ok", "error"],
+      });
+
+      const values = await datasource.getTagValues({
+        key: "key1",
+        filters: [],
+        timeRange: NINETY_DAYS,
+      } as any);
+
+      expect(values).toEqual([
+        { text: "ok", value: "ok" },
+        { text: "error", value: "error" },
+      ]);
+
+      expect(queryMock).toHaveBeenCalledTimes(1);
+      const request = queryMock.mock.calls[0][0];
+      expect(request.targets[0].rawSql).not.toContain("$__timeFilter");
+      expect(request.targets[0].rawSql).toContain("topK(100)(key1)");
+      expect(request.targets[0].rawSql).toContain("$__adHocFilter()");
+      expect(request.targets[0].rawSql.endsWith(SETTINGS_SUFFIX)).toBe(true);
+      expectZeroRange(request);
+    });
+
+    it("getTagValues still gates the synthetic values", async () => {
+      const { datasource } = setupPreloadMock({
+        primaryKey: "",
+        keys: [{ ...STRING_KEY, type: "Nullable(String)" } as AdHocFilterKeys],
+        values: ["ok", ""],
+      });
+
+      const values = await datasource.getTagValues({
+        key: "key1",
+        filters: [],
+      } as any);
+
+      expect(values).toEqual([
+        { text: "ok", value: "ok" },
+        { text: "__empty__", value: "__empty__" },
+        { text: "__null__", value: "__null__" },
+      ]);
+    });
+
+    it("getTagKeysForMap builds the keyless statement and passes no range", async () => {
+      const { datasource, queryMock } = setupPreloadMock({
+        primaryKey: "",
+        keys: [MAP_KEY],
+        values: ["env"],
+      });
+
+      const result = await datasource.getTagKeysForMap(
+        "labels",
+        "sample.table",
+        "",
+        NINETY_DAYS as any
+      );
+
+      expect(result).toEqual({ key: "labels", val: ["labels['env']"] });
+
+      const request = queryMock.mock.calls[0][0];
+      expect(request.targets[0].rawSql).not.toContain("$__timeFilter");
+      expect(request.targets[0].rawSql).toContain("mapKeys(labels)");
+      expect(request.targets[0].rawSql.endsWith(SETTINGS_SUFFIX)).toBe(true);
+      expectZeroRange(request);
+    });
+
+    // Only "" selects the keyless form. A failed lookup is a failure, not a
+    // fact about the schema; turning it into an unfiltered scan would make
+    // every transient cluster error scan the whole keyed table.
+    it("getTagValues issues no preload when the primary-key lookup rejects", async () => {
+      const { datasource, queryMock } = setupPreloadMock({
+        primaryKey: new Error("Not enough privileges"),
+        values: ["ok"],
+      });
+
+      const values = await datasource.getTagValues({
+        key: "key1",
+        filters: [],
+        timeRange: NINETY_DAYS,
+      } as any);
+
+      expect(values).toEqual([]);
+      expect(queryMock).not.toHaveBeenCalled();
+    });
+
+    // Map-key discovery never needed the frontend primary key before the
+    // keyless form existed - its `$__timeFilter()` is resolved by the backend.
+    // A failed frontend lookup therefore keeps exactly that path: keyed
+    // statement, capped range, backend resolution. Only a positive "" may
+    // drop the conjunct.
+    it("getTagKeys falls back to the backend-resolved keyed statement when the primary-key lookup rejects", async () => {
+      const { datasource, queryMock } = setupPreloadMock({
+        primaryKey: new Error("Not enough privileges"),
+        keys: [MAP_KEY, STRING_KEY],
+        values: ["env"],
+      });
+
+      const keys = await datasource.getTagKeys({
+        filters: [],
+        timeRange: NINETY_DAYS,
+      } as any);
+
+      expect(keys.map((k) => k.value)).toEqual([
+        `${MAP_KEY.value}['env']`,
+        STRING_KEY.value,
+      ]);
+      expect(queryMock).toHaveBeenCalledTimes(1);
+      const request = queryMock.mock.calls[0][0];
+      expect(request.targets[0].rawSql).toContain("$__timeFilter() AND");
+      expect(request.range.from.valueOf()).toBe(
+        NINETY_DAYS.to.valueOf() - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+    });
+
+    const threeMaps = ["labels", "attrs", "tags"].map(
+      (name) =>
+        ({ text: name, value: name, type: "Map(String, String)" }) as AdHocFilterKeys
+    );
+
+    it("getTagKeys resolves the primary key once for three keyless Map columns", async () => {
+      const { datasource, queryMock, primaryKeyMock } = setupPreloadMock({
+        primaryKey: "",
+        keys: threeMaps,
+        values: ["env"],
+      });
+
+      const keys = await datasource.getTagKeys({
+        filters: [],
+        timeRange: NINETY_DAYS,
+      } as any);
+
+      expect(primaryKeyMock).toHaveBeenCalledTimes(1);
+      expect(queryMock).toHaveBeenCalledTimes(3);
+      queryMock.mock.calls.forEach(([request]) => {
+        expect(request.targets[0].rawSql).not.toContain("$__timeFilter");
+        expectZeroRange(request);
+      });
+      expect(keys.map((k) => k.value)).toEqual([
+        "labels['env']",
+        "attrs['env']",
+        "tags['env']",
+      ]);
+    });
+
+    it("getTagKeys resolves the primary key once for three keyed Map columns", async () => {
+      const { datasource, queryMock, primaryKeyMock } = setupPreloadMock({
+        primaryKey: "ts",
+        keys: threeMaps,
+        values: ["env"],
+      });
+
+      const to = NINETY_DAYS.to.valueOf();
+      await datasource.getTagKeys({
+        filters: [],
+        timeRange: NINETY_DAYS,
+      } as any);
+
+      expect(primaryKeyMock).toHaveBeenCalledTimes(1);
+      expect(queryMock).toHaveBeenCalledTimes(3);
+      queryMock.mock.calls.forEach(([request]) => {
+        expect(request.targets[0].rawSql).toContain("$__timeFilter() AND");
+        expect(request.range.from.valueOf()).toBe(
+          to - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+        );
+        expect(request.range.to.valueOf()).toBe(to);
+      });
+    });
+
+    it("a keyed table still gets the capped range and 5m rounding", async () => {
+      const { datasource, queryMock } = setupPreloadMock({
+        primaryKey: "ts",
+        values: ["ok"],
+      });
+
+      const to = NINETY_DAYS.to.valueOf();
+      await datasource.getTagValues({
+        key: "key1",
+        filters: [],
+        timeRange: NINETY_DAYS,
+      } as any);
+
+      const request = queryMock.mock.calls[0][0];
+      expect(request.targets[0].rawSql).toContain("$__timeFilter(ts) AND");
+      expect(request.range.from.valueOf()).toBe(
+        to - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+      expect(request.range.to.valueOf()).toBe(to);
+      expect(request.targets[0].round).toBe(AD_HOC_PRELOAD_ROUND_INTERVAL);
     });
   });
 
