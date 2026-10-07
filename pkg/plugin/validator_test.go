@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
 	"github.com/hydrolix/plugin/pkg/plugin/models"
 	"github.com/stretchr/testify/assert"
@@ -120,6 +121,54 @@ func TestUnconstrainedPKTables_ResolverErrorIsSkipped(t *testing.T) {
 	}
 	got := unconstrainedPKTables(context.Background(), parseSelect(t, "SELECT * FROM t"), nil, resolve)
 	assert.Empty(t, got)
+}
+
+// warnCapture records Warn calls; every other method is the wrapped logger's.
+type warnCapture struct {
+	log.Logger
+	warnings []string
+}
+
+func (w *warnCapture) Warn(msg string, _ ...any) { w.warnings = append(w.warnings, msg) }
+
+func captureWarnings(t *testing.T) *warnCapture {
+	t.Helper()
+	capture := &warnCapture{Logger: log.DefaultLogger}
+	previous := log.DefaultLogger
+	log.DefaultLogger = capture
+	t.Cleanup(func() { log.DefaultLogger = previous })
+	return capture
+}
+
+// The skip log is for lookup failures only: a table without a primary key is
+// a value, and a table the cluster does not know is the user's query problem.
+func TestUnconstrainedPKTables_SkipLogOnlyForLookupFailures(t *testing.T) {
+	tests := []struct {
+		name    string
+		pk      string
+		err     error
+		wantLog bool
+	}{
+		{"table without a primary key", "", nil, false},
+		{"table not found", "", backend.PluginError(ErrPrimaryKeyNotFound), false},
+		{"other plugin-sourced failure", "", backend.PluginError(errors.New("default database not configured")), true},
+		{"downstream failure", "", backend.DownstreamError(errors.New("cluster unreachable")), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			capture := captureWarnings(t)
+			resolve := func(context.Context, http.Header, string, string) (string, error) {
+				return tt.pk, tt.err
+			}
+			got := unconstrainedPKTables(context.Background(), parseSelect(t, "SELECT * FROM t"), nil, resolve)
+			assert.Empty(t, got)
+			if tt.wantLog {
+				assert.Equal(t, []string{"query validation: skipping PK check"}, capture.warnings)
+			} else {
+				assert.Empty(t, capture.warnings)
+			}
+		})
+	}
 }
 
 func TestUnconstrainedPKTables_StopsWhenContextIsDone(t *testing.T) {

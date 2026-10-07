@@ -23,8 +23,10 @@ const PrimaryKeyQuery = "SELECT primary_key FROM system.tables WHERE database='%
 
 var (
 	// ErrPrimaryKeyNotFound is returned by QueryPK when the schema query
-	// yields no rows for the requested (database, table).
-	ErrPrimaryKeyNotFound = backend.PluginError(errors.New("primary key not found"))
+	// yields no rows for the requested (database, table). Like
+	// ErrPrimaryKeyEmpty it carries no error source, so errors.Is is an
+	// identity check; QueryPK adds the plugin classification on the wrapper.
+	ErrPrimaryKeyNotFound = errors.New("primary key not found")
 	// ErrPrimaryKeyEmpty is raised by getPK when the table exists but its
 	// primary_key is the empty string, so a PK-lookup macro has no column to
 	// expand against. Deliberately carries no error source: the SDK's
@@ -135,7 +137,7 @@ func (p *MetadataProvider) QueryPK(ctx context.Context, headers http.Header, dat
 		return "", err
 	}
 	if len(frame.Fields) == 0 || frame.Fields[0].Len() == 0 {
-		return "", ErrPrimaryKeyNotFound
+		return "", backend.PluginError(ErrPrimaryKeyNotFound)
 	}
 	return GetStringSafe(frame.Fields[0].At(0))
 }

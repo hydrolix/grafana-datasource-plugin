@@ -33,6 +33,9 @@ func (s *ValidatorTestSuite) SetupSuite() {
 	s.Require().NoError(err)
 	_, err = db.ExecContext(s.Ctx, "CREATE TABLE IF NOT EXISTS default.validate_t (ts DateTime, v Int32) ENGINE = MergeTree ORDER BY ts")
 	s.Require().NoError(err)
+	// system.tables.primary_key is "" for this one (HDX-11399).
+	_, err = db.ExecContext(s.Ctx, "CREATE TABLE IF NOT EXISTS default.validate_keyless (ts DateTime, v Int32) ENGINE = MergeTree ORDER BY tuple()")
+	s.Require().NoError(err)
 	s.Require().NoError(db.Close())
 
 	instance, err := plugin.NewDatasource(s.Ctx, settings)
@@ -90,6 +93,26 @@ func (s *ValidatorTestSuite) TestUnfilteredPrimaryKeyWarns() {
 
 func (s *ValidatorTestSuite) TestCTEFilteredByItsReaderIsValid() {
 	assert.Equal(s.T(), models.ValidationResult{}, s.validate("WITH x AS (SELECT * FROM validate_t) SELECT count() FROM x WHERE $__timeFilter(ts)"))
+}
+
+// A table without a primary key has nothing to warn about, and the memoized
+// "" must not leak into a keyed table's check.
+func (s *ValidatorTestSuite) TestKeylessTableIsNotWarned() {
+	assert.Equal(s.T(), models.ValidationResult{}, s.validate("SELECT count() FROM validate_keyless"))
+	assert.Equal(s.T(), models.ValidationResult{}, s.validate("SELECT count() FROM validate_keyless WHERE $__timeFilter(ts)"))
+	assert.Equal(s.T(),
+		models.ValidationResult{Warning: "Primary key `ts` of `validate_t` not filtered in WHERE; add $__timeFilter() to limit the scan."},
+		s.validate("WITH k AS (SELECT ts FROM validate_keyless) SELECT count() FROM validate_t WHERE v > 0"))
+}
+
+// The argument-less macro cannot expand on a keyless table; the interpolation
+// error from HDX-11399 is the query error, shown before Run.
+func (s *ValidatorTestSuite) TestKeylessTableArgumentlessMacroIsAnError() {
+	res := s.validate("SELECT count() FROM validate_keyless WHERE $__timeFilter()")
+	assert.Contains(s.T(), res.Error, "table has no primary key: default.validate_keyless")
+	assert.Contains(s.T(), res.Error, "$__timeFilter(<column>)")
+	assert.Empty(s.T(), res.Warning)
+	assert.False(s.T(), res.Skipped)
 }
 
 func (s *ValidatorTestSuite) TestQuerySettingsReachTheDriver() {
