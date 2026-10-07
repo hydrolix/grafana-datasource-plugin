@@ -115,7 +115,8 @@ export function QueryEditor(props: Props) {
       hasError: false,
     });
 
-  let [monaco, setMonaco] = useState<Monaco | null>(null);
+  // Only the setter is used: languageDefinition stores the Monaco instance.
+  const [, setMonaco] = useState<Monaco | null>(null);
 
   const onQueryTextChange = (queryText: string) => {
     props.onChange({ ...props.query, rawSql: queryText });
