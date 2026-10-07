@@ -369,10 +369,12 @@ func (p *MetadataProvider) executeQuery(ctx context.Context, headers http.Header
 	// A macro's lookup arrives with no headers of its own: sqlds hands the
 	// interpolator no header set, so `headers` here is nil and this inner
 	// request would reach the cluster carrying no credential at all. On a
-	// cache MISS that is a failed lookup, not a slow one: forwardOAuth answers
-	// it "missing OAuth token in connection args". The context carries the
-	// identity the outer request arrived with, which is the right one to
-	// send.
+	// cache MISS that is a lookup carrying nobody: with no connection args on
+	// it, the connector takes the default connection and `Connect` builds it
+	// with no credential at all, so the request reaches the cluster
+	// unauthenticated rather than as the person who triggered it. The context
+	// carries the identity the outer request arrived with, which is the right
+	// one to send.
 	if req.GetHTTPHeader(backend.OAuthIdentityTokenHeaderName) == "" {
 		if token, ok := identity.ForwardedTokenFrom(ctx); ok {
 			req.SetHTTPHeader(backend.OAuthIdentityTokenHeaderName, "Bearer "+token)

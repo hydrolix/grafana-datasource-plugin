@@ -49,8 +49,8 @@ func ForwardedTokenFrom(ctx context.Context) (string, bool) {
 	return token, ok && token != ""
 }
 
-// forwardedTokenOf reads the bearer token out of a header set, bare of its
-// scheme. The one place that knows how the token is spelled on the wire.
+// TokenOf reads the bearer token out of a header set, bare of its scheme. The
+// one place that knows how the token is spelled on the wire.
 func TokenOf(headers http.Header) string {
 	if headers == nil {
 		return ""
@@ -58,7 +58,7 @@ func TokenOf(headers http.Header) string {
 	return strings.TrimPrefix(headers.Get(backend.OAuthIdentityTokenHeaderName), "Bearer ")
 }
 
-// ForwardedTokenOfRequest reads the forwarded token from an inbound HTTP
+// TokenOfRequest reads the forwarded token from an inbound HTTP
 // request — the `/interpolate` resource call's own, where the identity enters
 // the plugin for the editor's preview.
 func TokenOfRequest(req *http.Request) string {

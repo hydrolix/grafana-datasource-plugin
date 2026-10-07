@@ -2,8 +2,9 @@
 
 ## 1. Scope the caches
 
-- [x] 1.1 `cacheScope(headers)` derives the scope from the forwarded token's
-      subject: stable across a refresh, distinct between people. A token whose
+- [x] 1.1 `cacheScope(ctx, headers)` derives the scope from the forwarded token's
+      subject, taken from the context first and the headers only as a
+      fallback: stable across a refresh, distinct between people. A token whose
       subject cannot be read falls back to a digest of the token — wasteful
       across refreshes, and the right way to be wrong, since the alternative
       shares one entry between different people.
