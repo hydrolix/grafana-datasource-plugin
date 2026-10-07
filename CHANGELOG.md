@@ -2,6 +2,17 @@
 
 ## 0.13.0 (unreleased)
 
+- **Fix**: The signed-in user's auth header did not reach the plugin backend's metadata lookups. It is set on
+  `HdxQuery.Headers`, which is `json:"-"`, so the `/interpolate` route marshalled it away and the QueryData path never
+  filled it — the macros found nil. It now travels on the request context, set at both entry points. Two things were
+  broken by that and are fixed together: the per-user metadata cache scope below, and a macro's metadata lookup, which
+  on a cold cache reached the cluster with no credential at all (`forwardOAuth: missing OAuth token in connection args`)
+- **Fix**: Schema metadata was cached across users in `forwardOAuth` mode. `MetadataProvider` keyed a table's primary
+  key and a CTE's columns on the table or CTE alone, for an hour per datasource instance, and the caller's token
+  reached the cluster only on a miss — so one user's lookup served every other user of that datasource that table's
+  primary key and column name→type map, without the cluster authorizing them. Schema shape, not rows. Both caches now
+  key on the forwarded identity; modes that forward no identity are unchanged. **Behaviour change for `forwardOAuth`
+  users**: cache hit rate falls, so more metadata queries reach the cluster
 - **Security**: Bump `source-map-js` to 1.2.2 to clear CVE-2026-93749 (GHSA-68fv-2mgg-jv7q, high severity), which fails the plugin validator. Build-time dependency only; it is not shipped in the plugin
 
 - **Feature**: Replace the unused *Ad hoc filter default time range* setting with *Ad hoc filter suggestion lookback* (`adHocTimeRangeLookback`, default `24h`; supported units `s`, `m`, `h`). It sets the ad hoc key/value suggestion window, the cap applied to longer dashboard ranges, and the `hdx_query_max_timerange_sec` guardrail (lookback + 10m). In the config editor an invalid value is cleared when the field loses focus; an invalid value that bypasses the editor (e.g. provisioned) falls back to 24h at runtime. `d` is still accepted for existing values. A previously saved default time range is ignored; it was never applied
