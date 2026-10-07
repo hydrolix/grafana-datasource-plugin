@@ -1,4 +1,9 @@
-import { getColumnValuesStatement, traverseTree, walkNodes } from "./ast";
+import {
+  getColumnKeysForMapStatement,
+  getColumnValuesStatement,
+  traverseTree,
+  walkNodes,
+} from "./ast";
 import { AD_HOC_PRELOAD_LOOKBACK_SECONDS } from "./constants";
 
 describe("walkNodes", () => {
@@ -174,5 +179,145 @@ describe("ast getColumnValuesStatement", () => {
     );
     expect(result).toContain("timeout_overflow_mode = 'break'");
     expect(result).toContain("hdx_query_max_timerange_sec = 87000");
+  });
+});
+
+describe("ast statement builders with and without a primary key", () => {
+  // What the pre-slot templates rendered (git show a801488:src/constants.ts),
+  // at the default lookback the guardrail suffix was baked in with. Anything
+  // that changes these strings changes the SQL every keyed table has been
+  // issuing, so they are pinned byte-for-byte.
+  const HEAD_VALUE_SQL =
+    "SELECT arrayJoin(topK(100)(status)) AS value FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter()  SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000";
+  const HEAD_MAP_KEY_SQL =
+    "SELECT distinct(arrayJoin(mapKeys(attributes))) FROM sample.log WHERE $__timeFilter() AND $__adHocFilter() SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000";
+  const SETTINGS_SUFFIX =
+    "SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000";
+
+  test("keyed value statement is byte-identical to the pre-change template", () => {
+    expect(
+      getColumnValuesStatement(
+        "status",
+        "sample.log",
+        "ts",
+        "",
+        AD_HOC_PRELOAD_LOOKBACK_SECONDS
+      )
+    ).toBe(HEAD_VALUE_SQL);
+  });
+
+  test("keyed map-key statement is byte-identical to the pre-change template", () => {
+    expect(
+      getColumnKeysForMapStatement(
+        "attributes",
+        "sample.log",
+        "ts",
+        AD_HOC_PRELOAD_LOOKBACK_SECONDS
+      )
+    ).toBe(HEAD_MAP_KEY_SQL);
+  });
+
+  test("keyless value statement drops only the time conjunct", () => {
+    const result = getColumnValuesStatement(
+      "status",
+      "sample.log",
+      "",
+      "",
+      AD_HOC_PRELOAD_LOOKBACK_SECONDS
+    );
+    expect(result).toBe(
+      `SELECT arrayJoin(topK(100)(status)) AS value FROM sample.log WHERE $__adHocFilter()  ${SETTINGS_SUFFIX}`
+    );
+    expect(result).not.toContain("$__timeFilter");
+    expect(result).toContain("topK(100)(status)");
+    expect(result).toContain("$__adHocFilter()");
+    expect(result).toContain("timeout_overflow_mode = 'break'");
+    expect(result).toContain("hdx_query_max_timerange_sec = 87000");
+    expect(result).not.toContain("GROUP BY");
+    expect(result).not.toContain("ORDER BY");
+  });
+
+  test("keyless value statement still carries the ad-hoc condition", () => {
+    expect(
+      getColumnValuesStatement(
+        "status",
+        "sample.log",
+        "",
+        "toString(status) like '2%'",
+        AD_HOC_PRELOAD_LOOKBACK_SECONDS
+      )
+    ).toBe(
+      `SELECT arrayJoin(topK(100)(status)) AS value FROM sample.log WHERE $__adHocFilter() AND toString(status) like '2%' ${SETTINGS_SUFFIX}`
+    );
+  });
+
+  test("keyless map-key statement drops only the time conjunct", () => {
+    const result = getColumnKeysForMapStatement(
+      "attributes",
+      "sample.log",
+      "",
+      AD_HOC_PRELOAD_LOOKBACK_SECONDS
+    );
+    expect(result).toBe(
+      `SELECT distinct(arrayJoin(mapKeys(attributes))) FROM sample.log WHERE $__adHocFilter() ${SETTINGS_SUFFIX}`
+    );
+    expect(result).not.toContain("$__timeFilter");
+  });
+
+  // String replacers run GetSubstitution, where `$'` is "text after the
+  // match" - so a condition ending in `'$'` would splice the SETTINGS suffix
+  // into the predicate. Slots are filled with a function replacer instead.
+  test("dollar sequences in the condition are inserted verbatim", () => {
+    const result = getColumnValuesStatement(
+      "amount",
+      "sample.log",
+      "ts",
+      "currency = '$' AND amount > 0",
+      AD_HOC_PRELOAD_LOOKBACK_SECONDS
+    );
+    expect(result).toContain("AND currency = '$' AND amount > 0 SETTINGS");
+    expect(result.split("SETTINGS").length - 1).toBe(1);
+    expect(result.endsWith(SETTINGS_SUFFIX)).toBe(true);
+  });
+
+  test("dollar sequences in a map-key column are inserted verbatim", () => {
+    expect(
+      getColumnValuesStatement(
+        "attrs['$ref']",
+        "sample.log",
+        "ts",
+        "",
+        AD_HOC_PRELOAD_LOOKBACK_SECONDS
+      )
+    ).toContain("topK(100)(attrs['$ref'])");
+    expect(
+      getColumnValuesStatement(
+        "attrs['$&']",
+        "sample.log",
+        "",
+        "",
+        AD_HOC_PRELOAD_LOOKBACK_SECONDS
+      )
+    ).toContain("topK(100)(attrs['$&'])");
+    expect(
+      getColumnKeysForMapStatement(
+        "attrs['$`']",
+        "sample.log",
+        "",
+        AD_HOC_PRELOAD_LOOKBACK_SECONDS
+      )
+    ).toContain("mapKeys(attrs['$`'])");
+  });
+
+  test("dollar sequences in the time column are inserted verbatim", () => {
+    expect(
+      getColumnValuesStatement(
+        "status",
+        "sample.log",
+        "$'ts",
+        "",
+        AD_HOC_PRELOAD_LOOKBACK_SECONDS
+      )
+    ).toContain("WHERE $__timeFilter($'ts) AND $__adHocFilter()");
   });
 });

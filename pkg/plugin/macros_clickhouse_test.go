@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -152,17 +153,7 @@ func TestMacroTimeFilter_PKLookupFromCache(t *testing.T) {
 	sql := "SELECT $__timeFilter FROM mydb.events"
 	p := NewMetadataProvider(nopMetadataDS{})
 	p.pkCache.Set("mydb_events", "primary_ts", ttlcache.DefaultTTL)
-
-	pos := parser.Pos(0)
-	exprs, err := parser.NewParser(sql).ParseStmts()
-	require.NoError(t, err)
-	macroCTEs, err := cte.GetMacroCTEs(exprs)
-	require.NoError(t, err)
-	require.NotEmpty(t, macroCTEs)
-	for id := range macroCTEs {
-		pos = id.Index
-		break
-	}
+	pos := macroPosFor(t, sql)
 
 	q := &models.HdxQuery{
 		RawSQL:    sql,
@@ -267,4 +258,75 @@ func TestMacroPKLookupErrorPropagates(t *testing.T) {
 	_, err := TimeFilter(context.Background(), q, nil, parser.Pos(0), emptyProvider(t))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no CTE found for macro at pos")
+}
+
+// macroPosFor parses sql and returns the position of its first macro CTE, so
+// the PK-lookup macros resolve against the table in that statement's FROM.
+func macroPosFor(t *testing.T, sql string) parser.Pos {
+	t.Helper()
+	exprs, err := parser.NewParser(sql).ParseStmts()
+	require.NoError(t, err)
+	macroCTEs, err := cte.GetMacroCTEs(exprs)
+	require.NoError(t, err)
+	require.NotEmpty(t, macroCTEs)
+	for id := range macroCTEs {
+		return id.Index
+	}
+	return parser.Pos(0)
+}
+
+// pkLookupMacros are the four macros that resolve their column through getPK
+// when the argument is omitted.
+var pkLookupMacros = map[string]func(context.Context, *models.HdxQuery, []string, parser.Pos, *MetadataProvider) (string, error){
+	"timeFilter":      TimeFilter,
+	"timeFilter_ms":   TimeFilterMs,
+	"timeInterval":    TimeInterval,
+	"timeInterval_ms": TimeIntervalMs,
+}
+
+func TestMacroPKLookup_KeylessTableIsTypedErrorNotSQL(t *testing.T) {
+	// The stored empty string is how a table that exists but declares no
+	// primary key is represented; getPK is what refuses to expand against it.
+	sql := "SELECT $__timeFilter FROM mydb.keyless"
+	pos := macroPosFor(t, sql)
+	q := &models.HdxQuery{
+		RawSQL:    sql,
+		TimeRange: stdRange(t),
+		Interval:  20 * time.Second,
+	}
+
+	for name, macro := range pkLookupMacros {
+		t.Run(name, func(t *testing.T) {
+			p := NewMetadataProvider(nopMetadataDS{})
+			p.pkCache.Set("mydb_keyless", "", ttlcache.DefaultTTL)
+
+			got, err := macro(context.Background(), q, nil, pos, p)
+			assert.ErrorIs(t, err, ErrPrimaryKeyEmpty)
+			assert.True(t, backend.IsDownstreamError(err))
+			assert.Empty(t, got, "no SQL fragment may be emitted for an unresolved column")
+			assert.Contains(t, err.Error(), "mydb.keyless")
+			assert.Contains(t, err.Error(), "pass the time column as the macro argument")
+		})
+	}
+}
+
+func TestMacroPKLookup_GenericDownstreamFailureIsNotKeyless(t *testing.T) {
+	sql := "SELECT $__timeFilter FROM mydb.events"
+	pos := macroPosFor(t, sql)
+	q := &models.HdxQuery{
+		RawSQL:    sql,
+		TimeRange: stdRange(t),
+	}
+	upstream := backend.DownstreamError(errors.New("cluster unavailable"))
+	p := NewMetadataProvider(&fakeMetadataDS{
+		queryDataFn: func(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
+			return nil, upstream
+		},
+	})
+
+	got, err := TimeFilter(context.Background(), q, nil, pos, p)
+	assert.ErrorIs(t, err, upstream)
+	assert.NotErrorIs(t, err, ErrPrimaryKeyEmpty)
+	assert.Empty(t, got)
+	assert.NotContains(t, err.Error(), "pass the time column")
 }

@@ -303,16 +303,23 @@ export class DataSource extends DataSourceWithBackend<
     let table = this.adHocFilterTableName();
 
     if (table) {
-      const keys = await this.metadataProvider.tableKeys(table);
+      // The primary key is resolved once here rather than per Map column:
+      // N Map columns would otherwise race N identical lookups against the
+      // memo before the first one lands.
+      const [keys, timeColumn] = await Promise.all([
+        this.metadataProvider.tableKeys(table),
+        this.resolvePreloadTimeColumn(table),
+      ]);
       const maps = await Promise.all(
         keys
           .filter((key) => key.type.includes("Map"))
           .map((key) => key.value?.toString())
-          .filter((key) => !!key)
+          .filter((key): key is string => !!key)
           .map((column) =>
             this.getTagKeysForMap(
-              column!,
+              column,
               table,
+              timeColumn,
               options?.timeRange,
               options?.filters
             )
@@ -340,15 +347,29 @@ export class DataSource extends DataSourceWithBackend<
     }
   }
 
+  /**
+   * `timeColumn` is the table's resolved primary key. Only `""` selects the
+   * keyless statement, which carries no time macro and therefore gets no
+   * range (see `adHocPreloadRange`). `undefined` — the frontend lookup
+   * failed — keeps the keyed statement: its `$__timeFilter()` is resolved by
+   * the backend from its own lookup, exactly as before the keyless form
+   * existed, so a transient frontend failure never changes what is scanned.
+   */
   async getTagKeysForMap(
     column: string,
     table: string,
+    timeColumn: string | undefined,
     timeRange?: TimeRange,
     filters?: AdHocVariableFilter[]
   ): Promise<{ key: string; val: string[] }> {
     const response = await this.metadataProvider.executeQuery(
-      getColumnKeysForMapStatement(column, table, this.adHocLookbackSeconds()),
-      this.adHocPreloadRange(timeRange),
+      getColumnKeysForMapStatement(
+        column,
+        table,
+        timeColumn,
+        this.adHocLookbackSeconds()
+      ),
+      timeColumn === "" ? undefined : this.adHocPreloadRange(timeRange),
       filters
     );
     let values: string[] = this.getValuesFromResponse(response);
@@ -423,7 +444,10 @@ export class DataSource extends DataSourceWithBackend<
       return [];
     }
 
-    const keys = await this.metadataProvider.tableKeys(table);
+    const [keys, timeColumn] = await Promise.all([
+      this.metadataProvider.tableKeys(table),
+      this.resolvePreloadTimeColumn(table),
+    ]);
     const isMapKey = MAP_KEY_REGEX.test(options.key);
 
     const keyNames = keys.map((k) => k.value);
@@ -458,26 +482,20 @@ export class DataSource extends DataSourceWithBackend<
     const nullableTypes = isMapKey ? NULLABLE_MAP_TYPES : NULLABLE_TYPES;
     const isNullable = !!nullGateType && nullableTypes.includes(nullGateType);
 
-    let timeFilter = await this.metadataProvider.primaryKey(
-      this.getTableIdentifier(table)
-    );
-
-    let sql;
-    if (table && timeFilter) {
-      sql = getColumnValuesStatement(
-        column,
-        table,
-        timeFilter,
-        this.getAdHocFilterValueCondition(),
-        this.adHocLookbackSeconds()
-      );
-    }
-    if (!sql) {
+    if (timeColumn === undefined) {
       return [];
     }
+
+    const sql = getColumnValuesStatement(
+      column,
+      table,
+      timeColumn,
+      this.getAdHocFilterValueCondition(),
+      this.adHocLookbackSeconds()
+    );
     let response = await this.metadataProvider.executeQuery(
       sql,
-      this.adHocPreloadRange(options.timeRange),
+      timeColumn ? this.adHocPreloadRange(options.timeRange) : undefined,
       options.filters
     );
     let values: string[] = this.getValuesFromResponse(response);
@@ -495,6 +513,30 @@ export class DataSource extends DataSourceWithBackend<
         value: n,
       }));
   }
+  /**
+   * The preload time column for `table`: its primary key, `""` when the table
+   * declares none, `undefined` when the lookup failed or found no such table.
+   * Only `""` may select the keyless statement — a transient failure on a
+   * keyed table must not turn into an unfiltered scan on every dropdown open.
+   * For `undefined`, callers keep the pre-keyless behavior: `getTagValues`
+   * skips the preload, `getTagKeysForMap` sends the backend-resolved keyed
+   * statement.
+   */
+  private async resolvePreloadTimeColumn(
+    table: string
+  ): Promise<string | undefined> {
+    try {
+      return await this.metadataProvider.primaryKey(
+        this.getTableIdentifier(table)
+      );
+    } catch (e) {
+      logWarning(
+        `ad hoc filter preload skipped: cannot resolve the primary key of ${table}: ${e}`
+      );
+      return undefined;
+    }
+  }
+
   private getValuesFromResponse(response: DataQueryResponse): string[] {
     let fields: Field[] = response.data[0]?.fields?.length
       ? response.data[0].fields
@@ -506,13 +548,17 @@ export class DataSource extends DataSourceWithBackend<
    * Time window for the ad-hoc key/value preload queries. Resolution order is
    * tag-keys options -> template service -> trailing lookback.
    *
-   * Both preload statements carry `$__timeFilter()`, while `ZERO_TIME_RANGE` —
-   * the sentinel `executeQuery` substitutes for a missing range — means "this
-   * metadata query has no time macro" and is only correct for the unfiltered
-   * `system.*` / `DESCRIBE` lookups. Letting it reach a filtered query
+   * Only called for the time-filtered statements. `ZERO_TIME_RANGE` — the
+   * sentinel `executeQuery` substitutes for a missing range — means "this
+   * metadata query has no time macro", so letting it reach a filtered query
    * resolves to a 1970 window that returns no rows and silently erases the
    * column from the ad-hoc dropdown. This never returns undefined, so the
-   * sentinel is unreachable from the preload path.
+   * sentinel cannot arrive that way.
+   *
+   * The keyless form reaches the sentinel by design, by skipping this method
+   * entirely: its SQL carries no time macro, which is exactly the contract
+   * `ZERO_TIME_RANGE` documents for the `system.*` / `DESCRIBE` lookups.
+   * There is no window to cap or round when nothing filters on time.
    */
   private adHocPreloadRange(timeRange?: TimeRange): TimeRange {
     const resolved = timeRange ?? this.templateServiceRange();
