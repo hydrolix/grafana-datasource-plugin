@@ -25,6 +25,7 @@ import {
   InlineField,
   InlineLabel,
   Input,
+  Monaco,
   Select,
   ToolbarButton,
 } from "@grafana/ui";
@@ -113,6 +114,8 @@ export function QueryEditor(props: Props) {
       interpolationId: "",
       hasError: false,
     });
+
+  let [monaco, setMonaco] = useState<Monaco | null>(null);
 
   const onQueryTextChange = (queryText: string) => {
     props.onChange({ ...props.query, rawSql: queryText });
@@ -264,7 +267,7 @@ export function QueryEditor(props: Props) {
       <SQLEditor
         query={props.query.rawSql}
         onChange={onQueryTextChange}
-        language={languageDefinition(props)}
+        language={languageDefinition(props, setMonaco)}
       >
         {({ formatQuery }) => {
           return (
