@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -175,82 +176,134 @@ func pkWarning(tables []string) string {
 type pkResolver func(ctx context.Context, headers http.Header, database, table string) (string, error)
 
 // unconstrainedPKTables lists tables whose leading primary-key column no
-// filter references. Lookup failures are skipped: a metadata problem must not
-// become a query warning.
+// filter references.
 func unconstrainedPKTables(ctx context.Context, stmt *parser.SelectQuery, headers http.Header, resolve pkResolver) []string {
-	cteBodies := map[string]*parser.SelectQuery{}
-	var selects []*parser.SelectQuery
-	parser.Walk(stmt, func(node parser.Expr) bool {
-		switch n := node.(type) {
-		case *parser.CTEStmt:
-			// Subquery-form CTEs store the name in Expr and the body in Alias.
-			if body, ok := n.Alias.(*parser.SelectQuery); ok {
-				if name, ok := cte.IdentName(n.Expr); ok {
-					cteBodies[name] = body
-				}
-			}
-		case *parser.SelectQuery:
-			selects = append(selects, n)
-		}
-		return true
-	})
-	readers := readersOf(selects, cteBodies)
-
-	seen := map[string]bool{}
+	graph := newSelectGraph(stmt)
 	var found []string
-	for _, sq := range selects {
+	for _, sq := range graph.selects {
 		if ctx.Err() != nil {
 			break
 		}
-		table := singleTable(sq)
-		if table == nil || (table.Database == nil && cteBodies[table.Table.Name] != nil) {
+		table := graph.baseTable(sq)
+		if table == nil {
 			continue
 		}
-		database := ""
-		if table.Database != nil {
-			database = table.Database.Name
-		}
-		primaryKey, err := resolve(ctx, headers, database, table.Table.Name)
-		if err != nil {
-			if !errors.Is(err, ErrPrimaryKeyNotFound) && ctx.Err() == nil {
-				log.DefaultLogger.Warn("query validation: skipping PK check", "database", database, "table", table.Table.Name, "err", err)
-			}
-			continue
-		}
-		column, ok := leadingPKColumn(primaryKey)
-		if !ok || filtersColumn(sq, readers, column, map[*parser.SelectQuery]bool{}) {
+		column, ok := primaryKeyColumn(ctx, headers, resolve, table)
+		if !ok || graph.filters(sq, column) {
 			continue
 		}
 		description := fmt.Sprintf("Primary key `%s` of `%s`", column, parser.Format(table))
-		if !seen[description] {
-			seen[description] = true
+		if !slices.Contains(found, description) {
 			found = append(found, description)
 		}
 	}
 	return found
 }
 
-// readersOf maps each FROM subquery or CTE body to the SELECTs reading it.
-// ClickHouse pushes a reader's WHERE down into its source.
-func readersOf(selects []*parser.SelectQuery, cteBodies map[string]*parser.SelectQuery) map[*parser.SelectQuery][]*parser.SelectQuery {
-	readers := map[*parser.SelectQuery][]*parser.SelectQuery{}
-	for _, sq := range selects {
-		var source *parser.SelectQuery
-		switch s := singleSource(sq).(type) {
-		case *parser.SubQuery:
-			source = s.Select
-		case *parser.SelectQuery:
-			source = s
-		case *parser.TableIdentifier:
-			if s.Database == nil && s.Table != nil {
-				source = cteBodies[s.Table.Name]
-			}
+// primaryKeyColumn returns table's leading primary-key column. Lookup failures
+// are skipped: a metadata problem must not become a query warning.
+func primaryKeyColumn(ctx context.Context, headers http.Header, resolve pkResolver, table *parser.TableIdentifier) (string, bool) {
+	database := ""
+	if table.Database != nil {
+		database = table.Database.Name
+	}
+	primaryKey, err := resolve(ctx, headers, database, table.Table.Name)
+	if err != nil {
+		if !errors.Is(err, ErrPrimaryKeyNotFound) && ctx.Err() == nil {
+			log.DefaultLogger.Warn("query validation: skipping PK check", "database", database, "table", table.Table.Name, "err", err)
 		}
-		for _, branch := range setBranches(source) {
-			readers[branch] = append(readers[branch], sq)
+		return "", false
+	}
+	return leadingPKColumn(primaryKey)
+}
+
+// selectGraph holds every SELECT in a statement and, for each FROM subquery or
+// CTE body, the SELECTs reading it. ClickHouse pushes a reader's WHERE down
+// into its source.
+type selectGraph struct {
+	selects   []*parser.SelectQuery
+	cteBodies map[string]*parser.SelectQuery
+	readers   map[*parser.SelectQuery][]*parser.SelectQuery
+}
+
+func newSelectGraph(stmt *parser.SelectQuery) selectGraph {
+	graph := selectGraph{
+		cteBodies: map[string]*parser.SelectQuery{},
+		readers:   map[*parser.SelectQuery][]*parser.SelectQuery{},
+	}
+	parser.Walk(stmt, func(node parser.Expr) bool {
+		switch n := node.(type) {
+		case *parser.CTEStmt:
+			// Subquery-form CTEs store the name in Expr and the body in Alias.
+			if body, ok := n.Alias.(*parser.SelectQuery); ok {
+				if name, ok := cte.IdentName(n.Expr); ok {
+					graph.cteBodies[name] = body
+				}
+			}
+		case *parser.SelectQuery:
+			graph.selects = append(graph.selects, n)
+		}
+		return true
+	})
+	for _, sq := range graph.selects {
+		for _, branch := range setBranches(graph.source(sq)) {
+			graph.readers[branch] = append(graph.readers[branch], sq)
 		}
 	}
-	return readers
+	return graph
+}
+
+// source returns the SELECT sq reads from — a FROM subquery or a CTE body.
+func (g selectGraph) source(sq *parser.SelectQuery) *parser.SelectQuery {
+	switch s := singleSource(sq).(type) {
+	case *parser.SubQuery:
+		return s.Select
+	case *parser.SelectQuery:
+		return s
+	case *parser.TableIdentifier:
+		if s.Database == nil && s.Table != nil {
+			return g.cteBodies[s.Table.Name]
+		}
+	}
+	return nil
+}
+
+// baseTable returns the table sq reads when its only FROM source is a table,
+// not a CTE.
+func (g selectGraph) baseTable(sq *parser.SelectQuery) *parser.TableIdentifier {
+	ti, ok := singleSource(sq).(*parser.TableIdentifier)
+	if !ok || ti.Table == nil || (ti.Database == nil && g.cteBodies[ti.Table.Name] != nil) {
+		return nil
+	}
+	return ti
+}
+
+// filters reports whether sq, or every reader of sq, filters on col.
+func (g selectGraph) filters(sq *parser.SelectQuery, col string) bool {
+	visiting := map[*parser.SelectQuery]bool{} // CTEs can read each other
+	var check func(*parser.SelectQuery) bool
+	check = func(s *parser.SelectQuery) bool {
+		if whereReferences(s, col) {
+			return true
+		}
+		if len(g.readers[s]) == 0 || visiting[s] {
+			return false
+		}
+		visiting[s] = true
+		defer delete(visiting, s)
+		for _, reader := range g.readers[s] {
+			if !check(reader) {
+				return false
+			}
+		}
+		return true
+	}
+	return check(sq)
+}
+
+func whereReferences(sq *parser.SelectQuery, col string) bool {
+	return (sq.Prewhere != nil && referencesColumn(sq.Prewhere.Expr, col)) ||
+		(sq.Where != nil && referencesColumn(sq.Where.Expr, col))
 }
 
 // setBranches returns sq and its UNION / EXCEPT / INTERSECT branches.
@@ -270,25 +323,6 @@ func setBranches(sq *parser.SelectQuery) []*parser.SelectQuery {
 	return branches
 }
 
-// filtersColumn reports whether sq, or every reader of sq, filters on col.
-// visiting guards against CTEs that read each other.
-func filtersColumn(sq *parser.SelectQuery, readers map[*parser.SelectQuery][]*parser.SelectQuery, col string, visiting map[*parser.SelectQuery]bool) bool {
-	if (sq.Prewhere != nil && referencesColumn(sq.Prewhere.Expr, col)) || (sq.Where != nil && referencesColumn(sq.Where.Expr, col)) {
-		return true
-	}
-	if len(readers[sq]) == 0 || visiting[sq] {
-		return false
-	}
-	visiting[sq] = true
-	defer delete(visiting, sq)
-	for _, reader := range readers[sq] {
-		if !filtersColumn(reader, readers, col, visiting) {
-			return false
-		}
-	}
-	return true
-}
-
 // singleSource returns a SELECT's only FROM source, or nil for a JOIN.
 func singleSource(sq *parser.SelectQuery) parser.Expr {
 	if sq.From == nil {
@@ -303,15 +337,6 @@ func singleSource(sq *parser.SelectQuery) parser.Expr {
 		source = alias.Expr
 	}
 	return source
-}
-
-// singleTable returns a SELECT's only FROM source when it is a plain table.
-func singleTable(sq *parser.SelectQuery) *parser.TableIdentifier {
-	ti, ok := singleSource(sq).(*parser.TableIdentifier)
-	if !ok || ti.Table == nil {
-		return nil
-	}
-	return ti
 }
 
 // leadingPKColumn returns the first column of a primary_key value: the one
