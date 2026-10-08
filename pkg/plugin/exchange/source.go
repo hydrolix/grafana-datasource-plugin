@@ -113,6 +113,11 @@ func NewSource(ex Exchanger, now func() time.Time, log Logger) *Source {
 	}
 }
 
+// exchangeCeiling bounds a detached flight. The HTTP exchanger carries its own
+// 10s client timeout; this is the backstop that keeps a hung Exchanger from
+// leaking a flight forever now that no caller's cancellation can end one.
+const exchangeCeiling = 30 * time.Second
+
 func key(audience, subject string) string { return audience + "\x00" + subject }
 
 // Token answers a cluster token for this subject at this cluster.
@@ -172,7 +177,18 @@ func (s *Source) Token(ctx context.Context, audience, subject, subjectToken stri
 // exchange performs one exchange for the key, coalescing concurrent callers.
 // Thirty panels opening one dashboard make one exchange, not thirty.
 func (s *Source) exchange(ctx context.Context, k, audience, subject, subjectToken string) (string, error) {
-	v, err, _ := s.flight.Do(k, func() (any, error) {
+	ch := s.flight.DoChan(k, func() (any, error) {
+		// Detached from every caller, deliberately. The flight is SHARED: the
+		// thirty panels above are one exchange, and running it on whichever
+		// caller happened to arrive first lets that one caller cancel work the
+		// other twenty-nine are still waiting on. In Grafana a caller going
+		// away is routine — a panel refresh, a navigation, a closed dashboard —
+		// so the leader's context is the wrong lifetime for shared work.
+		// `WithoutCancel` keeps the values (the principal rides there) and
+		// drops only the cancellation.
+		exCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), exchangeCeiling)
+		defer cancel()
+
 		s.mu.Lock()
 		gen := s.gens[k]
 		s.mu.Unlock()
@@ -181,7 +197,7 @@ func (s *Source) exchange(ctx context.Context, k, audience, subject, subjectToke
 		// local deadline sits at or before the console's true expiry by one
 		// round trip. A server timestamp is never compared to the local clock.
 		started := s.now()
-		token, lifetime, exErr := s.ex.Exchange(ctx, audience, subjectToken)
+		token, lifetime, exErr := s.ex.Exchange(exCtx, audience, subjectToken)
 		if exErr != nil {
 			s.noteFailure(k, exErr)
 			return "", exErr
@@ -191,11 +207,22 @@ func (s *Source) exchange(ctx context.Context, k, audience, subject, subjectToke
 			"lifetime_s", int(lifetime.Seconds()))
 		return token, nil
 	})
-	if err != nil {
-		return "", err
+
+	select {
+	case res := <-ch:
+		if res.Err != nil {
+			return "", res.Err
+		}
+		token, _ := res.Val.(string)
+		return token, nil
+	case <-ctx.Done():
+		// THIS caller stops waiting. The flight carries on for the others, and
+		// its result still reaches the cache, so the exchange is not wasted.
+		// Nothing is recorded as a failure: the console did not fail, a browser
+		// moved on, and putting the key on a backoff ladder for that would let
+		// ordinary navigation degrade every later request for this person.
+		return "", ctx.Err()
 	}
-	token, _ := v.(string)
-	return token, nil
 }
 
 // store caches a fresh token unless the session was invalidated while it was in

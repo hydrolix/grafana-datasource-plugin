@@ -402,3 +402,90 @@ func TestNoTokenOrSubjectTokenReachesALogLine(t *testing.T) {
 		t.Fatalf("expected a truncated subject in the logs:\n%s", rendered)
 	}
 }
+
+// ---------------------------------------------------------------- cancellation
+//
+// Raised in review of #219. Thirty panels opening one dashboard coalesce into a
+// single exchange, and `singleflight.Do` runs that exchange on the context of
+// whichever caller happened to arrive first. The real exchanger binds its HTTP
+// request to that context (`client.go`, http.NewRequestWithContext), so the
+// leader walking away — a panel refresh, a navigation, a closed dashboard, all
+// routine in Grafana — cancels work the other twenty-nine are still waiting on.
+
+// cancellableExchanger respects its context, as the HTTP exchanger does. The
+// fake above ignores ctx, which is why this bug could not surface there.
+type cancellableExchanger struct {
+	started chan struct{} // closed once an exchange is under way
+	release chan struct{} // closed to let the exchange finish
+	calls   int32
+	once    sync.Once
+}
+
+func (c *cancellableExchanger) count() int { return int(atomic.LoadInt32(&c.calls)) }
+
+func (c *cancellableExchanger) Exchange(ctx context.Context, audience, subjectToken string) (string, time.Duration, error) {
+	atomic.AddInt32(&c.calls, 1)
+	c.once.Do(func() { close(c.started) })
+	select {
+	case <-c.release:
+		return "cluster-token-1", time.Hour, nil
+	case <-ctx.Done():
+		return "", 0, ctx.Err()
+	}
+}
+
+func TestOneCallerLeavingDoesNotCancelTheOthers(t *testing.T) {
+	ex := &cancellableExchanger{started: make(chan struct{}), release: make(chan struct{})}
+	ck := newClock()
+	s := NewSource(ex, ck.now, nil)
+
+	leaderCtx, cancelLeader := context.WithCancel(context.Background())
+	leaderDone := make(chan error, 1)
+	go func() {
+		_, err := s.Token(leaderCtx, aud, sub, stok)
+		leaderDone <- err
+	}()
+
+	<-ex.started // the leader owns the flight
+
+	waiterDone := make(chan struct {
+		tok string
+		err error
+	}, 1)
+	go func() {
+		tok, err := s.Token(context.Background(), aud, sub, stok)
+		waiterDone <- struct {
+			tok string
+			err error
+		}{tok, err}
+	}()
+
+	// Let the waiter join the flight rather than start its own.
+	time.Sleep(50 * time.Millisecond)
+	if ex.count() != 1 {
+		t.Fatalf("expected the two callers to share one exchange, saw %d", ex.count())
+	}
+
+	cancelLeader()    // the leader's panel goes away
+	close(ex.release) // whatever is still in flight may now finish
+
+	if err := <-leaderDone; err == nil {
+		t.Log("leader returned without error, which is fine; it is the waiter that matters")
+	}
+
+	got := <-waiterDone
+	if got.err != nil {
+		t.Fatalf("a caller that never cancelled was failed by another caller leaving: %v", got.err)
+	}
+	if got.tok == "" {
+		t.Fatal("the surviving caller got no token")
+	}
+
+	// And the walk-away must not be recorded as the console failing: that would
+	// put the key on a backoff ladder, so ordinary Grafana navigation would
+	// degrade every later request for this person and cluster.
+	attempts, nextTry := s.retryStateFor(aud, sub)
+	if attempts != 0 || !nextTry.IsZero() {
+		t.Fatalf("a cancellation was recorded as a failure: attempts=%d nextTry=%v", attempts, nextTry)
+	}
+}
