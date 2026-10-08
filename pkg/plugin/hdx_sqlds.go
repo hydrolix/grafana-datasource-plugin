@@ -37,8 +37,10 @@ type HdxSqlDatasource struct {
 	// Settings is the parsed plugin settings (nil on parse failure).
 	Settings *models.PluginSettings
 	// instanceSettings holds the original DataSourceInstanceSettings used
-	// to synthesise schema-query requests in MetadataProvider.executeQuery.
+	// to synthesise requests in MetadataProvider.executeQueryJSON.
 	instanceSettings backend.DataSourceInstanceSettings
+	// Validator shares the interpolator and metadata caches with queries.
+	Validator *QueryValidator
 }
 
 // NewHdxSqlDatasource constructs the wrapper. settings.UID is captured by the
@@ -75,7 +77,10 @@ func NewHdxSqlDatasource(driver sqlds.Driver, settings backend.DataSourceInstanc
 	// Order matters: the wrapper must exist before NewMetadataProvider.
 	// ds.Interpolator is a func field; we install the method value, which
 	// overrides the default sqlds.NewDatasource wires in.
-	ds.Interpolator = NewHdxInterpolator(NewMetadataProvider(wrapper), Macros).Interpolate
+	md := NewMetadataProvider(wrapper)
+	interp := NewHdxInterpolator(md, Macros)
+	ds.Interpolator = interp.Interpolate
+	wrapper.Validator = NewQueryValidator(interp, md)
 	return wrapper
 }
 

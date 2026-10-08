@@ -15,6 +15,7 @@ import {
   InterpolationResult,
   QuerySetting,
   QueryType,
+  ValidationState,
 } from "../types";
 import { SQLEditor } from "@grafana/plugin-ui";
 import { languageDefinition } from "../editor/languageDefinition";
@@ -33,11 +34,13 @@ import {
   QUERY_DURATION_REGEX,
 } from "../editor/timeRangeUtils";
 import { InterpolatedQuery } from "./InterpolatedQuery";
-import { ValidationBar } from "./ValidationBar";
+import { toValidationState, ValidationBar } from "./ValidationBar";
 import { useDebounce } from "react-use";
+import { v4 } from "uuid";
+import { logError } from "@grafana/runtime";
 import {
   SHOW_INTERPOLATED_QUERY_ERRORS,
-  SHOW_VALIDATION_BAR,
+  VALIDATION_DEBOUNCE_MS,
 } from "../constants";
 
 import { css } from "@emotion/css";
@@ -110,10 +113,10 @@ export function QueryEditor(props: Props) {
       originalSql: props.query.rawSql,
       interpolationId: "",
       hasError: false,
-      hasWarning: false,
     });
 
-  let [monaco, setMonaco] = useState<Monaco | null>(null);
+  // Only the setter is used: languageDefinition stores the Monaco instance.
+  const [, setMonaco] = useState<Monaco | null>(null);
 
   const onQueryTextChange = (queryText: string) => {
     props.onChange({ ...props.query, rawSql: queryText });
@@ -157,19 +160,20 @@ export function QueryEditor(props: Props) {
       range: props.range,
       // Not `undefined`: JSON.stringify drops the key, the backend decodes
       // Interval as "" and time.ParseDuration("") fails the whole interpolate
-      // request before any macro runs. The interval macros floor at 1, so a
-      // zero interval degrades cleanly instead.
+      // or validate request before any macro runs. The interval macros floor
+      // at 1, so a zero interval degrades cleanly instead.
       interval: props.range
         ? deriveInterpolationInterval(props.range, panelRequest?.maxDataPoints)
         : "0ms",
       filters: panelRequest?.filters,
+      scopedVars: panelRequest?.scopedVars,
     }),
     [props.range, panelRequest]
   );
 
   useDebounce(
     async () => {
-      if (showSql || SHOW_VALIDATION_BAR) {
+      if (showSql) {
         let interpolatedQuery = await props.datasource.interpolateQuery(
           props.query,
           interpolationId,
@@ -183,6 +187,68 @@ export function QueryEditor(props: Props) {
   );
   // eslint-disable-next-line eqeqeq
   let dirty = interpolationResult?.interpolationId != interpolationId;
+
+  // Range and interval are left out: they change on every refresh but rarely
+  // affect validity, and each validation hits the cluster.
+  const validationKey = `${interpolationIdString}|${JSON.stringify(
+    props.query.querySettings ?? []
+  )}`;
+  const hasSql = !!props.query.rawSql?.trim();
+  // A result stored for another key renders as "validating".
+  const [validation, setValidation] = useState<{
+    key: string;
+    state: ValidationState;
+  }>();
+  const latestValidationKey = useRef(validationKey);
+  useEffect(() => {
+    latestValidationKey.current = validationKey;
+  }, [validationKey]);
+  // A stable requestId lets backendSrv cancel superseded validations.
+  const validationRequestId = useRef(v4());
+  useDebounce(
+    async () => {
+      if (!hasSql) {
+        return;
+      }
+      const key = validationKey;
+      let state: ValidationState;
+      try {
+        const result = await props.datasource.validateQuery(
+          props.query,
+          interpolationContext,
+          validationRequestId.current
+        );
+        // Cancelled by a newer validation, which will report instead.
+        if (!result) {
+          return;
+        }
+        state = toValidationState(result);
+      } catch (e) {
+        const error = e instanceof Error ? e : new Error(String(e));
+        logError(error, {
+          refId: props.query.refId,
+          source: "query-validation",
+        });
+        state = {
+          status: "warning",
+          message: `${labels.validation.unavailable}: ${error.message}`,
+        };
+      }
+      // A late response must not replace a newer result.
+      if (key === latestValidationKey.current) {
+        setValidation({ key, state });
+      }
+    },
+    VALIDATION_DEBOUNCE_MS,
+    [validationKey]
+  );
+  let validationState: ValidationState = { status: "idle" };
+  if (hasSql) {
+    validationState =
+      validation?.key === validationKey
+        ? validation.state
+        : { status: "validating" };
+  }
 
   // In a Mixed panel props.queries includes other datasources' queries; keep
   // only ours before the cast. A query without a datasource ref can only
@@ -207,13 +273,7 @@ export function QueryEditor(props: Props) {
         {({ formatQuery }) => {
           return (
             <div>
-              {SHOW_VALIDATION_BAR && (
-                <ValidationBar
-                  monaco={monaco}
-                  interpolationResult={interpolationResult}
-                  query={props.query.rawSql}
-                />
-              )}
+              <ValidationBar state={validationState} />
               <div
                 style={{
                   display: "flex",

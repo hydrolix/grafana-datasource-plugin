@@ -72,7 +72,7 @@ func TestInterpolateRoute_RealInterpolator(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/interpolate", strings.NewReader(string(body)))
 	rr := httptest.NewRecorder()
-	api.Routes(ds)["/interpolate"](rr, req)
+	api.Routes(ds, plugin.NewQueryValidator(interp, provider))["/interpolate"](rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
 
@@ -109,7 +109,7 @@ func TestInterpolateRoute_RejectsInjectedOperator(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/interpolate", strings.NewReader(string(body)))
 	rr := httptest.NewRecorder()
-	api.Routes(ds)["/interpolate"](rr, req)
+	api.Routes(ds, plugin.NewQueryValidator(interp, provider))["/interpolate"](rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
 	respBody, err := io.ReadAll(rr.Body)

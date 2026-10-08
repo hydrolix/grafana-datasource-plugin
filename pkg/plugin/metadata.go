@@ -27,8 +27,10 @@ const PrimaryKeyQuery = "SELECT primary_key FROM system.tables WHERE database='%
 
 var (
 	// ErrPrimaryKeyNotFound is returned by QueryPK when the schema query
-	// yields no rows for the requested (database, table).
-	ErrPrimaryKeyNotFound = backend.PluginError(errors.New("primary key not found"))
+	// yields no rows for the requested (database, table). Like
+	// ErrPrimaryKeyEmpty it carries no error source, so errors.Is is an
+	// identity check; QueryPK adds the plugin classification on the wrapper.
+	ErrPrimaryKeyNotFound = errors.New("primary key not found")
 	// ErrPrimaryKeyEmpty is raised by getPK when the table exists but its
 	// primary_key is the empty string, so a PK-lookup macro has no column to
 	// expand against. Deliberately carries no error source: the SDK's
@@ -209,7 +211,7 @@ func (p *MetadataProvider) QueryPK(ctx context.Context, headers http.Header, dat
 		return "", err
 	}
 	if len(frame.Fields) == 0 || frame.Fields[0].Len() == 0 {
-		return "", ErrPrimaryKeyNotFound
+		return "", backend.PluginError(ErrPrimaryKeyNotFound)
 	}
 	return GetStringSafe(frame.Fields[0].At(0))
 }
@@ -351,15 +353,19 @@ func describeSubquery(sq *parser.SelectQuery) (string, error) {
 	}
 }
 
-// executeQuery synthesises a *backend.QueryDataRequest carrying the schema
-// SQL and routes it through ds.QueryData. Headers are propagated via
-// SetHTTPHeader so non-special headers (notably X-Grafana-Org-Id) survive
-// the SDK's getHTTPHeadersFromStringMap round-trip.
+// executeQuery runs schema SQL through executeQueryJSON.
 func (p *MetadataProvider) executeQuery(ctx context.Context, headers http.Header, sql, queryID string) (*data.Frame, error) {
-	queryJSON, err := json.Marshal(map[string]any{
+	return p.executeQueryJSON(ctx, headers, map[string]any{
 		"rawSql": sql,
 		"format": 1,
-	})
+	}, queryID)
+}
+
+// executeQueryJSON routes payload through ds.QueryData as the query JSON.
+// Headers are propagated via SetHTTPHeader so non-special headers (notably
+// X-Grafana-Org-Id) survive the SDK's getHTTPHeadersFromStringMap round-trip.
+func (p *MetadataProvider) executeQueryJSON(ctx context.Context, headers http.Header, payload map[string]any, queryID string) (*data.Frame, error) {
+	queryJSON, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}

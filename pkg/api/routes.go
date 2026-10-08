@@ -1,16 +1,20 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/hydrolix/plugin/pkg/identity"
 	"maps"
 	"net/http"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
 	"github.com/grafana/sqlds/v5"
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
@@ -55,9 +59,7 @@ func Interpolate(ds *sqlds.SQLDatasource, rw http.ResponseWriter, req *http.Requ
 		wrapError(rw, err)
 		return
 	}
-	timeRange := request.Data.Range.ToTimeRange()
-	interval, err := time.ParseDuration(request.Data.Interval)
-
+	hdxQuery, err := toHdxQuery(req, request.Data)
 	if err != nil {
 		wrapError(rw, err)
 		return
@@ -67,23 +69,16 @@ func Interpolate(ds *sqlds.SQLDatasource, rw http.ResponseWriter, req *http.Requ
 	// json.RawMessage). Hydrolix-specific fields (filters, round, etc.)
 	// travel via the rawJSON payload — shape preserved from the fork's
 	// HDXQuery so the plugin-local interpolator (C5) decodes it the same
-	// way. NewHdxSqlDatasource always installs the Hydrolix interpolator,
-	// so a nil field here means the datasource was not constructed through
-	// that path — surface it as an error rather than silently degrading.
-	hdxQuery := models.HdxQuery{
-		RawSQL:    request.Data.RawSql,
-		Filters:   request.Data.Filters,
-		Round:     request.Data.Round,
-		Interval:  interval,
-		TimeRange: timeRange,
-		Headers:   req.Header,
-	}
+	// way. Headers are not serialised.
 	rawJSON, err := json.Marshal(hdxQuery)
 	if err != nil {
 		wrapError(rw, err)
 		return
 	}
 
+	// NewHdxSqlDatasource always installs the Hydrolix interpolator, so a nil
+	// field here means the datasource was not constructed through that path —
+	// surface it as an error rather than silently degrading.
 	if ds.Interpolator == nil {
 		wrapError(rw, errors.New("interpolator not configured"))
 		return
@@ -94,9 +89,9 @@ func Interpolate(ds *sqlds.SQLDatasource, rw http.ResponseWriter, req *http.Requ
 	// (CFB-2612).
 	body, err := ds.Interpolator(identity.WithForwardedToken(req.Context(), identity.TokenOfRequest(req)),
 		&sqlutil.Query{
-			RawSQL:    request.Data.RawSql,
-			TimeRange: timeRange,
-			Interval:  interval,
+			RawSQL:    hdxQuery.RawSQL,
+			TimeRange: hdxQuery.TimeRange,
+			Interval:  hdxQuery.Interval,
 		},
 		rawJSON,
 	)
@@ -113,6 +108,62 @@ func Interpolate(ds *sqlds.SQLDatasource, rw http.ResponseWriter, req *http.Requ
 		body,
 	})
 
+}
+
+// Validator is declared here because pkg/plugin imports pkg/api.
+type Validator interface {
+	Validate(ctx context.Context, q models.HdxQuery) (models.ValidationResult, error)
+}
+
+// Validate puts query problems in the response data; the envelope error is
+// only for failing to validate.
+func Validate(v Validator, responseWriter http.ResponseWriter, req *http.Request) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.DefaultLogger.Error("validate: recovered panic", "panic", fmt.Sprint(r), "stack", string(debug.Stack()))
+			wrapError(responseWriter, fmt.Errorf("internal error while validating query: %v", r))
+		}
+	}()
+	if v == nil {
+		wrapError(responseWriter, errors.New("query validation is not configured"))
+		return
+	}
+	var request Request[QueryData]
+	if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
+		wrapError(responseWriter, err)
+		return
+	}
+	hdxQuery, err := toHdxQuery(req, request.Data)
+	if err != nil {
+		wrapError(responseWriter, err)
+		return
+	}
+	result, err := v.Validate(req.Context(), hdxQuery)
+	if err != nil {
+		wrapError(responseWriter, err)
+		return
+	}
+	writeJSON(responseWriter, Response[models.ValidationResult]{
+		false,
+		"",
+		result,
+	})
+}
+
+func toHdxQuery(req *http.Request, data QueryData) (models.HdxQuery, error) {
+	interval, err := time.ParseDuration(data.Interval)
+	if err != nil {
+		return models.HdxQuery{}, err
+	}
+	return models.HdxQuery{
+		RawSQL:        data.RawSql,
+		Filters:       data.Filters,
+		Round:         data.Round,
+		QuerySettings: data.QuerySettings,
+		Interval:      interval,
+		TimeRange:     data.Range.ToTimeRange(),
+		Headers:       req.Header,
+	}, nil
 }
 
 // MacroCTEs returns the map of macro-to-CTE associations the dashboard's
@@ -177,13 +228,16 @@ func writeJSON(rw http.ResponseWriter, v any) {
 	_, _ = rw.Write(marshal)
 }
 
-func Routes(ds *sqlds.SQLDatasource) map[string]func(http.ResponseWriter, *http.Request) {
+func Routes(ds *sqlds.SQLDatasource, v Validator) map[string]func(http.ResponseWriter, *http.Request) {
 	return map[string]func(http.ResponseWriter, *http.Request){
 		"/ast": AST,
 		"/interpolate": func(writer http.ResponseWriter, request *http.Request) {
 			Interpolate(ds, writer, request)
 		},
 		"/macroCTE": MacroCTEs,
+		"/validate": func(writer http.ResponseWriter, request *http.Request) {
+			Validate(v, writer, request)
+		},
 	}
 }
 
@@ -191,11 +245,12 @@ type Request[T any] struct {
 	Data T
 }
 type QueryData struct {
-	RawSql   string               `json:"rawSql"`
-	Round    string               `json:"round"`
-	Filters  []models.AdHocFilter `json:"filters"`
-	Range    Range                `json:"range"`
-	Interval string               `json:"interval"`
+	RawSql        string                `json:"rawSql"`
+	Round         string                `json:"round"`
+	Filters       []models.AdHocFilter  `json:"filters"`
+	Range         Range                 `json:"range"`
+	Interval      string                `json:"interval"`
+	QuerySettings []models.QuerySetting `json:"querySettings"`
 }
 
 type Range struct {

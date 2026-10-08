@@ -1,6 +1,7 @@
 import {
   AdHocVariableFilter,
   DataSourceJsonData,
+  ScopedVars,
   TimeRange,
   TypedVariableModel,
 } from "@grafana/data";
@@ -122,6 +123,7 @@ export interface InterpolationContext {
   range?: TimeRange;
   interval?: string;
   filters?: AdHocVariableFilter[];
+  scopedVars?: ScopedVars;
 }
 
 export interface InterpolationResult {
@@ -130,15 +132,22 @@ export interface InterpolationResult {
   interpolatedSql?: string;
   finalSql?: string;
   hasError: boolean;
-  hasWarning: boolean;
   error?: string;
-  warning?: string;
 }
 
+/** The `data` of a /validate resource response. */
 export interface ValidationResult {
   error?: string;
   warning?: string;
+  /** Not a single SELECT, so not dry-run. */
+  skipped?: boolean;
 }
+
+export type ValidationState =
+  | { status: "idle" }
+  | { status: "validating" }
+  | { status: "valid" }
+  | { status: "error" | "warning"; message: string };
 
 export interface SelectQuery {
   SelectItems: SelectItem[];

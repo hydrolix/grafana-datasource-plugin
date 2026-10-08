@@ -135,7 +135,7 @@ func (v *queryVisitor) Enter(expr parser.Expr) {
 			if !ok {
 				continue
 			}
-			name, ok := identName(c.Expr)
+			name, ok := IdentName(c.Expr)
 			if !ok {
 				continue
 			}
@@ -168,8 +168,8 @@ func (v *queryVisitor) resolveWithAlias(fromExpr parser.Expr) (*parser.SelectQue
 	return nil, false
 }
 
-// identName returns the name of a plain identifier expression.
-func identName(e parser.Expr) (string, bool) {
+// IdentName returns the name of a plain identifier expression.
+func IdentName(e parser.Expr) (string, bool) {
 	if id, ok := e.(*parser.Ident); ok {
 		return id.Name, true
 	}
