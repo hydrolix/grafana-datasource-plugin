@@ -2,6 +2,14 @@
 
 ## 0.13.0 (unreleased)
 
+- **Feature**: New credentials type *Forward OAuth + Exchange* (`forwardOAuthExchange`). The signed-in user's token is
+  exchanged for a cluster token (RFC 8693) before querying, for a Grafana whose users sign in through an issuer the
+  cluster does not accept directly. The data source stores no credential; the exchange endpoint and its per-cluster
+  credentials come from `GF_PLUGIN_EXCHANGE_URL` / `GF_PLUGIN_EXCHANGE_CREDENTIALS`. Requires the HTTP protocol —
+  native binds its credential to the connection and cannot carry a refreshed token
+- **Fix**: `Save & test` on either forwarding mode reported a working data source as degraded. The check ran on the
+  bootstrap connection, which has no signed-in user, so it tested something no query uses. Both modes now report what
+  can actually be established at configuration time
 - **Fix**: The signed-in user's auth header did not reach the plugin backend's metadata lookups. It is set on
   `HdxQuery.Headers`, which is `json:"-"`, so the `/interpolate` route marshalled it away and the QueryData path never
   filled it — the macros found nil. It now travels on the request context, set at both entry points. Two things were

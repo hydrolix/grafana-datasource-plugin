@@ -2,7 +2,7 @@ package plugin
 
 import (
 	"context"
-	"encoding/base64"
+	"github.com/hydrolix/plugin/pkg/plugin/exchange"
 	"net/http"
 	"testing"
 
@@ -14,10 +14,6 @@ import (
 
 // jwtWithSubject builds an unsigned JWT carrying one claim. Unsigned is what
 // this code path sees in a test, and the signature is not what it reads.
-func jwtWithSubject(sub string) string {
-	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"` + sub + `"}`))
-	return "eyJhbGciOiJSUzI1NiJ9." + payload + ".signature"
-}
 
 func forwardedHeaders(subject string) http.Header {
 	h := http.Header{}
@@ -127,8 +123,8 @@ func TestAnUnreadableForwardedTokenIsStillItsOwnIdentity(t *testing.T) {
 }
 
 func TestSubjectOfReadsTheClaimWithoutVerifying(t *testing.T) {
-	assert.Equal(t, "kc-sub-alice", subjectOf(jwtWithSubject("kc-sub-alice")))
+	assert.Equal(t, "kc-sub-alice", exchange.SubjectOf(jwtWithSubject("kc-sub-alice")))
 	for _, bad := range []string{"", "not-a-jwt", "a.b", "a.!!!.c"} {
-		assert.Equal(t, "", subjectOf(bad), bad)
+		assert.Equal(t, "", exchange.SubjectOf(bad), bad)
 	}
 }

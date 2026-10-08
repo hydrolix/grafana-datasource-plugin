@@ -75,6 +75,10 @@ export function ConfigEditor(props: Props) {
     { label: "User Account", value: CredentialsType.UserAccount },
     { label: "Service Account", value: CredentialsType.ServiceAccount },
     { label: "Forward OAuth Identity", value: CredentialsType.ForwardOAuth },
+    {
+      label: "Forward OAuth + Exchange",
+      value: CredentialsType.ForwardOAuthExchange,
+    },
   ];
   let querySettingDefinitions = useMemo(() => {
     return querySettings.values.reduce((acc, cur) => {
@@ -185,7 +189,12 @@ export function ConfigEditor(props: Props) {
       jsonData: {
         ...options.jsonData,
         credentialsType,
-        oauthPassThru: credentialsType === CredentialsType.ForwardOAuth,
+        // Grafana forwards the sign-in token only when asked. The exchanging
+        // mode then swaps it for a cluster token before querying, so it needs
+        // the forward just as much as plain forwarding does.
+        oauthPassThru:
+          credentialsType === CredentialsType.ForwardOAuth ||
+          credentialsType === CredentialsType.ForwardOAuthExchange,
       },
     });
   };
@@ -593,6 +602,27 @@ export function ConfigEditor(props: Props) {
                 />
               </Field>
             </>
+          )}
+          {jsonData.credentialsType ===
+            CredentialsType.ForwardOAuthExchange && (
+            <Field
+              data-testid={labels.exchangeAudience.testId}
+              label={labels.exchangeAudience.label}
+              description={labels.exchangeAudience.description}
+            >
+              <Input
+                name={"exchangeAudience"}
+                width={40}
+                value={jsonData.exchangeAudience ?? ""}
+                onChange={onUpdateDatasourceJsonDataOption(
+                  props,
+                  "exchangeAudience"
+                )}
+                label={labels.exchangeAudience.label}
+                aria-label={labels.exchangeAudience.label}
+                placeholder={labels.exchangeAudience.placeholder}
+              />
+            </Field>
           )}
           {jsonData.credentialsType === CredentialsType.ServiceAccount && (
             <>

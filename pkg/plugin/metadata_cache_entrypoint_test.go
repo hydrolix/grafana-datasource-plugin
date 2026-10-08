@@ -8,6 +8,7 @@ import (
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/hydrolix/plugin/pkg/identity"
+	"github.com/hydrolix/plugin/pkg/plugin/exchange"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,7 +34,7 @@ func TestEntryPoint_MutateQueryDataPutsTheIdentityOnTheContext(t *testing.T) {
 
 	token, ok := identity.ForwardedTokenFrom(ctx)
 	require.True(t, ok, "without this the metadata cache scope is empty for everyone")
-	assert.Equal(t, "kc-sub-alice", subjectOf(token))
+	assert.Equal(t, "kc-sub-alice", exchange.SubjectOf(token))
 }
 
 // The cache scope is what the two users actually get. Derived from the context
@@ -77,7 +78,7 @@ func TestEntryPoint_TheInterpolateRouteCarriesTheIdentityOnTheContext(t *testing
 		"the editor's lookups are scoped to the person previewing the query")
 	token, ok := identity.ForwardedTokenFrom(ctx)
 	require.True(t, ok)
-	assert.Equal(t, "kc-sub-carol", subjectOf(token))
+	assert.Equal(t, "kc-sub-carol", exchange.SubjectOf(token))
 }
 
 // A request with no forwarded identity must not inherit somebody else's from
@@ -90,4 +91,64 @@ func TestEntryPoint_NoIdentityMeansNoScope(t *testing.T) {
 	_, ok := identity.ForwardedTokenFrom(ctx)
 	assert.False(t, ok)
 	assert.Empty(t, cacheScope(ctx, nil))
+}
+
+// The exchanging mode's half of the same fix (CFB-2612 / CFB-2553).
+//
+// A macro's metadata lookup is built by MetadataProvider.executeQuery, which
+// gets no headers of its own — sqlds hands the interpolator none. Before this
+// fix that inner request reached the cluster carrying nothing, so on a cache
+// MISS the exchanging mode refused it for having no signed-in user and
+// forwardOAuth answered "missing OAuth token in connection args".
+//
+// Now the context carries the identity the OUTER request arrived with, and
+// executeQuery puts it back on the inner one. What that buys, and what this
+// test holds, is that the inner request is mutated exactly as a panel's query
+// is: the pool keys on the subject and the principal rides the context, so the
+// lookup runs as the person who triggered it.
+func TestEntryPoint_AColdMetadataLookupRunsAsTheSignedInUser(t *testing.T) {
+	token := jwtWithSubject("kc-sub-dave")
+
+	// The outer request, as a panel's arrives.
+	outer := makeQueryDataReq(t, exchange.CredentialsType, nil, `{"rawSql":"SELECT 1"}`)
+	outer.SetHTTPHeader(backend.OAuthIdentityTokenHeaderName, "Bearer "+token)
+	h := NewHydrolix()
+	ctx, _ := h.MutateQueryData(context.Background(), outer)
+
+	// The inner request, as MetadataProvider.executeQuery builds it: no
+	// headers, because the macro had none to give it.
+	inner := makeQueryDataReq(t, exchange.CredentialsType, nil, `{"rawSql":"DESCRIBE TABLE x"}`)
+	require.Empty(t, inner.GetHTTPHeader(backend.OAuthIdentityTokenHeaderName),
+		"premise: a macro's lookup starts with no identity of its own")
+	if v, ok := identity.ForwardedTokenFrom(ctx); ok {
+		inner.SetHTTPHeader(backend.OAuthIdentityTokenHeaderName, "Bearer "+v)
+	}
+
+	innerCtx, mutated := h.MutateQueryData(ctx, inner)
+
+	assert.Equal(t, "kc-sub-dave", connArgsOf(t, mutated)["sub"],
+		"the lookup keys the pool on the same person the panel does")
+	p, ok := exchange.PrincipalFrom(innerCtx)
+	require.True(t, ok, "without a principal the transport refuses the lookup")
+	assert.Equal(t, "kc-sub-dave", p.Subject)
+	assert.Equal(t, token, p.SubjectToken)
+}
+
+// The two carriers coexist: pkg/identity holds the raw forwarded token for the
+// cache scope and for rebuilding an inner request, exchange.Principal holds
+// the audience/subject/token the transport mints with. Neither shadows the
+// other.
+func TestEntryPoint_BothCarriersAreSetAndAgree(t *testing.T) {
+	token := jwtWithSubject("kc-sub-erin")
+	req := makeQueryDataReq(t, exchange.CredentialsType, nil, `{"rawSql":"SELECT 1"}`)
+	req.SetHTTPHeader(backend.OAuthIdentityTokenHeaderName, "Bearer "+token)
+
+	ctx, _ := NewHydrolix().MutateQueryData(context.Background(), req)
+
+	carried, ok := identity.ForwardedTokenFrom(ctx)
+	require.True(t, ok)
+	p, ok := exchange.PrincipalFrom(ctx)
+	require.True(t, ok)
+	assert.Equal(t, carried, p.SubjectToken, "one identity, two carriers, no drift")
+	assert.Equal(t, exchange.SubjectOf(carried), p.Subject)
 }

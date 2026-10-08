@@ -63,6 +63,12 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   querySettings?: QuerySetting[];
   exposeErrors?: ExposeErrorsOptions;
   oauthPassThru?: boolean;
+  /**
+   * The cluster's token audience, for `forwardOAuthExchange`. Optional: the
+   * host is the audience on every cluster the console registers today. Not a
+   * secret.
+   */
+  exchangeAudience?: string;
 }
 
 export interface ExposeErrorsOptions {
@@ -94,6 +100,16 @@ export enum CredentialsType {
   UserAccount = "userAccount",
   ServiceAccount = "serviceAccount",
   ForwardOAuth = "forwardOAuth",
+  /**
+   * Forward the signed-in user's OAuth token, but exchange it for a cluster
+   * token before querying. For a Grafana whose users sign in through an issuer
+   * the cluster does not accept directly — a Hydrolix Console realm, say —
+   * where forwarding the token unchanged is refused on its audience.
+   *
+   * The exchange endpoint and its per-cluster credentials come from Grafana's
+   * server configuration, so this mode stores no secret on the datasource.
+   */
+  ForwardOAuthExchange = "forwardOAuthExchange",
 }
 
 export interface AdHocFilterKeys {

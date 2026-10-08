@@ -44,9 +44,13 @@ Following is the list of Hydrolix configuration options.
 
 **Credentials section:**
 
-- **Credentials Type** - Credentials type for connecting to your Hydrolix instance: User Account or Service Account.
+- **Credentials Type** - Credentials type for connecting to your Hydrolix instance: User Account, Service Account,
+  Forward OAuth Identity, or Forward OAuth + Exchange.
 - **Token** - Service account token.
 - **Username**, **Password** - Service account credentials.
+- **Cluster audience** (optional, Forward OAuth + Exchange only) - The audience the exchanged token must carry, when it
+  differs from the server address. Leave empty to use the server address. This is not a secret. See
+  [Forward OAuth with a token exchange](#forward-oauth-with-a-token-exchange).
 
 **Additional Settings section:**
 
@@ -96,6 +100,50 @@ monitoring, and custom error handling within your dashboards.
 When enabled, query errors are automatically captured and stored in the specified dashboard variable, allowing you to 
 display error messages in error panel.
 
+
+### Forward OAuth with a token exchange
+
+**Forward OAuth Identity** sends the signed-in user's token to the cluster unchanged. That works only where the cluster
+accepts the issuer Grafana signed the user in with.
+
+**Forward OAuth + Exchange** is for where it does not. A Grafana whose users sign in through an issuer the cluster will
+not accept directly — a Hydrolix Console Keycloak realm, for instance — holds tokens the cluster refuses on their
+audience. In this mode the plugin exchanges that token for a cluster token (RFC 8693) before querying, so the query
+still runs as the signed-in user. The exchange happens per user, the result is cached until shortly before it expires,
+and the user's original token is never sent to the cluster.
+
+The data source stores **no credential at all** in this mode. The exchange endpoint and its credentials are operator
+values, per Grafana instance, and are read from the environment:
+
+| Variable | Meaning |
+| --- | --- |
+| `GF_PLUGIN_EXCHANGE_URL` | The token-exchange endpoint. |
+| `GF_PLUGIN_EXCHANGE_CREDENTIALS` | A JSON object mapping each cluster's audience to its credential. |
+
+`HDX_EXCHANGE_URL` and `HDX_EXCHANGE_CREDENTIALS` are accepted as alternatives, for deployments that set environment
+variables on the Grafana process rather than through Grafana's configuration. Values set in Grafana's configuration
+file under `[plugin.hydrolix-hydrolix-datasource]` reach the plugin with the `GF_PLUGIN_` prefix.
+
+Credentials are a **map keyed by audience**, not a single pair, because one Grafana can serve several clusters and each
+cluster issues its own. Keying by audience keeps each credential scoped to the one cluster it can obtain a token for.
+
+```json
+{
+  "cluster-a.example.hydrolix.net": { "client_id": "grafana-a", "client_secret": "..." },
+  "cluster-b.example.hydrolix.net": { "client_id": "grafana-b", "client_secret": "..." }
+}
+```
+
+A data source's audience is its **Cluster audience** setting, or its server address when that is empty.
+
+Notes:
+
+- The mode requires the **HTTP** protocol. Native binds its credential to the connection as a password, which cannot be
+  replaced when the token is refreshed, so the plugin refuses the combination and says so.
+- **Save & test** reports whether this Grafana holds a credential for this cluster. It does not prove any individual's
+  access, which is established when a panel runs as that person.
+- An instance with no exchange configuration reports the mode as unavailable rather than failing panels with an
+  authentication error.
 
 ### Provision the data source
 
