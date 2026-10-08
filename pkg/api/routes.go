@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/hydrolix/plugin/pkg/identity"
 	"maps"
 	"net/http"
 	"runtime/debug"
@@ -82,7 +83,11 @@ func Interpolate(ds *sqlds.SQLDatasource, rw http.ResponseWriter, req *http.Requ
 		wrapError(rw, errors.New("interpolator not configured"))
 		return
 	}
-	body, err := ds.Interpolator(req.Context(),
+	// The forwarded identity onto the context. Setting it on the HdxQuery
+	// below does nothing: that field is `json:"-"`, so the marshal drops it
+	// and the interpolator unmarshals a nil. The context is what survives
+	// (CFB-2612).
+	body, err := ds.Interpolator(identity.WithForwardedToken(req.Context(), identity.TokenOfRequest(req)),
 		&sqlutil.Query{
 			RawSQL:    hdxQuery.RawSQL,
 			TimeRange: hdxQuery.TimeRange,
