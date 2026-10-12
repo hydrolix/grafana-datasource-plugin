@@ -46,6 +46,33 @@ func TestGetMacroCTEs_TableWithoutDatabase(t *testing.T) {
 	}
 }
 
+func TestGetMacroCTEs_QuotedIdentifiersAreUnquoted(t *testing.T) {
+	cases := []struct {
+		name, from, database, table, cte string
+	}{
+		{"backticked view", "akamai.`logs#redacted`", "akamai", "logs#redacted", "akamai.`logs#redacted`"},
+		{"backticked table", "akamai.`logs`", "akamai", "logs", "akamai.`logs`"},
+		{"backticked database and table", "`akamai`.`logs`", "akamai", "logs", "`akamai`.`logs`"},
+		{"double-quoted", `"akamai"."logs"`, "akamai", "logs", `"akamai"."logs"`},
+		{"backticked view without database", "`logs#redacted`", "", "logs#redacted", "`logs#redacted`"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			exprs, err := parser.NewParser("SELECT $__timeFilter FROM " + tc.from).ParseStmts()
+			assert.NoError(t, err)
+
+			got, err := GetMacroCTEs(exprs)
+			assert.NoError(t, err)
+			assert.Len(t, got, 1)
+			for _, c := range got {
+				assert.Equal(t, tc.database, c.Database)
+				assert.Equal(t, tc.table, c.Table)
+				assert.Equal(t, tc.cte, c.CTE)
+			}
+		})
+	}
+}
+
 func TestGetMacroCTEs_MultipleMacros(t *testing.T) {
 	sql := "SELECT $__timeFilter, $__adHocFilter FROM events"
 	exprs, err := parser.NewParser(sql).ParseStmts()

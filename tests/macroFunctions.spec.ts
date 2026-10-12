@@ -108,6 +108,13 @@ test.beforeEach(async ({ dashboardPage, createDataSourceConfigPage, page }) => {
     expected: [["2025-04-09 01:11:00", "2025-04-09", "11100"]],
   },
   {
+    name: "timeFilter without a column on a backticked table",
+    query: "select * from e2e.`macros` where $__timeFilter()",
+    from: "2025-04-09 01:10:59",
+    to: "2025-04-09 01:11:00",
+    expected: [["2025-04-09 01:11:00", "2025-04-09", "11100"]],
+  },
+  {
     name: "timeFilter_ms",
     query: "select * from e2e.macros where $__timeFilter_ms(datetime)",
     from: "2025-04-09 01:10:59",

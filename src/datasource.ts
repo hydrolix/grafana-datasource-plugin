@@ -80,6 +80,20 @@ const requestErrorMessage = (e: unknown): string => {
   return e instanceof Error ? e.message : String(e);
 };
 
+const unquoteIdentifier = (s: string): string => {
+  const t = s.trim();
+  return /^([`"]).*\1$/.test(t) ? t.slice(1, -1) : t;
+};
+
+// Splits `db.table` on the first dot outside identifier quotes and returns
+// the bare names: akamai.`logs#redacted` is ["akamai", "logs#redacted"].
+const QUALIFIED_NAME = /^((?:`[^`]*`|"[^"]*"|[^.`"])*)\.(.*)$/s;
+
+const splitTableName = (s: string): string[] => {
+  const match = QUALIFIED_NAME.exec(s);
+  return (match ? [match[1], match[2]] : [s]).map(unquoteIdentifier);
+};
+
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
   HdxDataSourceOptions
@@ -746,16 +760,16 @@ export class DataSource extends DataSourceWithBackend<
   }
 
   private getTableIdentifier(s: string): TableIdentifier {
-    if (s.includes(".")) {
-      let arr = s.split(".");
+    const parts = splitTableName(s);
+    if (parts.length === 2) {
       return {
-        schema: arr[0],
-        table: arr[1],
+        schema: parts[0],
+        table: parts[1],
       };
     } else {
       return {
         schema: this.instanceSettings.jsonData.defaultDatabase,
-        table: s,
+        table: parts[0],
       };
     }
   }
