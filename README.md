@@ -113,16 +113,29 @@ still runs as the signed-in user. The exchange happens per user, the result is c
 and the user's original token is never sent to the cluster.
 
 The data source stores **no credential at all** in this mode. The exchange endpoint and its credentials are operator
-values, per Grafana instance, and are read from the environment:
+values, per Grafana instance, and are set in **Grafana's configuration file**:
 
-| Variable | Meaning |
+```ini
+[plugin.hydrolix-hydrolix-datasource]
+exchange_url = https://<console host>/api/v1/auth/token-exchange
+exchange_credentials = $__env{SOME_VAR_HOLDING_THE_JSON}
+```
+
+| Key | Meaning |
 | --- | --- |
-| `GF_PLUGIN_EXCHANGE_URL` | The token-exchange endpoint. |
-| `GF_PLUGIN_EXCHANGE_CREDENTIALS` | A JSON object mapping each cluster's audience to its credential. |
+| `exchange_url` | The token-exchange endpoint. |
+| `exchange_credentials` | A JSON object mapping each cluster's audience to its credential. |
 
-`HDX_EXCHANGE_URL` and `HDX_EXCHANGE_CREDENTIALS` are accepted as alternatives, for deployments that set environment
-variables on the Grafana process rather than through Grafana's configuration. Values set in Grafana's configuration
-file under `[plugin.hydrolix-hydrolix-datasource]` reach the plugin with the `GF_PLUGIN_` prefix.
+Grafana renders a key in that section into the plugin's environment with a `GF_PLUGIN_` prefix, so `exchange_url`
+arrives as `GF_PLUGIN_EXCHANGE_URL`. Writing the credential as `$__env{…}` keeps the JSON out of the rendered file.
+
+> **Setting these as environment variables on the Grafana process does not work.** Grafana builds a minimal
+> environment for backend plugin processes rather than passing its own, so `GF_PLUGIN_EXCHANGE_URL`,
+> `HDX_EXCHANGE_URL` and the `GF_PLUGIN_<PLUGIN_ID>_…` override form all fail to reach the plugin, and every panel
+> fails with `exchange: not configured`. Measured on Grafana 13.0.3 Enterprise by reading the plugin process's own
+> `/proc/<pid>/environ`, where the plugin sees only `GF_EDITION`, `GF_VERSION`, `GF_ENTERPRISE_*`, `PLUGIN_*` and
+> `grafana_plugin_type`. Older Grafana did pass its environment through — 11.6.0 OSS does — so a deployment that
+> worked on an older or OSS build is not evidence that the environment route works.
 
 Credentials are a **map keyed by audience**, not a single pair, because one Grafana can serve several clusters and each
 cluster issues its own. Keying by audience keeps each credential scoped to the one cluster it can obtain a token for.

@@ -38,6 +38,15 @@ cluster audience, so that one Grafana serving several clusters holds a
 separate credential per cluster and each credential is scoped to the one
 cluster it can obtain a token for.
 
+Those environment variables SHALL be supplied through a
+`[plugin.hydrolix-hydrolix-datasource]` section in Grafana's configuration
+file, whose keys Grafana renders into the plugin's environment with a
+`GF_PLUGIN_` prefix. Grafana builds a minimal environment for a backend plugin
+process rather than passing its own, so a variable set on the Grafana process
+itself does not reach the plugin (measured on Grafana 13.0.3 Enterprise); the
+unprefixed `HDX_` names are reachable only on a Grafana that still passes its
+environment through.
+
 A data source's audience SHALL be its `jsonData.exchangeAudience` when set,
 and its configured host otherwise.
 

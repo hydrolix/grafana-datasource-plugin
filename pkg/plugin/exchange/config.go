@@ -47,18 +47,26 @@ type Config struct {
 	Credentials map[string]Credential
 }
 
-// Configuration arrives as environment variables, under either of two names.
+// Configuration arrives as environment variables, but only one way of setting
+// them actually works, and it is not the obvious one.
 //
-// A backend plugin runs as a child process of Grafana and inherits its
-// environment, so the plain names work wherever an operator can set an
-// environment variable on the Grafana process — a container, a systemd unit.
-// Settings written in Grafana's own configuration under
-// `[plugin.hydrolix-hydrolix-datasource]` reach the plugin prefixed with
-// `GF_PLUGIN_`, so those names are read first and are the ones to document for
-// an operator who configures Grafana rather than its process.
+// Grafana builds a MINIMAL environment for a backend plugin process rather than
+// passing its own. On Grafana 13.0.3 Enterprise the plugin sees `GF_EDITION`,
+// `GF_VERSION`, `GF_ENTERPRISE_*`, `PLUGIN_*` and `grafana_plugin_type`, and
+// nothing else — so a variable an operator sets on the Grafana process, in a
+// container or a systemd unit, never reaches here and the mode reports itself
+// unconfigured.
 //
-// Supporting both costs one lookup and removes a guess about which mechanism a
-// given deployment uses.
+// What does work is a `[plugin.hydrolix-hydrolix-datasource]` section in
+// Grafana's configuration file: Grafana renders each key there into the plugin's
+// environment with a `GF_PLUGIN_` prefix, which is where `EnvURL` and
+// `EnvCredentials` come from. That is the mechanism to document, not an aside.
+//
+// `EnvURLAlt` and `EnvCredentialsAlt` are kept because they cost one lookup, but
+// nothing unprefixed survives into a plugin on Grafana 13, so they are only
+// reachable on a Grafana that still passes its environment through. 11.6.0 OSS
+// does, which is how a prototype can work on an older build and fail on a
+// deployed one (measured 2026-10-12).
 const (
 	EnvURL            = "GF_PLUGIN_EXCHANGE_URL"
 	EnvCredentials    = "GF_PLUGIN_EXCHANGE_CREDENTIALS"
