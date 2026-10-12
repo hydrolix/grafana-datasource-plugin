@@ -154,4 +154,6 @@ test("ad hoc filter value dropdown: backtick-quoted table variable", async ({
   });
   expect(options).toContain("common");
   await filters.dismiss();
+  await filters.selectKey("attrs['env']");
+  await filters.dismiss();
 });

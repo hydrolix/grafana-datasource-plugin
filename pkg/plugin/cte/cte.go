@@ -20,9 +20,10 @@ type MacroId struct {
 	Index parser.Pos `json:"index"`
 }
 
-// CTE describes a single macro invocation's surrounding context: which
-// macro, where in the SQL, which CTE alias (the FROM expression of the
-// containing SELECT), and the resolved table / database.
+// CTE describes a single macro invocation's surrounding context. CTE is the
+// containing SELECT's FROM as SQL text, quotes kept (it goes to DESCRIBE), or
+// the parenthesized body when the FROM names a WITH alias. Table and Database
+// are bare names as system.tables stores them, for the primary-key lookup.
 type CTE struct {
 	Macro    string     `json:"macro"`
 	MacroPos parser.Pos `json:"macroPos"`
@@ -32,9 +33,10 @@ type CTE struct {
 	Pos      parser.Pos `json:"pos"`
 }
 
-// GetMacroCTEs walks the AST and returns the macro-to-CTE map used by
-// the /macroCTE HTTP route and by ad-hoc-filter resolution. Behaviour
-// is preserved from the fork (hydrolix/sqlds@v5.0.1, interpolator.go:255).
+// GetMacroCTEs walks the AST and returns the macro-to-CTE map used by the
+// /macroCTE HTTP route and by ad-hoc-filter resolution. Ported from the fork
+// (hydrolix/sqlds@v5.0.1), which neither resolved WITH
+// aliases nor unquoted Table / Database.
 func GetMacroCTEs(ast []parser.Expr) (map[MacroId]CTE, error) {
 	visitor := queryVisitor{macroIds: make(map[MacroId]CTE)}
 	for _, expr := range ast {

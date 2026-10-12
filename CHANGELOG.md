@@ -3,10 +3,12 @@
 ## 0.13.0 (unreleased)
 
 - **Fix**: Ad hoc filter values showed "No options found" when the ad hoc table variable named a Hydrolix custom view
-  (``akamai.`logs#redacted` ``) or any backtick- or double-quoted table (HDX-12543). Keys still loaded, but the
-  primary-key lookup behind the value preload searched `system.tables` for the quoted spelling, found no row, and never
-  sent the value query. `$__timeFilter()`, `$__timeFilter_ms()`, `$__timeInterval()` and `$__timeInterval_ms()` without
-  a column argument failed the same way with `primary key not found`. The lookup now uses the bare name; each custom
+  (``akamai.`logs#redacted` ``) or any backtick- or double-quoted table (HDX-12543). Plain-column keys still loaded,
+  but the primary-key lookup behind the preloads searched `system.tables` for the quoted spelling and found no row: the
+  value query was never sent, and `Map` columns (`attrs['…']`) dropped out of the key list because their key discovery
+  runs a `$__timeFilter()` that failed on the backend. In any query whose FROM names such a table, `$__timeFilter()`,
+  `$__timeFilter_ms()`, `$__timeInterval()` and `$__timeInterval_ms()` without a column argument failed the same way
+  with `primary key not found`. The lookup now uses the bare name; each custom
   view has its own `system.tables` row carrying the base table's primary key. In the table variable, put a view name in
   backticks (``akamai.`logs#redacted` ``): ClickHouse rejects an unquoted `#` in a table name as a syntax error
 - **Fix**: The signed-in user's auth header did not reach the plugin backend's metadata lookups. It is set on
