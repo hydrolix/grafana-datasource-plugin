@@ -28,10 +28,13 @@ const (
 // SQL identifier in the schema, the bracketed `key` is the map key.
 var mapTypeFilterKey = regexp.MustCompile(`^(.*)\['.*']$`)
 
-// explicitCTEArg constrains the explicit `$__adHocFilter(<arg>)` argument to a
-// strict identifier, optionally `database.table`. This source never passes
-// through the AST, so it needs its own gate before reaching the metadata path.
-var explicitCTEArg = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
+// explicitCTESegment is one name in the explicit argument: a bare identifier,
+// or a backtick- or double-quoted name (e.g. a custom view, `logs#redacted`).
+const explicitCTESegment = "(?:[A-Za-z_]\\w*|`[^`]+`|\"[^\"]+\")"
+
+// explicitCTEArg constrains the explicit `$__adHocFilter(<arg>)` argument to
+// one segment, optionally `database.table`.
+var explicitCTEArg = regexp.MustCompile("^" + explicitCTESegment + "(?:\\." + explicitCTESegment + ")?$")
 
 // scalarComparisonOperators is the allowlist for the scalar/map default branch
 // of buildFilterCondition. The multi-value ("=|", "!=|") and regex ("=~",
@@ -109,8 +112,8 @@ func AdHocFilterMacro(ctx context.Context, query *models.HdxQuery, params []stri
 	cteName := ""
 	if len(params) == 1 {
 		cteName = params[0]
-		// The explicit argument bypasses the AST, so it must be a strict
-		// identifier (optionally database.table) before it can drive a
+		// The explicit argument bypasses the AST, so it must be a bare or
+		// quoted name (optionally database.table) before it can drive a
 		// metadata query. An empty argument falls through to AST resolution.
 		if cteName != "" && !explicitCTEArg.MatchString(cteName) {
 			return "", backend.DownstreamError(fmt.Errorf("invalid $__adHocFilter argument: %q", cteName))
