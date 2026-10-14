@@ -163,6 +163,15 @@ func TestMetadataProvider_QueryPK_EmptyFrameReturnsNotFound(t *testing.T) {
 
 	_, err := p.QueryPK(context.Background(), nil, "db", "tbl")
 	assert.ErrorIs(t, err, ErrPrimaryKeyNotFound)
+	assert.True(t, backend.IsPluginError(err), "the wrapper carries the plugin source")
+}
+
+// The sentinel carries no error source, so errors.Is is an identity check:
+// another plugin-sourced failure must not read as "primary key not found".
+func TestErrPrimaryKeyNotFound_DoesNotMatchOtherPluginErrors(t *testing.T) {
+	other := backend.PluginError(errors.New("schema query failed"))
+	assert.NotErrorIs(t, other, ErrPrimaryKeyNotFound)
+	assert.NotErrorIs(t, ErrPrimaryKeyNotFound, other)
 }
 
 func TestMetadataProvider_GetKeys_CacheMissThenHit(t *testing.T) {

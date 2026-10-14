@@ -43,12 +43,12 @@
   },
   "devDependencies": {
     "@grafana/eslint-config": "^9.0.0",
-    "@grafana/plugin-e2e": "^3.12.0",
+    "@grafana/plugin-e2e": "^3.14.1",
     "@grafana/sign-plugin": "^3.3.3",
     "@grafana/tsconfig": "^2.2.0",
     "@playwright/test": "^1.62.1",
     "@stylistic/eslint-plugin-ts": "^4.4.0",
-    "@swc/core": "^1.15.0",
+    "@swc/core": "^1.16.13",
     "@swc/helpers": "^0.5.0",
     "@swc/jest": "^0.2.39",
     "@testing-library/jest-dom": "7.0.1",
@@ -87,7 +87,7 @@
     "ts-node": "^10.9.2",
     "typescript": "5.9.2",
     "webpack": "^5.108.4",
-    "webpack-cli": "^6.0.1",
+    "webpack-cli": "^7.2.3",
     "webpack-livereload-plugin": "^3.0.2",
     "webpack-subresource-integrity": "^5.1.0",
     "webpack-virtual-modules": "^0.6.2"

@@ -185,6 +185,9 @@ export default {
         runQuery: {
           tooltip: "Click or hit CTRL/CMD+Return to run query",
         },
+        validation: {
+          unavailable: "Could not validate query",
+        },
       },
     },
     querySettings: {
