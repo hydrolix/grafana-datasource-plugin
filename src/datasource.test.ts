@@ -11,7 +11,11 @@ import {
 } from "__mocks__/datasource";
 import { adHocTableVariable, fooVariable } from "./__mocks__/variable";
 import { AdHocFilterKeys, HdxQuery } from "./types";
-import { DataSource } from "./datasource";
+import {
+  DataSource,
+  qualifiedTableName,
+  splitTableName,
+} from "./datasource";
 import {
   AD_HOC_PRELOAD_LOOKBACK_SECONDS,
   AD_HOC_PRELOAD_ROUND_INTERVAL,
@@ -574,6 +578,37 @@ describe("HdxDataSource", () => {
     });
   });
 
+  describe("splitTableName", () => {
+    test.each([
+      { name: "logs", parts: ["logs"] },
+      { name: "akamai.logs", parts: ["akamai", "logs"] },
+      { name: "akamai.`logs#redacted`", parts: ["akamai", "logs#redacted"] },
+      { name: "`akamai`.`logs`", parts: ["akamai", "logs"] },
+      { name: '"akamai"."logs"', parts: ["akamai", "logs"] },
+      { name: "akamai.`my.logs`", parts: ["akamai", "my.logs"] },
+      { name: "`my.logs`", parts: ["my.logs"] },
+      { name: "`a.b`.c", parts: ["a.b", "c"] },
+      { name: "akamai . `logs`", parts: ["akamai", "logs"] },
+      { name: "a.b.c", parts: ["a", "b.c"] },
+    ])("$name", ({ name, parts }) => {
+      expect(splitTableName(name)).toEqual(parts);
+    });
+  });
+
+  describe("qualifiedTableName", () => {
+    test.each([
+      { name: "logs", qualified: "sample.logs" },
+      { name: "akamai.logs", qualified: "akamai.logs" },
+      { name: "akamai.logs#redacted", qualified: "akamai.`logs#redacted`" },
+      { name: "akamai.`logs#redacted`", qualified: "akamai.`logs#redacted`" },
+      { name: "`my.logs`", qualified: "sample.`my.logs`" },
+      { name: "my-db.logs", qualified: "`my-db`.logs" },
+      { name: '"a`b".logs', qualified: undefined },
+    ])("$name", ({ name, qualified }) => {
+      expect(qualifiedTableName(name, "sample")).toBe(qualified);
+    });
+  });
+
   describe("ad hoc values for a quoted table name or custom view", () => {
     const SYSTEM_TABLES: Record<string, string> = {
       "akamai.logs": "_timestamp",
@@ -615,15 +650,15 @@ describe("HdxDataSource", () => {
     const cases = [
       { table: "akamai.logs", from: "akamai.logs" },
       { table: "akamai.`logs#redacted`", from: "akamai.`logs#redacted`" },
-      { table: "akamai.`logs`", from: "akamai.`logs`" },
-      { table: "`akamai`.`logs`", from: "`akamai`.`logs`" },
-      { table: '"akamai"."logs"', from: '"akamai"."logs"' },
+      { table: "akamai.logs#redacted", from: "akamai.`logs#redacted`" },
+      { table: "akamai.`logs`", from: "akamai.logs" },
+      { table: "`akamai`.`logs`", from: "akamai.logs" },
+      { table: '"akamai"."logs"', from: "akamai.logs" },
       { table: "akamai.`my.logs`", from: "akamai.`my.logs`" },
-      { table: "akamai . `logs`", from: "akamai . `logs`" },
+      { table: "akamai . `logs`", from: "akamai.logs" },
       { table: "`logs#redacted`", from: "sample.`logs#redacted`" },
-      // The dot inside the quotes stops adHocFilterTableName from prefixing
-      // the default database, so the lookup has to supply it.
-      { table: "`my.logs`", from: "`my.logs`" },
+      { table: "logs#redacted", from: "sample.`logs#redacted`" },
+      { table: "`my.logs`", from: "sample.`my.logs`" },
     ];
 
     test.each(cases)(
