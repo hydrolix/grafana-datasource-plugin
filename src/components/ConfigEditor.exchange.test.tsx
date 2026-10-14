@@ -80,34 +80,6 @@ describe('ConfigEditor: forward OAuth with a console exchange', () => {
     expect(sent.jsonData.oauthPassThru).toBe(false);
   });
 
-  it('asks for a cluster audience only in the exchanging mode', () => {
-    const { unmount } = render(
-      <ConfigEditor
-        {...propsWith({
-          credentialsType: CredentialsType.ForwardOAuthExchange,
-        })}
-      />
-    );
-    expect(screen.getByLabelText(labels.exchangeAudience.label)).toBeInTheDocument();
-    unmount();
-
-    render(<ConfigEditor {...propsWith({ credentialsType: CredentialsType.ForwardOAuth })} />);
-    expect(screen.queryByLabelText(labels.exchangeAudience.label)).not.toBeInTheDocument();
-  });
-
-  it('stores the audience in jsonData, where nothing secret belongs', () => {
-    const onOptionsChange = jest.fn();
-    render(<ConfigEditor {...propsWith({ credentialsType: CredentialsType.ForwardOAuthExchange }, onOptionsChange)} />);
-
-    fireEvent.change(screen.getByLabelText(labels.exchangeAudience.label), {
-      target: { value: 'other.example.hydrolix.net' },
-    });
-
-    const sent = onOptionsChange.mock.calls.at(-1)![0];
-    expect(sent.jsonData.exchangeAudience).toBe('other.example.hydrolix.net');
-    expect(sent.secureJsonData ?? {}).toEqual({});
-  });
-
   it("asks for no credential at all: the delegate lives in Grafana's server configuration", () => {
     render(
       <ConfigEditor
@@ -118,5 +90,10 @@ describe('ConfigEditor: forward OAuth with a console exchange', () => {
     );
     expect(screen.queryByLabelText(labels.token.label)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(labels.password.label)).not.toBeInTheDocument();
+  });
+
+  it('asks for no audience either: the host is the audience, so the two cannot disagree', () => {
+    render(<ConfigEditor {...propsWith({ credentialsType: CredentialsType.ForwardOAuthExchange })} />);
+    expect(screen.queryByLabelText('Cluster audience')).not.toBeInTheDocument();
   });
 });

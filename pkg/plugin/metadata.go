@@ -91,8 +91,8 @@ func NewMetadataProvider(ds metadataDS) *MetadataProvider {
 // cluster never asked about them. That is a disclosure of schema shape — not of
 // rows, but not nothing either.
 //
-// The scope is the forwarded token's subject: stable for a person, so a token
-// refresh does not throw the cache away, and distinct between people. A mode
+// The scope is the forwarded token's issuer and subject: stable for a person, so
+// a token refresh does not throw the cache away, and distinct between people. A mode
 // that forwards no token has one credential and one legitimate view, and keeps
 // sharing an entry.
 func cacheScope(ctx context.Context, headers http.Header) string {
@@ -105,7 +105,9 @@ func cacheScope(ctx context.Context, headers http.Header) string {
 	if token == "" {
 		return ""
 	}
-	if subject := exchange.SubjectOf(token); subject != "" {
+	// Issuer-qualified: `sub` is unique per issuer only, and Grafana can run
+	// several OAuth providers at once.
+	if subject := exchange.IdentityOf(token); subject != "" {
 		return subject
 	}
 	// A forwarded token whose subject cannot be read is still a distinct

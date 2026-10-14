@@ -84,14 +84,13 @@ Server configuration, under the plugin's section:
 | Key | Meaning |
 |---|---|
 | `exchange_url` | The console's RFC 8693 endpoint |
-| `exchange_audience` | The audience to request — the cluster's configured audience |
 | `exchange_client_id` / `exchange_client_secret` | The delegate credential, one per cluster |
 
 **The credential is a map, not a pair.** One Grafana can hold datasources for
 many clusters: in the console's fleet, 683 of 693 legacy Grafana organizations
 sit on 7 *shared* instances. Each cluster has its own delegate, so a shared
 instance needs one credential per cluster it queries, keyed by the cluster's
-audience (or host). A single id/secret pair cannot express that.
+audience, which is its host. A single id/secret pair cannot express that.
 
 This is the shape the console's own records require rather than a preference.
 Their delegate registry is "one delegate per cluster, whose allowed deployments

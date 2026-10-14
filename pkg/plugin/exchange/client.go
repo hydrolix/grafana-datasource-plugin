@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/grafana/grafana-plugin-sdk-go/backend/httpclient"
 )
 
 // The three outcomes a caller can act on differently. They are separate because
@@ -49,11 +51,27 @@ type HTTPExchanger struct {
 	Client *http.Client
 }
 
-// NewHTTPExchanger builds an exchanger with a bounded client. The timeout is
-// deliberately shorter than a panel's patience: a slow console should read as
-// unavailable rather than hold a query open.
+// exchangeTimeout is deliberately shorter than a panel's patience: a slow
+// console should read as unavailable rather than hold a query open.
+const exchangeTimeout = 10 * time.Second
+
+// NewHTTPExchanger builds an exchanger on the plugin SDK's HTTP client, so the
+// one outbound call this mode depends on carries Grafana's tracing, metrics and
+// error-source middleware like every other call a plugin makes, and honours the
+// standard proxy environment.
 func NewHTTPExchanger(cfg Config) *HTTPExchanger {
-	return &HTTPExchanger{Config: cfg, Client: &http.Client{Timeout: 10 * time.Second}}
+	timeouts := httpclient.DefaultTimeoutOptions
+	timeouts.Timeout = exchangeTimeout
+	client, err := httpclient.New(httpclient.Options{
+		Timeouts:    &timeouts,
+		Middlewares: httpclient.DefaultMiddlewares(),
+	})
+	if err != nil {
+		// Only proxy configuration can fail here, and none is passed; a bare
+		// client keeps the mode working rather than unavailable.
+		client = &http.Client{Timeout: exchangeTimeout}
+	}
+	return &HTTPExchanger{Config: cfg, Client: client}
 }
 
 type tokenResponse struct {

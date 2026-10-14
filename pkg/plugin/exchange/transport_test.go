@@ -332,3 +332,40 @@ func TestAForgottenPrincipalIsNotServed(t *testing.T) {
 		t.Fatalf("expected a refusal once the entry lapsed, got %v", err)
 	}
 }
+
+func TestAPrincipalIsDroppedWhenItsTokenExpires(t *testing.T) {
+	// Past its `exp` the facade would refuse the token, so the registry keeps it
+	// no longer than that, however recently it was used.
+	s, _, ck := newFixture(300 * time.Second)
+	principals := NewPrincipals(time.Hour, ck.now)
+	exp := ck.now().Add(5 * time.Minute).Unix()
+	token := "header." + base64url(fmt.Sprintf(`{"iss":"https://kc","sub":"alice","exp":%d}`, exp)) + ".signature"
+	principals.Remember(Principal{Audience: aud, Subject: sub, SubjectToken: token})
+
+	if _, ok := principals.Lookup(aud, sub); !ok {
+		t.Fatal("a live token was not served")
+	}
+	ck.advance(6 * time.Minute)
+
+	base := &recordingBase{}
+	tr := NewBoundTransport(base, s, principals, aud, sub)
+	if _, err := tr.RoundTrip(newRequest(t, context.Background())); !errors.Is(err, ErrRefused) {
+		t.Fatalf("expected a refusal once the token expired, got %v", err)
+	}
+}
+
+func TestIdentityOfQualifiesTheSubjectWithItsIssuer(t *testing.T) {
+	a := IdentityOf("h." + base64url(`{"iss":"https://kc.example/realms/console","sub":"1234"}`) + ".s")
+	b := IdentityOf("h." + base64url(`{"iss":"https://accounts.google.com","sub":"1234"}`) + ".s")
+	if a == "" || b == "" || a == b {
+		t.Fatalf("the same sub from two issuers must be two identities: %q %q", a, b)
+	}
+	for _, missing := range []string{
+		`{"sub":"1234"}`,
+		`{"iss":"https://kc.example/realms/console"}`,
+	} {
+		if got := IdentityOf("h." + base64url(missing) + ".s"); got != "" {
+			t.Fatalf("%s yielded an identity %q", missing, got)
+		}
+	}
+}

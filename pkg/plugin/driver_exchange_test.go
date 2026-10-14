@@ -14,13 +14,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// jwtWithSubject builds an unsigned JWT carrying one claim. The plugin reads the
-// subject without verifying — the console's facade is the verifier — so an
-// unsigned token is exactly what this code path sees in a test.
+// testIssuer is the issuer jwtWithSubject's tokens name.
+const testIssuer = "https://kc.example/realms/console"
+
+// jwtWithSubject builds an unsigned JWT naming a subject at testIssuer. The
+// plugin reads the claims without verifying — the console's facade is the
+// verifier — so an unsigned token is exactly what this code path sees in a test.
 func jwtWithSubject(sub string) string {
-	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"` + sub + `"}`))
+	return jwtFrom(testIssuer, sub)
+}
+
+func jwtFrom(iss, sub string) string {
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"iss":"` + iss + `","sub":"` + sub + `"}`))
 	return "eyJhbGciOiJSUzI1NiJ9." + payload + ".signature"
 }
+
+// identityAt is the subject the plugin keys on for a sub at testIssuer.
+func identityAt(sub string) string { return testIssuer + "|" + sub }
 
 func connArgsOf(t *testing.T, req *backend.QueryDataRequest) map[string]string {
 	t.Helper()
@@ -41,8 +51,8 @@ func TestExchangeMode_SubjectKeysThePoolAndTheTokenRidesTheContext(t *testing.T)
 	ctx, out := h.MutateQueryData(context.Background(), req)
 
 	args := connArgsOf(t, out)
-	assert.Equal(t, "kc-sub-alice", args["sub"],
-		"the subject keys the connection cache")
+	assert.Equal(t, identityAt("kc-sub-alice"), args["sub"],
+		"the issuer-qualified subject keys the connection cache")
 	assert.NotContains(t, args, "oauthToken",
 		"the forwarded token must not be in connectionArgs: it is the pool key, and Grafana refreshes it")
 	for _, v := range args {
@@ -51,20 +61,19 @@ func TestExchangeMode_SubjectKeysThePoolAndTheTokenRidesTheContext(t *testing.T)
 
 	p, ok := exchange.PrincipalFrom(ctx)
 	require.True(t, ok, "the principal must ride the query context")
-	assert.Equal(t, "kc-sub-alice", p.Subject)
+	assert.Equal(t, identityAt("kc-sub-alice"), p.Subject)
 	assert.Equal(t, token, p.SubjectToken)
-	assert.Equal(t, "localhost", p.Audience, "the host is the audience where settings name none")
+	assert.Equal(t, "localhost", p.Audience, "the host is the audience")
 }
 
-func TestExchangeMode_AnExplicitAudienceWins(t *testing.T) {
-	settings := models.PluginSettings{
-		Host: "localhost", Port: 80, Protocol: "http",
-		CredentialsType:  exchange.CredentialsType,
-		ExchangeAudience: "cluster.example.hydrolix.net",
-		DialTimeout:      "10", QueryTimeout: "20",
-	}
-	jsonData, err := json.Marshal(settings)
-	require.NoError(t, err)
+func TestExchangeMode_TheAudienceIsAlwaysTheHost(t *testing.T) {
+	// An audience that could differ from the host is an exfiltration path: an
+	// editor points the host at their own server and the audience at a real
+	// cluster, and every viewer's real-cluster token is sent to that server. A
+	// stored `exchangeAudience` from an earlier build must therefore be ignored.
+	jsonData := []byte(`{"host":"attacker.example","port":443,"protocol":"http",` +
+		`"credentialsType":"` + exchange.CredentialsType + `",` +
+		`"exchangeAudience":"cluster.example.hydrolix.net","dialTimeout":"10","queryTimeout":"20"}`)
 	req := &backend.QueryDataRequest{
 		PluginContext: backend.PluginContext{
 			DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{
@@ -80,7 +89,68 @@ func TestExchangeMode_AnExplicitAudienceWins(t *testing.T) {
 
 	p, ok := exchange.PrincipalFrom(ctx)
 	require.True(t, ok)
-	assert.Equal(t, "cluster.example.hydrolix.net", p.Audience)
+	assert.Equal(t, "attacker.example", p.Audience,
+		"the token is minted for the host it will be sent to, never for another cluster")
+}
+
+func TestExchangeMode_AClientsOwnConnectionArgsNeverChooseTheConnection(t *testing.T) {
+	// sqlds keys the connection on the query JSON's connectionArgs, and that JSON
+	// comes from the browser. A caller with no forwarded token — basic auth,
+	// a service account, alerting, a public dashboard — must not be able to name
+	// someone else's subject and land on their connection and cluster token.
+	h := NewHydrolix()
+	victim := `{"rawSql":"SELECT 1","connectionArgs":{"sub":"` + identityAt("kc-sub-victim") + `"}}`
+
+	t.Run("with no forwarded token", func(t *testing.T) {
+		req := makeQueryDataReq(t, exchange.CredentialsType, nil, victim)
+		ctx, out := h.MutateQueryData(context.Background(), req)
+		assert.Nil(t, connArgsOf(t, out), "the client's connectionArgs must be removed")
+		_, ok := exchange.PrincipalFrom(ctx)
+		assert.False(t, ok)
+	})
+	t.Run("with a forwarded token of their own", func(t *testing.T) {
+		req := makeQueryDataReq(t, exchange.CredentialsType,
+			map[string]string{backend.OAuthIdentityTokenHeaderName: "Bearer " + jwtWithSubject("kc-sub-mallory")},
+			victim)
+		_, out := h.MutateQueryData(context.Background(), req)
+		assert.Equal(t, identityAt("kc-sub-mallory"), connArgsOf(t, out)["sub"])
+	})
+	t.Run("in a mode that builds none", func(t *testing.T) {
+		req := makeQueryDataReq(t, "serviceAccount", nil, victim)
+		_, out := h.MutateQueryData(context.Background(), req)
+		assert.Nil(t, connArgsOf(t, out))
+	})
+}
+
+func TestExchangeMode_TheSameSubFromTwoIssuersIsTwoPeople(t *testing.T) {
+	// `sub` is unique per issuer only, and Grafana can run several OAuth
+	// providers. Keyed on `sub` alone, these two would share a connection and a
+	// cached cluster token.
+	h := NewHydrolix()
+	subjectFor := func(iss string) string {
+		req := makeQueryDataReq(t, exchange.CredentialsType,
+			map[string]string{backend.OAuthIdentityTokenHeaderName: "Bearer " + jwtFrom(iss, "1234")},
+			`{"rawSql":"SELECT 1"}`)
+		ctx, out := h.MutateQueryData(context.Background(), req)
+		p, ok := exchange.PrincipalFrom(ctx)
+		require.True(t, ok)
+		assert.Equal(t, p.Subject, connArgsOf(t, out)["sub"])
+		return p.Subject
+	}
+	assert.NotEqual(t, subjectFor("https://kc.example/realms/console"), subjectFor("https://accounts.google.com"))
+}
+
+func TestExchangeMode_ATokenNamingNoIssuerYieldsNoPrincipal(t *testing.T) {
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"kc-sub-alice"}`))
+	req := makeQueryDataReq(t, exchange.CredentialsType,
+		map[string]string{backend.OAuthIdentityTokenHeaderName: "Bearer h." + payload + ".s"},
+		`{"rawSql":"SELECT 1"}`)
+
+	ctx, out := NewHydrolix().MutateQueryData(context.Background(), req)
+
+	assert.NotContains(t, connArgsOf(t, out), "sub")
+	_, ok := exchange.PrincipalFrom(ctx)
+	assert.False(t, ok, "a subject with no issuer is not an identity")
 }
 
 func TestExchangeMode_AnUnreadableTokenYieldsNoPrincipal(t *testing.T) {
@@ -190,7 +260,7 @@ func TestExchangeMode_ConnectSucceedsWithoutReachingACluster(t *testing.T) {
 	db, err := h.Connect(context.Background(), backend.DataSourceInstanceSettings{
 		JSONData:                jsonData,
 		DecryptedSecureJSONData: map[string]string{},
-	}, []byte(`{"sub":"kc-sub-alice"}`))
+	}, []byte(`{"sub":"`+identityAt("kc-sub-alice")+`"}`))
 	require.NoError(t, err, "Connect must not verify a per-user connection")
 	require.NotNil(t, db)
 	_ = db.Close()
@@ -300,7 +370,7 @@ func TestExchangeMode_AMetadataLookupCarriesTheSignedInUserToo(t *testing.T) {
 
 	ctx, out := h.MutateQueryData(context.Background(), req)
 
-	assert.Equal(t, "kc-sub-carol", connArgsOf(t, out)["sub"],
+	assert.Equal(t, identityAt("kc-sub-carol"), connArgsOf(t, out)["sub"],
 		"a metadata lookup keys the pool on the same subject a panel's query does")
 	p, ok := exchange.PrincipalFrom(ctx)
 	require.True(t, ok, "without a principal the lookup would reach the cluster as nobody")

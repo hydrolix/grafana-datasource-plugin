@@ -47,42 +47,26 @@ type Config struct {
 	Credentials map[string]Credential
 }
 
-// Configuration arrives as environment variables, but only one way of setting
-// them actually works, and it is not the obvious one.
+// Configuration is Grafana's own plugin configuration: a
+// `[plugin.hydrolix-hydrolix-datasource]` section in its configuration file,
+// whose keys Grafana renders into the plugin's environment with a `GF_PLUGIN_`
+// prefix. That prefix is the only one Grafana's plugin validator accepts for an
+// environment read, and the only one that arrives at all: Grafana builds a
+// MINIMAL environment for a backend plugin process rather than passing its own.
+// On Grafana 13.0.3 Enterprise the plugin sees `GF_EDITION`, `GF_VERSION`,
+// `GF_ENTERPRISE_*`, `PLUGIN_*`, `grafana_plugin_type` and the rendered
+// `[plugin.<id>]` keys, and nothing else — so a variable an operator sets on the
+// Grafana process, in a container or a systemd unit, never reaches here
+// (measured 2026-10-12). 11.6.0 OSS still passes its environment through, which
+// is how a prototype can work on an older build and fail on a deployed one.
 //
-// Grafana builds a MINIMAL environment for a backend plugin process rather than
-// passing its own. On Grafana 13.0.3 Enterprise the plugin sees `GF_EDITION`,
-// `GF_VERSION`, `GF_ENTERPRISE_*`, `PLUGIN_*` and `grafana_plugin_type`, and
-// nothing else — so a variable an operator sets on the Grafana process, in a
-// container or a systemd unit, never reaches here and the mode reports itself
-// unconfigured.
-//
-// What does work is a `[plugin.hydrolix-hydrolix-datasource]` section in
-// Grafana's configuration file: Grafana renders each key there into the plugin's
-// environment with a `GF_PLUGIN_` prefix, which is where `EnvURL` and
-// `EnvCredentials` come from. That is the mechanism to document, not an aside.
-//
-// `EnvURLAlt` and `EnvCredentialsAlt` are kept because they cost one lookup, but
-// nothing unprefixed survives into a plugin on Grafana 13, so they are only
-// reachable on a Grafana that still passes its environment through. 11.6.0 OSS
-// does, which is how a prototype can work on an older build and fail on a
-// deployed one (measured 2026-10-12).
+// It is not datasource settings by design: the credentials are per cluster and
+// per Grafana instance, and a secret stored on a datasource travels with the
+// datasource when its organization is re-bound to another company.
 const (
-	EnvURL            = "GF_PLUGIN_EXCHANGE_URL"
-	EnvCredentials    = "GF_PLUGIN_EXCHANGE_CREDENTIALS"
-	EnvURLAlt         = "HDX_EXCHANGE_URL"
-	EnvCredentialsAlt = "HDX_EXCHANGE_CREDENTIALS"
+	EnvURL         = "GF_PLUGIN_EXCHANGE_URL"
+	EnvCredentials = "GF_PLUGIN_EXCHANGE_CREDENTIALS"
 )
-
-// firstSet answers the first name that is set, and its value.
-func firstSet(lookup func(string) (string, bool), names ...string) (string, string, bool) {
-	for _, n := range names {
-		if v, ok := lookup(n); ok {
-			return n, v, true
-		}
-	}
-	return "", "", false
-}
 
 // ErrNotConfigured means this instance has no exchange configuration at all, so
 // the exchanging credentials mode is unavailable here. It is not a failure of a
@@ -95,8 +79,8 @@ var ErrNotConfigured = errors.New("exchange: not configured")
 // set, and a descriptive error when one is set and unusable — a half-configured
 // instance is an operator mistake worth naming, not a silent fallback.
 func ConfigFromEnv(lookup func(string) (string, bool)) (Config, error) {
-	_, rawURL, hasURL := firstSet(lookup, EnvURL, EnvURLAlt)
-	credsName, rawCreds, hasCreds := firstSet(lookup, EnvCredentials, EnvCredentialsAlt)
+	rawURL, hasURL := lookup(EnvURL)
+	rawCreds, hasCreds := lookup(EnvCredentials)
 	if !hasURL && !hasCreds {
 		return Config{}, ErrNotConfigured
 	}
@@ -110,10 +94,10 @@ func ConfigFromEnv(lookup func(string) (string, bool)) (Config, error) {
 	if err := json.Unmarshal([]byte(rawCreds), &creds); err != nil {
 		// The error is not wrapped: a JSON decoding error can quote the input,
 		// and the input holds client secrets.
-		return Config{}, fmt.Errorf("exchange: %s is not a JSON object of audience to credential", credsName)
+		return Config{}, fmt.Errorf("exchange: %s is not a JSON object of audience to credential", EnvCredentials)
 	}
 	if len(creds) == 0 {
-		return Config{}, fmt.Errorf("exchange: %s names no cluster", credsName)
+		return Config{}, fmt.Errorf("exchange: %s names no cluster", EnvCredentials)
 	}
 	for audience, c := range creds {
 		if c.ClientID == "" || c.ClientSecret == "" {

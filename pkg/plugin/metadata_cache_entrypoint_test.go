@@ -126,11 +126,11 @@ func TestEntryPoint_AColdMetadataLookupRunsAsTheSignedInUser(t *testing.T) {
 
 	innerCtx, mutated := h.MutateQueryData(ctx, inner)
 
-	assert.Equal(t, "kc-sub-dave", connArgsOf(t, mutated)["sub"],
+	assert.Equal(t, identityAt("kc-sub-dave"), connArgsOf(t, mutated)["sub"],
 		"the lookup keys the pool on the same person the panel does")
 	p, ok := exchange.PrincipalFrom(innerCtx)
 	require.True(t, ok, "without a principal the transport refuses the lookup")
-	assert.Equal(t, "kc-sub-dave", p.Subject)
+	assert.Equal(t, identityAt("kc-sub-dave"), p.Subject)
 	assert.Equal(t, token, p.SubjectToken)
 }
 
@@ -150,5 +150,5 @@ func TestEntryPoint_BothCarriersAreSetAndAgree(t *testing.T) {
 	p, ok := exchange.PrincipalFrom(ctx)
 	require.True(t, ok)
 	assert.Equal(t, carried, p.SubjectToken, "one identity, two carriers, no drift")
-	assert.Equal(t, exchange.SubjectOf(carried), p.Subject)
+	assert.Equal(t, exchange.IdentityOf(carried), p.Subject)
 }

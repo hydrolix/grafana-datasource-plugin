@@ -3,6 +3,7 @@ package exchange
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -189,8 +190,17 @@ func (s *Source) exchange(ctx context.Context, k, audience, subject, subjectToke
 		exCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), exchangeCeiling)
 		defer cancel()
 
+		// A caller can find the cache empty, then reach here only after the
+		// flight that filled it has finished, which starts a new flight. Look
+		// again first, so that late caller gets the token a moment ago's
+		// exchange produced instead of making a second one.
 		s.mu.Lock()
 		gen := s.gens[k]
+		if e := s.entries[k]; e != nil && e.usable(s.now()) && !e.stale(s.now()) {
+			cached := e.token
+			s.mu.Unlock()
+			return cached, nil
+		}
 		s.mu.Unlock()
 
 		// The deadline is stamped from the moment the request STARTED, so the
@@ -313,6 +323,10 @@ func outcome(err error) string {
 // truncate shortens a subject for a log line. A subject is an opaque id rather
 // than a secret, but a whole one in a log is more than a reader needs.
 func truncate(subject string) string {
+	// Log the person's part of an issuer-qualified subject, not the issuer.
+	if i := strings.Index(subject, "|"); i >= 0 {
+		subject = subject[i+1:]
+	}
 	const n = 12
 	if len(subject) <= n {
 		return subject

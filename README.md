@@ -48,9 +48,6 @@ Following is the list of Hydrolix configuration options.
   Forward OAuth Identity, or Forward OAuth + Exchange.
 - **Token** - Service account token.
 - **Username**, **Password** - Service account credentials.
-- **Cluster audience** (optional, Forward OAuth + Exchange only) - The audience the exchanged token must carry, when it
-  differs from the server address. Leave empty to use the server address. This is not a secret. See
-  [Forward OAuth with a token exchange](#forward-oauth-with-a-token-exchange).
 
 **Additional Settings section:**
 
@@ -130,8 +127,8 @@ Grafana renders a key in that section into the plugin's environment with a `GF_P
 arrives as `GF_PLUGIN_EXCHANGE_URL`. Writing the credential as `$__env{…}` keeps the JSON out of the rendered file.
 
 > **Setting these as environment variables on the Grafana process does not work.** Grafana builds a minimal
-> environment for backend plugin processes rather than passing its own, so `GF_PLUGIN_EXCHANGE_URL`,
-> `HDX_EXCHANGE_URL` and the `GF_PLUGIN_<PLUGIN_ID>_…` override form all fail to reach the plugin, and every panel
+> environment for backend plugin processes rather than passing its own, so `GF_PLUGIN_EXCHANGE_URL` and the
+> `GF_PLUGIN_<PLUGIN_ID>_…` override form both fail to reach the plugin, and every panel
 > fails with `exchange: not configured`. Measured on Grafana 13.0.3 Enterprise by reading the plugin process's own
 > `/proc/<pid>/environ`, where the plugin sees only `GF_EDITION`, `GF_VERSION`, `GF_ENTERPRISE_*`, `PLUGIN_*` and
 > `grafana_plugin_type`. Older Grafana did pass its environment through — 11.6.0 OSS does — so a deployment that
@@ -147,7 +144,21 @@ cluster issues its own. Keying by audience keeps each credential scoped to the o
 }
 ```
 
-A data source's audience is its **Cluster audience** setting, or its server address when that is empty.
+A data source's audience is always its server address. It is not a separate setting: an audience that could differ
+from the host would let whoever edits the data source have every viewer's cluster token sent to a server of their
+choosing.
+
+**Grafana must refresh the sign-in token.** The forwarded token is short-lived, and the exchange needs a live one, so
+the OAuth provider users sign in through must issue refresh tokens and Grafana must use them:
+
+```ini
+[auth.generic_oauth]
+use_refresh_token = true
+```
+
+The provider's client must issue a refresh token for the scopes Grafana requests (Keycloak issues a session-bound
+one to a confidential client without `offline_access`). Without it, panels start failing a few minutes after
+sign-in, because every exchange after the token expires is refused.
 
 Notes:
 
@@ -157,6 +168,8 @@ Notes:
   access, which is established when a panel runs as that person.
 - An instance with no exchange configuration reports the mode as unavailable rather than failing panels with an
   authentication error.
+- The exchange is keyed per person on the token's issuer and subject together, so users of two OAuth providers who
+  happen to share a `sub` never share a cluster token.
 
 ### Provision the data source
 

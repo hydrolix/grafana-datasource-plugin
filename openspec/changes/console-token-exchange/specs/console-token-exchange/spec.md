@@ -31,9 +31,9 @@ forwards a sign-in token only when the data source asks it to.
 ### Requirement: The delegate credential is operator configuration, keyed by audience
 
 The exchange endpoint and its credentials SHALL be read from the process
-environment — `GF_PLUGIN_EXCHANGE_URL` and `GF_PLUGIN_EXCHANGE_CREDENTIALS`,
-or `HDX_EXCHANGE_URL` and `HDX_EXCHANGE_CREDENTIALS` — and SHALL NOT be read
-from `jsonData` or `secureJsonData`. Credentials SHALL be a map keyed by
+environment as `GF_PLUGIN_EXCHANGE_URL` and `GF_PLUGIN_EXCHANGE_CREDENTIALS`,
+and from no other name, and SHALL NOT be read from `jsonData` or
+`secureJsonData`. Credentials SHALL be a map keyed by
 cluster audience, so that one Grafana serving several clusters holds a
 separate credential per cluster and each credential is scoped to the one
 cluster it can obtain a token for.
@@ -43,12 +43,12 @@ Those environment variables SHALL be supplied through a
 file, whose keys Grafana renders into the plugin's environment with a
 `GF_PLUGIN_` prefix. Grafana builds a minimal environment for a backend plugin
 process rather than passing its own, so a variable set on the Grafana process
-itself does not reach the plugin (measured on Grafana 13.0.3 Enterprise); the
-unprefixed `HDX_` names are reachable only on a Grafana that still passes its
-environment through.
+itself does not reach the plugin (measured on Grafana 13.0.3 Enterprise).
 
-A data source's audience SHALL be its `jsonData.exchangeAudience` when set,
-and its configured host otherwise.
+A data source's audience SHALL be its configured host, and SHALL NOT be a
+separate setting: an audience that could differ from the host would mint a
+real cluster's token for every viewer and send it to whatever server the host
+names.
 
 #### Scenario: Each cluster's credential is its own
 
@@ -65,8 +65,8 @@ and its configured host otherwise.
 
 ### Requirement: One exchange per user, reused until shortly before expiry
 
-The plugin SHALL cache an exchanged token per subject, keyed on the subject
-claim and never on the forwarded token, which changes when Grafana refreshes
+The plugin SHALL cache an exchanged token per subject, keyed on the token's
+issuer and subject claims together and never on the forwarded token, which changes when Grafana refreshes
 it. Concurrent requests for one subject SHALL result in a single exchange in
 flight. Expiry SHALL be computed from the moment the exchange request began,
 never from a server-supplied clock.

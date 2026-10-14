@@ -26,8 +26,9 @@ type Principal struct {
 	// Audience is the cluster's configured token audience — what the exchange
 	// asks for, and what the cluster checks.
 	Audience string
-	// Subject is the `sub` claim: stable per person, distinct between people,
-	// and not a secret.
+	// Subject is who the person is: the token's issuer and its `sub` claim, as
+	// IdentityOf joins them. Stable per person, distinct between people, and not
+	// a secret.
 	Subject string
 	// SubjectToken is the token Grafana forwarded. It is exchanged, never sent
 	// to a cluster.
@@ -53,28 +54,54 @@ func PrincipalFrom(ctx context.Context) (Principal, bool) {
 	return p, true
 }
 
-// SubjectOf reads the `sub` claim from a JWT without verifying its signature.
+// claims are the parts of a JWT's payload this package reads.
+type claims struct {
+	Iss string `json:"iss"`
+	Sub string `json:"sub"`
+	Exp int64  `json:"exp"`
+}
+
+// claimsOf reads a JWT's payload without verifying its signature.
 //
-// Unverified is correct here: this value only picks a cache slot and a
+// Unverified is correct here: these values only pick a cache slot and a
 // connection-pool key. The console's exchange facade is the verifier — it pins
-// the issuer, the audience and the signature before it mints anything — so a
-// forged `sub` buys an attacker their own empty cache entry and a refusal.
-func SubjectOf(jwt string) string {
+// the issuer, the audience and the signature before it mints anything.
+func claimsOf(jwt string) (claims, bool) {
 	parts := strings.Split(jwt, ".")
 	if len(parts) < 2 {
-		return ""
+		return claims{}, false
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
+		return claims{}, false
+	}
+	var c claims
+	if err := json.Unmarshal(payload, &c); err != nil {
+		return claims{}, false
+	}
+	return c, true
+}
+
+// SubjectOf reads the `sub` claim from a JWT without verifying its signature.
+func SubjectOf(jwt string) string {
+	c, _ := claimsOf(jwt)
+	return c.Sub
+}
+
+// IdentityOf answers who a JWT names: its issuer and its `sub`, joined. Empty
+// when either is missing, and a token that names nobody is refused downstream.
+//
+// `sub` alone is not an identity. It is unique per issuer, and Grafana can run
+// several OAuth providers at once, so two people from two providers can share a
+// `sub`; keyed on that alone, one person's cluster token would serve the other.
+// The separator cannot appear in an issuer, which is a URL, so the first one
+// splits the pair unambiguously even where a `sub` contains it.
+func IdentityOf(jwt string) string {
+	c, _ := claimsOf(jwt)
+	if c.Iss == "" || c.Sub == "" {
 		return ""
 	}
-	var claims struct {
-		Sub string `json:"sub"`
-	}
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return ""
-	}
-	return claims.Sub
+	return c.Iss + "|" + c.Sub
 }
 
 // Principals remembers the newest forwarded token for each subject.
@@ -88,8 +115,9 @@ func SubjectOf(jwt string) string {
 //
 // So the subject, which keys the connection, also keys this registry, and the
 // transport can recover the token for the connection it belongs to. Entries are
-// the newest token seen for that person and are dropped once they go unused,
-// because a token Grafana has stopped refreshing is of no further use.
+// the newest token seen for that person, and each is dropped once the token
+// itself expires: past its `exp` the facade would refuse it, so holding it is
+// only retention. The idle limit is the backstop for a token with no `exp`.
 type Principals struct {
 	mu    sync.Mutex
 	known map[string]remembered
@@ -99,11 +127,11 @@ type Principals struct {
 
 type remembered struct {
 	principal Principal
-	seen      time.Time
+	until     time.Time
 }
 
-// NewPrincipals builds a registry. An entry unused for `idle` is dropped; zero
-// means one hour.
+// NewPrincipals builds a registry. An entry is dropped when its token expires,
+// or once unused for `idle` if that comes first; zero means one hour.
 func NewPrincipals(idle time.Duration, now func() time.Time) *Principals {
 	if idle <= 0 {
 		idle = time.Hour
@@ -119,10 +147,17 @@ func (p *Principals) Remember(pr Principal) {
 	if pr.Subject == "" || pr.SubjectToken == "" || pr.Audience == "" {
 		return
 	}
+	now := p.now()
+	until := now.Add(p.idle)
+	if c, ok := claimsOf(pr.SubjectToken); ok && c.Exp > 0 {
+		if exp := time.Unix(c.Exp, 0); exp.Before(until) {
+			until = exp
+		}
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.known[key(pr.Audience, pr.Subject)] = remembered{principal: pr, seen: p.now()}
-	p.pruneLocked()
+	p.known[key(pr.Audience, pr.Subject)] = remembered{principal: pr, until: until}
+	p.pruneLocked(now)
 }
 
 // Lookup answers the newest token for this subject at this cluster.
@@ -133,16 +168,15 @@ func (p *Principals) Lookup(audience, subject string) (Principal, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	entry, ok := p.known[key(audience, subject)]
-	if !ok || p.now().Sub(entry.seen) > p.idle {
+	if !ok || !p.now().Before(entry.until) {
 		return Principal{}, false
 	}
 	return entry.principal, true
 }
 
-func (p *Principals) pruneLocked() {
-	cutoff := p.now().Add(-p.idle)
+func (p *Principals) pruneLocked(now time.Time) {
 	for k, v := range p.known {
-		if v.seen.Before(cutoff) {
+		if !now.Before(v.until) {
 			delete(p.known, k)
 		}
 	}

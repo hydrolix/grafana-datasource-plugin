@@ -58,13 +58,6 @@ export default {
           description:
             "User Account, Service Account, Forward OAuth Identity, or Forward OAuth with a console token exchange",
         },
-        exchangeAudience: {
-          testId: "data-testid hdx_exchangeAudience",
-          label: "Cluster audience",
-          description:
-            "The audience the exchanged token must carry, if it differs from the host. Leave empty to use the host.",
-          placeholder: "cluster.example.hydrolix.net",
-        },
         token: {
           testId: "data-testid hdx_token",
           label: "Token",

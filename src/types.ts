@@ -64,12 +64,6 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   querySettings?: QuerySetting[];
   exposeErrors?: ExposeErrorsOptions;
   oauthPassThru?: boolean;
-  /**
-   * The cluster's token audience, for `forwardOAuthExchange`. Optional: the
-   * host is the audience on every cluster the console registers today. Not a
-   * secret.
-   */
-  exchangeAudience?: string;
 }
 
 export interface ExposeErrorsOptions {

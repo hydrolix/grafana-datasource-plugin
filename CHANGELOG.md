@@ -5,8 +5,13 @@
 - **Feature**: New credentials type *Forward OAuth + Exchange* (`forwardOAuthExchange`). The signed-in user's token is
   exchanged for a cluster token (RFC 8693) before querying, for a Grafana whose users sign in through an issuer the
   cluster does not accept directly. The data source stores no credential; the exchange endpoint and its per-cluster
-  credentials come from `GF_PLUGIN_EXCHANGE_URL` / `GF_PLUGIN_EXCHANGE_CREDENTIALS`. Requires the HTTP protocol —
-  native binds its credential to the connection and cannot carry a refreshed token
+  credentials come from a `[plugin.hydrolix-hydrolix-datasource]` section in Grafana's configuration file, which
+  reaches the plugin as `GF_PLUGIN_EXCHANGE_URL` / `GF_PLUGIN_EXCHANGE_CREDENTIALS`. The audience is always the data
+  source's host. Requires the HTTP protocol — native binds its credential to the connection and cannot carry a
+  refreshed token, and Grafana's `use_refresh_token`
+- **Fix**: A query's own `connectionArgs` no longer reach the connection cache in any credentials mode. sqlds reads
+  them from the query JSON the browser sends, so a caller could otherwise choose which cached connection a query ran
+  on
 - **Fix**: `Save & test` on either forwarding mode reported a working data source as degraded. The check ran on the
   bootstrap connection, which has no signed-in user, so it tested something no query uses. Both modes now report what
   can actually be established at configuration time

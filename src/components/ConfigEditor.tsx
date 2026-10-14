@@ -603,27 +603,6 @@ export function ConfigEditor(props: Props) {
               </Field>
             </>
           )}
-          {jsonData.credentialsType ===
-            CredentialsType.ForwardOAuthExchange && (
-            <Field
-              data-testid={labels.exchangeAudience.testId}
-              label={labels.exchangeAudience.label}
-              description={labels.exchangeAudience.description}
-            >
-              <Input
-                name={"exchangeAudience"}
-                width={40}
-                value={jsonData.exchangeAudience ?? ""}
-                onChange={onUpdateDatasourceJsonDataOption(
-                  props,
-                  "exchangeAudience"
-                )}
-                label={labels.exchangeAudience.label}
-                aria-label={labels.exchangeAudience.label}
-                placeholder={labels.exchangeAudience.placeholder}
-              />
-            </Field>
-          )}
           {jsonData.credentialsType === CredentialsType.ServiceAccount && (
             <>
               <Field

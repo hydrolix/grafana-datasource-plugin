@@ -34,9 +34,9 @@ type Hydrolix struct {
 	querySettingsContextHandler func(context.Context, map[string]any) context.Context
 
 	// exchangeSource mints cluster tokens for the exchanging credentials mode,
-	// or is nil where this instance is not configured for it. One per process:
-	// the cache is keyed by (cluster audience, subject), so sharing it across
-	// datasources of the same cluster is correct and saves exchanges.
+	// or is nil where this instance is not configured for it. One per
+	// datasource instance: NewHydrolix runs in the instance factory, so each
+	// datasource exchanges and caches on its own.
 	exchangeSource *exchange.Source
 	// exchangeConfigErr says why exchangeSource is nil, so a datasource set to
 	// the mode can fail with the reason rather than with an auth error.
@@ -99,13 +99,14 @@ func (h *Hydrolix) exchangeConfiguredFor(audience string) bool {
 	}()
 }
 
-// exchangeAudienceOf answers the audience a datasource exchanges for: the one
-// its settings name, else its host, which is the audience on every cluster the
-// console registers today.
+// exchangeAudienceOf answers the audience a datasource exchanges for: its host,
+// which is the audience on every cluster the console registers.
+//
+// It is never a separate setting. An audience that could differ from the host
+// would let anyone who can edit the datasource point the host at a server they
+// control and the audience at a real cluster, and every viewer's real-cluster
+// token would then be sent to that server.
 func exchangeAudienceOf(settings models.PluginSettings) string {
-	if settings.ExchangeAudience != "" {
-		return settings.ExchangeAudience
-	}
 	return settings.Host
 }
 
@@ -389,8 +390,11 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 		// refreshes the token every few minutes while the person stays the
 		// same, so keying on the token would rebuild the pool each time. The
 		// token itself rides the context, where it is not part of any key.
+		//
+		// The subject is issuer-qualified (exchange.IdentityOf): `sub` is
+		// unique per issuer only, and Grafana can run several OAuth providers.
 		if token := strings.TrimPrefix(headers.Get(backend.OAuthIdentityTokenHeaderName), "Bearer "); token != "" {
-			if subject := exchange.SubjectOf(token); subject != "" {
+			if subject := exchange.IdentityOf(token); subject != "" {
 				connArgs["sub"] = subject
 				principal := exchange.Principal{
 					Audience:     exchangeAudienceOf(pluginSettings),
@@ -435,7 +439,13 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 			n++
 		}
 
-		patches := map[string]any{"querySettings": mergedSettingsArray}
+		// connectionArgs are the connection cache's key, and the identity a
+		// connection is built for. They are always the ones built above, never
+		// the query's own: sqlds reads them from the query JSON the browser
+		// sent, so a client-supplied value would otherwise choose whose cached
+		// connection — and whose cluster token — the query runs on. With none
+		// built, the key is removed rather than left to the client.
+		patches := map[string]any{"querySettings": mergedSettingsArray, "connectionArgs": nil}
 		if len(connArgs) > 0 {
 			patches["connectionArgs"] = connArgs
 		}
@@ -519,7 +529,8 @@ func readConnArg(args json.RawMessage, key string) (string, bool) {
 	return v, true
 }
 
-// jsonSet update raw message's root object by applying a value to a key property
+// jsonSet update raw message's root object by applying a value to a key property.
+// A nil value removes the key.
 func jsonSet(jmsg json.RawMessage, val map[string]any) (json.RawMessage, error) {
 	var objmap map[string]interface{}
 	err := json.Unmarshal(jmsg, &objmap)
@@ -527,6 +538,10 @@ func jsonSet(jmsg json.RawMessage, val map[string]any) (json.RawMessage, error) 
 		return nil, err
 	}
 	for k, v := range val {
+		if v == nil {
+			delete(objmap, k)
+			continue
+		}
 		objmap[k] = v
 	}
 	return json.Marshal(objmap)
