@@ -176,6 +176,8 @@ func TestAdHocFilterMacro_ExplicitArgRejectsInjection(t *testing.T) {
 		"events) UNION SELECT 1 --",
 		"akamai.logs#redacted",
 		"`a`b`",
+		"`a`b",
+		"\"a`b\"",
 		"``",
 		`""`,
 		"a.b.c",

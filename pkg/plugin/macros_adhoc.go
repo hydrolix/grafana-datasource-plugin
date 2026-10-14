@@ -30,7 +30,8 @@ var mapTypeFilterKey = regexp.MustCompile(`^(.*)\['.*']$`)
 
 // explicitCTESegment is one name in the explicit argument: a bare identifier,
 // or a backtick- or double-quoted name (e.g. a custom view, `logs#redacted`).
-const explicitCTESegment = "(?:[A-Za-z_]\\w*|`[^`]+`|\"[^\"]+\")"
+// Neither quoted form may contain a backtick, which quoteIdentifier rejects.
+const explicitCTESegment = "(?:[A-Za-z_]\\w*|`[^`]+`|\"[^\"`]+\")"
 
 // explicitCTEArg constrains the explicit `$__adHocFilter(<arg>)` argument to
 // one segment, optionally `database.table`.
