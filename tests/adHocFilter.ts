@@ -43,6 +43,14 @@ const COMBOBOX = [
 export class AdHocFilter {
     constructor(private readonly page: Page) {}
 
+    /** Open the key dropdown and return its options once `getTagKeys` lands. */
+    async openKeys(opts: { timeout?: number } = {}): Promise<string[]> {
+        const timeout = opts.timeout ?? 8000;
+        await this.page.locator(COMBOBOX).first().click();
+        await this.waitForOptions(timeout);
+        return visibleOptionTexts(this.page);
+    }
+
     /**
      * Select `key` for a new filter, stopping just short of loading its
      * values.
@@ -79,17 +87,7 @@ export class AdHocFilter {
 
         await this.page.waitForSelector('[role="listbox"]', {timeout});
         if (waitForOptions) {
-            // A single "Loading options..." placeholder is parked in the
-            // listbox while the request is in flight; real options replace it.
-            await expect
-                .poll(
-                    async () => {
-                        const opts_ = await visibleOptionTexts(this.page);
-                        return opts_.length > 0 && !opts_.some((o) => o.startsWith("Loading"));
-                    },
-                    {timeout, intervals: [50, 100, 200]},
-                )
-                .toBe(true);
+            await this.waitForOptions(timeout);
         }
 
         return {
@@ -136,5 +134,22 @@ export class AdHocFilter {
     /** Abandon the dropdown currently open, discarding the in-progress filter. */
     async dismiss(): Promise<void> {
         await this.page.keyboard.press("Escape");
+    }
+
+    /**
+     * Wait for the open listbox to show real options. A single
+     * "Loading options..." placeholder is parked in it while the request is in
+     * flight; real options replace it.
+     */
+    private async waitForOptions(timeout: number): Promise<void> {
+        await expect
+            .poll(
+                async () => {
+                    const opts_ = await visibleOptionTexts(this.page);
+                    return opts_.length > 0 && !opts_.some((o) => o.startsWith("Loading"));
+                },
+                {timeout, intervals: [50, 100, 200]},
+            )
+            .toBe(true);
     }
 }

@@ -148,12 +148,14 @@ test("ad hoc filter value dropdown: backtick-quoted table variable", async ({
   await closeWhatsNewDialog(page);
 
   const filters = new AdHocFilter(page);
+  // Map keys come from a `$__timeFilter()` query that needs the primary key.
+  const keys = await filters.openKeys({ timeout: GUARDRAIL_BUDGET_MS });
+  expect(keys).toContain("attrs['env']");
+  await filters.dismiss();
   await filters.selectKey("status");
   const { options } = await filters.openValues({
     timeout: GUARDRAIL_BUDGET_MS,
   });
   expect(options).toContain("common");
-  await filters.dismiss();
-  await filters.selectKey("attrs['env']");
   await filters.dismiss();
 });
