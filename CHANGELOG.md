@@ -2,6 +2,10 @@
 
 ## 0.13.0 (unreleased)
 
+- **Fix**: `$__adHocFilter(<table>)` with an explicit argument rejected a Hydrolix custom view or any quoted table name
+  with `invalid $__adHocFilter argument` (HDX-12561): the argument allowed only bare `table` or `database.table`. It now
+  also accepts backtick- and double-quoted names, so ``$__adHocFilter(akamai.`logs#redacted`)`` resolves the view's
+  columns. As in the table variable, quote a view name; an unquoted `#` is still rejected
 - **Fix**: Ad hoc filter values showed "No options found" when the ad hoc table variable named a Hydrolix custom view
   (``akamai.`logs#redacted` ``) or any backtick- or double-quoted table (HDX-12543). Plain-column keys still loaded,
   but the primary-key lookup behind the preloads searched `system.tables` for the quoted spelling and found no row: the

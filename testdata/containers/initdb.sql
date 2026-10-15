@@ -131,3 +131,9 @@ INSERT INTO e2e.adhoc_keyless (ts, status, attrs) VALUES
     ('2020-01-01 00:20:00', 'error', map('env', 'staging')),
     ('2020-01-01 00:30:00', 'error', map('env', 'staging')),
     ('2020-01-01 00:40:00', 'warn', map('env', 'dev'));
+
+-- Custom-view fixture (tests/adHocQuotedView.spec.ts). Hydrolix custom views
+-- are named `<table>#<view>`, which is only a valid identifier when quoted, so
+-- $__adHocFilter(e2e.`adhoc_topk#view`) has to accept and re-quote it.
+DROP VIEW IF EXISTS e2e.`adhoc_topk#view`;
+CREATE VIEW e2e.`adhoc_topk#view` AS SELECT ts, status FROM e2e.adhoc_topk;
