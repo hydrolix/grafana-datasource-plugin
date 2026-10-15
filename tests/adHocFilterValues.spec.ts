@@ -116,3 +116,46 @@ test("ad hoc filter value dropdown: topK guardrails end-to-end", async ({
   expect(nonNullableOptions).toContain("common");
   await filters.dismiss();
 });
+
+test("ad hoc filter value dropdown: backtick-quoted table variable", async ({
+  page,
+  createDataSourceConfigPage,
+  gotoDashboardPage,
+}) => {
+  const steps = new ConfigPageSteps(page);
+  const dsConfigPage = await steps.createDatasourceConfigPage(
+    "adhoc quoted table",
+    createDataSourceConfigPage
+  );
+  await steps.fillTestHttpDatasource();
+  await steps.configPageLocator
+    .additionalSettingsExpandable()
+    .click({ force: true });
+  await steps.configPageLocator.defaultDatabase().fill("e2e");
+  await steps.configPageLocator.adHocTableVariable().fill("table");
+  await steps.saveSuccess(dsConfigPage);
+
+  const { uid, type } = dsConfigPage.datasource;
+  const { uid: dashUid } = await new DashboardBuilder(page, { uid, type })
+    .withTitle(`adhoc-quoted-table-${Date.now()}`)
+    .addCustomVariable({ name: "table", query: "e2e.`adhoc_topk`" })
+    .addAdHocVariable({ name: "Filters" })
+    .addPanel({ rawSql: "SELECT 1 AS v" })
+    .withTimeRange(DASHBOARD_FROM, DASHBOARD_TO)
+    .create();
+
+  await gotoDashboardPage({ uid: dashUid });
+  await closeWhatsNewDialog(page);
+
+  const filters = new AdHocFilter(page);
+  // Map keys come from a `$__timeFilter()` query that needs the primary key.
+  const keys = await filters.openKeys({ timeout: GUARDRAIL_BUDGET_MS });
+  expect(keys).toContain("attrs['env']");
+  await filters.dismiss();
+  await filters.selectKey("status");
+  const { options } = await filters.openValues({
+    timeout: GUARDRAIL_BUDGET_MS,
+  });
+  expect(options).toContain("common");
+  await filters.dismiss();
+});
