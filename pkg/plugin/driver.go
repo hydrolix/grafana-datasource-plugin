@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/hydrolix/plugin/pkg/identity"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/grafana/sqlds/v5"
 	hdxbuild "github.com/hydrolix/plugin/pkg/build"
 	"github.com/hydrolix/plugin/pkg/converters"
+	"github.com/hydrolix/plugin/pkg/plugin/exchange"
 	"github.com/hydrolix/plugin/pkg/plugin/models"
 	"github.com/pkg/errors"
 )
@@ -30,6 +32,22 @@ import (
 // Hydrolix defines how to connect to a Hydrolix datasource
 type Hydrolix struct {
 	querySettingsContextHandler func(context.Context, map[string]any) context.Context
+
+	// exchangeSource mints cluster tokens for the exchanging credentials mode,
+	// or is nil where this instance is not configured for it. One per
+	// datasource instance: NewHydrolix runs in the instance factory, so each
+	// datasource exchanges and caches on its own.
+	exchangeSource *exchange.Source
+	// exchangeConfigErr says why exchangeSource is nil, so a datasource set to
+	// the mode can fail with the reason rather than with an auth error.
+	exchangeConfigErr error
+	// exchangePrincipals holds the newest forwarded token per subject, for the
+	// requests whose context does not reach the transport — the driver's own
+	// handshake when a connection is established.
+	exchangePrincipals *exchange.Principals
+	// exchangeConfig is kept so a health check can say which clusters this
+	// Grafana is configured to exchange for.
+	exchangeConfig exchange.Config
 }
 
 var (
@@ -43,7 +61,53 @@ var (
 
 // NewHydrolix creates plugin instance with default parameters
 func NewHydrolix() *Hydrolix {
-	return &Hydrolix{querySettingsContextHandler: clickhouseContextHandler}
+	h := &Hydrolix{querySettingsContextHandler: clickhouseContextHandler}
+	// Read from the environment, which is how Grafana exposes its
+	// `[plugin.<id>]` configuration to a plugin process. Absent configuration is
+	// not an error: it only means this instance cannot serve the exchanging
+	// mode, which nothing else depends on.
+	if cfg, err := exchange.ConfigFromEnv(os.LookupEnv); err == nil {
+		h.exchangeSource = exchange.NewSource(exchange.NewHTTPExchanger(cfg), nil, log.DefaultLogger)
+		h.exchangePrincipals = exchange.NewPrincipals(0, nil)
+		h.exchangeConfig = cfg
+	} else {
+		h.exchangeConfigErr = err
+	}
+	return h
+}
+
+// forwardsUserIdentity reports whether a credentials mode carries the signed-in
+// user's identity rather than a credential stored on the datasource.
+//
+// It exists because this is the second place that had to know, and the first was
+// a literal string comparison: a mode added later matched none of them and every
+// connection failed its handshake before a query could run.
+func forwardsUserIdentity(credentialsType string) bool {
+	return credentialsType == "forwardOAuth" || credentialsType == exchange.CredentialsType
+}
+
+// exchangeConfiguredFor reports whether this process holds a delegate credential
+// for that cluster. Credentials are per cluster, so a Grafana serving several
+// can be configured for one and not another.
+func (h *Hydrolix) exchangeConfiguredFor(audience string) bool {
+	if h.exchangeSource == nil {
+		return false
+	}
+	return h.exchangeConfig.Credentials != nil && func() bool {
+		_, ok := h.exchangeConfig.Credential(audience)
+		return ok
+	}()
+}
+
+// exchangeAudienceOf answers the audience a datasource exchanges for: its host,
+// which is the audience on every cluster the console registers.
+//
+// It is never a separate setting. An audience that could differ from the host
+// would let anyone who can edit the datasource point the host at a server they
+// control and the audience at a real cluster, and every viewer's real-cluster
+// token would then be sent to that server.
+func exchangeAudienceOf(settings models.PluginSettings) string {
+	return settings.Host
 }
 
 // getClientInfoProducts reads build information of grafana and plugin
@@ -193,6 +257,33 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		}
 	}
 
+	if settings.CredentialsType == exchange.CredentialsType {
+		if protocol != clickhouse.HTTP {
+			// The native protocol carries its credential as the connection's
+			// password, which cannot be swapped per request — so a refreshed
+			// cluster token could never reach an open connection. Refusing is
+			// better than a second, worse code path: the console's own
+			// datasources are all HTTP.
+			return nil, backend.DownstreamError(fmt.Errorf(
+				"%s credentials need the http protocol: the native protocol binds its credential to the connection", exchange.CredentialsType))
+		}
+		if h.exchangeSource == nil {
+			return nil, backend.PluginError(fmt.Errorf(
+				"this Grafana is not configured for %s credentials: %w", exchange.CredentialsType, h.exchangeConfigErr))
+		}
+		// The credential is set per request by the transport, from the token
+		// source, rather than frozen into this connection's headers.
+		//
+		// The connection is bound to the subject that keys it, so a request
+		// whose context does not reach here — the driver's handshake, issued
+		// when database/sql establishes the connection — is still identified.
+		subject, _ := readConnArg(args, "sub")
+		opts.TransportFunc = func(t *http.Transport) (http.RoundTripper, error) {
+			return exchange.NewBoundTransport(t, h.exchangeSource, h.exchangePrincipals,
+				exchangeAudienceOf(settings), subject), nil
+		}
+	}
+
 	db := clickhouse.OpenDB(opts)
 
 	// TODO: add config UI for connection pool
@@ -208,7 +299,12 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		}
 		return nil, fmt.Errorf("connect to database was cancelled: %w", ctx.Err())
 	default:
-		if settings.CredentialsType != "forwardOAuth" {
+		// A connection whose credential belongs to the signed-in user cannot be
+		// verified here: this runs when the connection is established, with no
+		// user in hand, so the handshake would have nobody to be. Both
+		// forwarding modes therefore skip it, and the first real query is what
+		// proves the connection.
+		if !forwardsUserIdentity(settings.CredentialsType) {
 			err := db.PingContext(ctx)
 			if err != nil {
 				var ex *clickhouse.Exception
@@ -289,6 +385,29 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 			connArgs["oauthToken"] = token
 		}
 	}
+	if pluginSettings.CredentialsType == exchange.CredentialsType {
+		// The SUBJECT keys the connection cache, not the token: Grafana
+		// refreshes the token every few minutes while the person stays the
+		// same, so keying on the token would rebuild the pool each time. The
+		// token itself rides the context, where it is not part of any key.
+		//
+		// The subject is issuer-qualified (exchange.IdentityOf): `sub` is
+		// unique per issuer only, and Grafana can run several OAuth providers.
+		if token := strings.TrimPrefix(headers.Get(backend.OAuthIdentityTokenHeaderName), "Bearer "); token != "" {
+			if subject := exchange.IdentityOf(token); subject != "" {
+				connArgs["sub"] = subject
+				principal := exchange.Principal{
+					Audience:     exchangeAudienceOf(pluginSettings),
+					Subject:      subject,
+					SubjectToken: token,
+				}
+				ctx = exchange.WithPrincipal(ctx, principal)
+				if h.exchangePrincipals != nil {
+					h.exchangePrincipals.Remember(principal)
+				}
+			}
+		}
+	}
 	if org := headers.Get(OrgIdHeaderKey); org != "" {
 		connArgs["orgId"] = org
 	}
@@ -320,7 +439,13 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 			n++
 		}
 
-		patches := map[string]any{"querySettings": mergedSettingsArray}
+		// connectionArgs are the connection cache's key, and the identity a
+		// connection is built for. They are always the ones built above, never
+		// the query's own: sqlds reads them from the query JSON the browser
+		// sent, so a client-supplied value would otherwise choose whose cached
+		// connection — and whose cluster token — the query runs on. With none
+		// built, the key is removed rather than left to the client.
+		patches := map[string]any{"querySettings": mergedSettingsArray, "connectionArgs": nil}
 		if len(connArgs) > 0 {
 			patches["connectionArgs"] = connArgs
 		}
@@ -404,7 +529,8 @@ func readConnArg(args json.RawMessage, key string) (string, bool) {
 	return v, true
 }
 
-// jsonSet update raw message's root object by applying a value to a key property
+// jsonSet update raw message's root object by applying a value to a key property.
+// A nil value removes the key.
 func jsonSet(jmsg json.RawMessage, val map[string]any) (json.RawMessage, error) {
 	var objmap map[string]interface{}
 	err := json.Unmarshal(jmsg, &objmap)
@@ -412,6 +538,10 @@ func jsonSet(jmsg json.RawMessage, val map[string]any) (json.RawMessage, error) 
 		return nil, err
 	}
 	for k, v := range val {
+		if v == nil {
+			delete(objmap, k)
+			continue
+		}
 		objmap[k] = v
 	}
 	return json.Marshal(objmap)

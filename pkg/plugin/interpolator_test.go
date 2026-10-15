@@ -127,8 +127,12 @@ func TestInterpolate_LongerMacroNamesMatchFirst(t *testing.T) {
 	// If "timeFilter" is matched before "timeFilter_ms", the _ms variant
 	// gets shadowed. The interpolator must sort macro keys by length descending.
 	macros := map[string]MacroFunc{
-		"timeFilter":    func(context.Context, *models.HdxQuery, []string, parser.Pos, *MetadataProvider) (string, error) { return "SHORT", nil },
-		"timeFilter_ms": func(context.Context, *models.HdxQuery, []string, parser.Pos, *MetadataProvider) (string, error) { return "LONG", nil },
+		"timeFilter": func(context.Context, *models.HdxQuery, []string, parser.Pos, *MetadataProvider) (string, error) {
+			return "SHORT", nil
+		},
+		"timeFilter_ms": func(context.Context, *models.HdxQuery, []string, parser.Pos, *MetadataProvider) (string, error) {
+			return "LONG", nil
+		},
 	}
 	i := NewHdxInterpolator(NewMetadataProvider(nopMetadataDS{}), macros)
 	out, err := i.interpolate(context.Background(), &models.HdxQuery{RawSQL: "SELECT $__timeFilter_ms() FROM t"})

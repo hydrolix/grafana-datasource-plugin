@@ -95,6 +95,16 @@ export enum CredentialsType {
   UserAccount = "userAccount",
   ServiceAccount = "serviceAccount",
   ForwardOAuth = "forwardOAuth",
+  /**
+   * Forward the signed-in user's OAuth token, but exchange it for a cluster
+   * token before querying. For a Grafana whose users sign in through an issuer
+   * the cluster does not accept directly — a Hydrolix Console realm, say —
+   * where forwarding the token unchanged is refused on its audience.
+   *
+   * The exchange endpoint and its per-cluster credentials come from Grafana's
+   * server configuration, so this mode stores no secret on the datasource.
+   */
+  ForwardOAuthExchange = "forwardOAuthExchange",
 }
 
 export interface AdHocFilterKeys {

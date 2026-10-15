@@ -56,7 +56,7 @@ export default {
           testId: "data-testid data-testid hdx_credentialsType",
           label: "Credentials Type",
           description:
-            "User Account, Service Account or Forward OAuth Identity",
+            "User Account, Service Account, Forward OAuth Identity, or Forward OAuth with a console token exchange",
         },
         token: {
           testId: "data-testid hdx_token",

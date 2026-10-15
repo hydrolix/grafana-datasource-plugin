@@ -44,7 +44,8 @@ Following is the list of Hydrolix configuration options.
 
 **Credentials section:**
 
-- **Credentials Type** - Credentials type for connecting to your Hydrolix instance: User Account or Service Account.
+- **Credentials Type** - Credentials type for connecting to your Hydrolix instance: User Account, Service Account,
+  Forward OAuth Identity, or Forward OAuth + Exchange.
 - **Token** - Service account token.
 - **Username**, **Password** - Service account credentials.
 
@@ -96,6 +97,79 @@ monitoring, and custom error handling within your dashboards.
 When enabled, query errors are automatically captured and stored in the specified dashboard variable, allowing you to 
 display error messages in error panel.
 
+
+### Forward OAuth with a token exchange
+
+**Forward OAuth Identity** sends the signed-in user's token to the cluster unchanged. That works only where the cluster
+accepts the issuer Grafana signed the user in with.
+
+**Forward OAuth + Exchange** is for where it does not. A Grafana whose users sign in through an issuer the cluster will
+not accept directly — a Hydrolix Console Keycloak realm, for instance — holds tokens the cluster refuses on their
+audience. In this mode the plugin exchanges that token for a cluster token (RFC 8693) before querying, so the query
+still runs as the signed-in user. The exchange happens per user, the result is cached until shortly before it expires,
+and the user's original token is never sent to the cluster.
+
+The data source stores **no credential at all** in this mode. The exchange endpoint and its credentials are operator
+values, per Grafana instance, and are set in **Grafana's configuration file**:
+
+```ini
+[plugin.hydrolix-hydrolix-datasource]
+exchange_url = https://<console host>/api/v1/auth/token-exchange
+exchange_credentials = $__env{SOME_VAR_HOLDING_THE_JSON}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `exchange_url` | The token-exchange endpoint. |
+| `exchange_credentials` | A JSON object mapping each cluster's audience to its credential. |
+
+Grafana renders a key in that section into the plugin's environment with a `GF_PLUGIN_` prefix, so `exchange_url`
+arrives as `GF_PLUGIN_EXCHANGE_URL`. Writing the credential as `$__env{…}` keeps the JSON out of the rendered file.
+
+> **Setting these as environment variables on the Grafana process does not work.** Grafana builds a minimal
+> environment for backend plugin processes rather than passing its own, so `GF_PLUGIN_EXCHANGE_URL` and the
+> `GF_PLUGIN_<PLUGIN_ID>_…` override form both fail to reach the plugin, and every panel
+> fails with `exchange: not configured`. Measured on Grafana 13.0.3 Enterprise by reading the plugin process's own
+> `/proc/<pid>/environ`, where the plugin sees only `GF_EDITION`, `GF_VERSION`, `GF_ENTERPRISE_*`, `PLUGIN_*` and
+> `grafana_plugin_type`. Older Grafana did pass its environment through — 11.6.0 OSS does — so a deployment that
+> worked on an older or OSS build is not evidence that the environment route works.
+
+Credentials are a **map keyed by audience**, not a single pair, because one Grafana can serve several clusters and each
+cluster issues its own. Keying by audience keeps each credential scoped to the one cluster it can obtain a token for.
+
+```json
+{
+  "cluster-a.example.hydrolix.net": { "client_id": "grafana-a", "client_secret": "..." },
+  "cluster-b.example.hydrolix.net": { "client_id": "grafana-b", "client_secret": "..." }
+}
+```
+
+A data source's audience is always its server address. It is not a separate setting: an audience that could differ
+from the host would let whoever edits the data source have every viewer's cluster token sent to a server of their
+choosing.
+
+**Grafana must refresh the sign-in token.** The forwarded token is short-lived, and the exchange needs a live one, so
+the OAuth provider users sign in through must issue refresh tokens and Grafana must use them:
+
+```ini
+[auth.generic_oauth]
+use_refresh_token = true
+```
+
+The provider's client must issue a refresh token for the scopes Grafana requests (Keycloak issues a session-bound
+one to a confidential client without `offline_access`). Without it, panels start failing a few minutes after
+sign-in, because every exchange after the token expires is refused.
+
+Notes:
+
+- The mode requires the **HTTP** protocol. Native binds its credential to the connection as a password, which cannot be
+  replaced when the token is refreshed, so the plugin refuses the combination and says so.
+- **Save & test** reports whether this Grafana holds a credential for this cluster. It does not prove any individual's
+  access, which is established when a panel runs as that person.
+- An instance with no exchange configuration reports the mode as unavailable rather than failing panels with an
+  authentication error.
+- The exchange is keyed per person on the token's issuer and subject together, so users of two OAuth providers who
+  happen to share a `sub` never share a cluster token.
 
 ### Provision the data source
 
