@@ -15,6 +15,21 @@
 - **Fix**: `Save & test` on either forwarding mode reported a working data source as degraded. The check ran on the
   bootstrap connection, which has no signed-in user, so it tested something no query uses. Both modes now report what
   can actually be established at configuration time
+- **Fix**: `$__adHocFilter(<table>)` with an explicit argument rejected a Hydrolix custom view or any quoted table name
+  with `invalid $__adHocFilter argument` (HDX-12561): the argument allowed only bare `table` or `database.table`. It now
+  also accepts backtick- and double-quoted names, so ``$__adHocFilter(akamai.`logs#redacted`)`` resolves the view's
+  columns. As in the table variable, quote a view name; an unquoted `#` is still rejected
+- **Fix**: Ad hoc filter values showed "No options found" when the ad hoc table variable named a Hydrolix custom view
+  (``akamai.`logs#redacted` ``) or any backtick- or double-quoted table (HDX-12543). Plain-column keys still loaded,
+  but the primary-key lookup behind the preloads searched `system.tables` for the quoted spelling and found no row: the
+  value query was never sent, and `Map` columns (`attrs['…']`) dropped out of the key list because their key discovery
+  runs a `$__timeFilter()` that failed on the backend. In any query whose FROM names such a table, `$__timeFilter()`,
+  `$__timeFilter_ms()`, `$__timeInterval()` and `$__timeInterval_ms()` without a column argument failed the same way
+  with `primary key not found`. The lookup now uses the bare name; each custom
+  view has its own `system.tables` row carrying the base table's primary key. The table variable no longer needs a view
+  name in backticks: the plugin quotes any part that is not a plain identifier, so `akamai.logs#redacted` is sent as
+  ``akamai.`logs#redacted` ``. A name without a database (including a quoted one containing a dot, `` `my.logs` ``) now
+  takes the datasource's default database for DESCRIBE and the value query too, not only for the key lookup
 - **Fix**: The signed-in user's auth header did not reach the plugin backend's metadata lookups. It is set on
   `HdxQuery.Headers`, which is `json:"-"`, so the `/interpolate` route marshalled it away and the QueryData path never
   filled it — the macros found nil. It now travels on the request context, set at both entry points. Two things were

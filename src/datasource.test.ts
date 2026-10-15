@@ -11,7 +11,11 @@ import {
 } from "__mocks__/datasource";
 import { adHocTableVariable, fooVariable } from "./__mocks__/variable";
 import { AdHocFilterKeys, HdxQuery } from "./types";
-import { DataSource } from "./datasource";
+import {
+  DataSource,
+  qualifiedTableName,
+  splitTableName,
+} from "./datasource";
 import {
   AD_HOC_PRELOAD_LOOKBACK_SECONDS,
   AD_HOC_PRELOAD_ROUND_INTERVAL,
@@ -572,6 +576,112 @@ describe("HdxDataSource", () => {
         { text: "dev", value: "dev" },
       ]);
     });
+  });
+
+  describe("splitTableName", () => {
+    test.each([
+      { name: "logs", parts: ["logs"] },
+      { name: "akamai.logs", parts: ["akamai", "logs"] },
+      { name: "akamai.`logs#redacted`", parts: ["akamai", "logs#redacted"] },
+      { name: "`akamai`.`logs`", parts: ["akamai", "logs"] },
+      { name: '"akamai"."logs"', parts: ["akamai", "logs"] },
+      { name: "akamai.`my.logs`", parts: ["akamai", "my.logs"] },
+      { name: "`my.logs`", parts: ["my.logs"] },
+      { name: "`a.b`.c", parts: ["a.b", "c"] },
+      { name: "akamai . `logs`", parts: ["akamai", "logs"] },
+      { name: "a.b.c", parts: ["a", "b.c"] },
+    ])("$name", ({ name, parts }) => {
+      expect(splitTableName(name)).toEqual(parts);
+    });
+  });
+
+  describe("qualifiedTableName", () => {
+    test.each([
+      { name: "logs", qualified: "sample.logs" },
+      { name: "akamai.logs", qualified: "akamai.logs" },
+      { name: "akamai.logs#redacted", qualified: "akamai.`logs#redacted`" },
+      { name: "akamai.`logs#redacted`", qualified: "akamai.`logs#redacted`" },
+      { name: "`my.logs`", qualified: "sample.`my.logs`" },
+      { name: "my-db.logs", qualified: "`my-db`.logs" },
+      { name: '"a`b".logs', qualified: undefined },
+    ])("$name", ({ name, qualified }) => {
+      expect(qualifiedTableName(name, "sample")).toBe(qualified);
+    });
+  });
+
+  describe("ad hoc values for a quoted table name or custom view", () => {
+    const SYSTEM_TABLES: Record<string, string> = {
+      "akamai.logs": "_timestamp",
+      "akamai.logs#redacted": "_timestamp",
+      "akamai.my.logs": "_timestamp",
+      "sample.logs#redacted": "_timestamp",
+      "sample.my.logs": "_timestamp",
+    };
+    const PK_LOOKUP = /database='([^']*)' AND table ='([^']*)'/;
+
+    function setup(table: string) {
+      const variable = {
+        ...adHocTableVariable,
+        current: { value: table, text: table, selected: true },
+        options: [{ value: table, text: table, selected: true }],
+      };
+      const mock = setupDataSourceMock({ variables: [variable] });
+      jest
+        .spyOn(mock.datasource.metadataProvider, "tableKeys")
+        .mockResolvedValue([
+          { text: "reqHost", value: "reqHost", type: "String" },
+        ] as AdHocFilterKeys[]);
+      mock.queryMock.mockImplementation((request) => {
+        const lookup = request.targets[0].rawSql.match(PK_LOOKUP);
+        const values = lookup
+          ? [SYSTEM_TABLES[`${lookup[1]}.${lookup[2]}`]].filter(Boolean)
+          : ["a.example.com"];
+        return of({ data: [toDataFrame({ fields: [{ values }] })] });
+      });
+      queryMock = mock.queryMock;
+      return mock;
+    }
+
+    // queryMock is shared by every DataSource in this file; put back the
+    // default answer so the fake cluster does not leak into later cases.
+    let queryMock: jest.Mock | undefined;
+    afterEach(() => queryMock?.mockReturnValue(of({ data: [] })));
+
+    const cases = [
+      { table: "akamai.logs", from: "akamai.logs" },
+      { table: "akamai.`logs#redacted`", from: "akamai.`logs#redacted`" },
+      { table: "akamai.logs#redacted", from: "akamai.`logs#redacted`" },
+      { table: "akamai.`logs`", from: "akamai.logs" },
+      { table: "`akamai`.`logs`", from: "akamai.logs" },
+      { table: '"akamai"."logs"', from: "akamai.logs" },
+      { table: "akamai.`my.logs`", from: "akamai.`my.logs`" },
+      { table: "akamai . `logs`", from: "akamai.logs" },
+      { table: "`logs#redacted`", from: "sample.`logs#redacted`" },
+      { table: "logs#redacted", from: "sample.`logs#redacted`" },
+      { table: "`my.logs`", from: "sample.`my.logs`" },
+    ];
+
+    test.each(cases)(
+      "$table resolves its key and sends the value query",
+      async ({ table, from }) => {
+        const { datasource, queryMock } = setup(table);
+
+        const values = await datasource.getTagValues({
+          key: "reqHost",
+          filters: [],
+        });
+
+        expect(values).toEqual([
+          { text: "a.example.com", value: "a.example.com" },
+        ]);
+        const valueQuery = queryMock.mock.calls
+          .map(([request]) => request.targets[0].rawSql)
+          .find((sql: string) => !PK_LOOKUP.test(sql));
+        expect(valueQuery).toContain(
+          `FROM ${from} WHERE $__timeFilter(_timestamp) AND`
+        );
+      }
+    );
   });
 
   it("should process error", async () => {

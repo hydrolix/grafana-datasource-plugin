@@ -166,29 +166,64 @@ func TestMetadataProvider_QueryKeys_RejectsTableFunctionBeforeQuery(t *testing.T
 }
 
 func TestAdHocFilterMacro_ExplicitArgRejectsInjection(t *testing.T) {
+	// nopMetadataDS panics on QueryData, so each case also proves the
+	// argument is rejected before the metadata lookup.
 	p := NewMetadataProvider(nopMetadataDS{})
 	q := &models.HdxQuery{
 		Filters: []models.AdHocFilter{{Key: "status", Operator: "=", Value: "x"}},
 	}
-	_, err := AdHocFilterMacro(context.Background(), q, []string{"events) UNION SELECT 1 --"}, 0, p)
-	assert.Error(t, err, "injected explicit argument must be rejected before the metadata lookup")
+	for _, arg := range []string{
+		"events) UNION SELECT 1 --",
+		"akamai.logs#redacted",
+		"`a`b`",
+		"`a`b",
+		"\"a`b\"",
+		"``",
+		`""`,
+		"a.b.c",
+		"`t` AS x",
+		"(SELECT 1)",
+		"url('http://x')",
+		"`a` . `b`",
+		`"x" OR 1=1`,
+	} {
+		t.Run(arg, func(t *testing.T) {
+			_, err := AdHocFilterMacro(context.Background(), q, []string{arg}, 0, p)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "invalid $__adHocFilter argument")
+		})
+	}
 }
 
 func TestAdHocFilterMacro_ExplicitArgAcceptsIdentifier(t *testing.T) {
-	ds := &fakeMetadataDS{
-		queryDataFn: func(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
-			return respondWith(frameOf([]string{"status"}, []string{"String"}), "key_query"), nil
-		},
+	tests := []struct {
+		arg, describe string
+	}{
+		{"events", "DESCRIBE TABLE `events`"},
+		{"db.events", "DESCRIBE TABLE `db`.`events`"},
+		{"akamai.`logs#redacted`", "DESCRIBE TABLE `akamai`.`logs#redacted`"},
+		{"`akamai`.`logs#redacted`", "DESCRIBE TABLE `akamai`.`logs#redacted`"},
+		{`"akamai"."logs#redacted"`, "DESCRIBE TABLE `akamai`.`logs#redacted`"},
 	}
-	p := NewMetadataProvider(ds)
-	q := &models.HdxQuery{
-		Filters: []models.AdHocFilter{{Key: "status", Operator: "=", Value: "x"}},
-	}
+	for _, tt := range tests {
+		t.Run(tt.arg, func(t *testing.T) {
+			ds := &fakeMetadataDS{
+				queryDataFn: func(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
+					return respondWith(frameOf([]string{"status"}, []string{"String"}), "key_query"), nil
+				},
+			}
+			p := NewMetadataProvider(ds)
+			q := &models.HdxQuery{
+				Filters: []models.AdHocFilter{{Key: "status", Operator: "=", Value: "x"}},
+			}
 
-	out, err := AdHocFilterMacro(context.Background(), q, []string{"events"}, 0, p)
-	require.NoError(t, err)
-	assert.Contains(t, out, "status")
-	assert.Equal(t, 1, ds.callCount)
+			out, err := AdHocFilterMacro(context.Background(), q, []string{tt.arg}, 0, p)
+			require.NoError(t, err)
+			assert.Equal(t, "status = 'x'", out)
+			assert.Equal(t, 1, ds.callCount)
+			assert.Equal(t, tt.describe, rawSQLOf(t, ds.lastRequest))
+		})
+	}
 }
 
 func TestBuildDescribeSQL_ResolvedWithAliasFlowsThroughShapeCheck(t *testing.T) {

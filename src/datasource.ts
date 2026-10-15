@@ -80,6 +80,44 @@ const requestErrorMessage = (e: unknown): string => {
   return e instanceof Error ? e.message : String(e);
 };
 
+const unquoteIdentifier = (s: string): string => {
+  const t = s.trim();
+  return /^([`"]).*\1$/.test(t) ? t.slice(1, -1) : t;
+};
+
+// Splits `db.table` on the first dot outside identifier quotes and returns
+// the bare names: akamai.`logs#redacted` is ["akamai", "logs#redacted"].
+const QUALIFIED_NAME = /^((?:`[^`]*`|"[^"]*"|[^.`"])*)\.(.*)$/s;
+
+export const splitTableName = (s: string): string[] => {
+  const match = QUALIFIED_NAME.exec(s);
+  return (match ? [match[1], match[2]] : [s]).map(unquoteIdentifier);
+};
+
+const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+// Backticks a bare name unless it is a plain identifier; a name containing a
+// backtick is rejected, as the backend's quoteIdentifier does.
+const quoteIdentifier = (s: string): string | undefined =>
+  PLAIN_IDENTIFIER.test(s) ? s : s.includes("`") ? undefined : `\`${s}\``;
+
+// Rebuilds the ad hoc table variable as `db.table`, defaulting the database
+// and quoting each part, so an unquoted view name (akamai.logs#redacted)
+// reaches DESCRIBE as akamai.`logs#redacted`.
+export const qualifiedTableName = (
+  s: string,
+  defaultDatabase?: string
+): string | undefined => {
+  const parts = splitTableName(s);
+  const [schema, table] =
+    parts.length === 2 ? parts : [defaultDatabase ?? "", parts[0]];
+  const quotedSchema = quoteIdentifier(schema);
+  const quotedTable = quoteIdentifier(table);
+  return quotedSchema && quotedTable
+    ? `${quotedSchema}.${quotedTable}`
+    : undefined;
+};
+
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
   HdxDataSourceOptions
@@ -721,11 +759,10 @@ export class DataSource extends DataSourceWithBackend<
     )?.trim();
 
     if (table && !table.startsWith("${")) {
-      if (table.includes(".")) {
-        return table;
-      } else {
-        return `${this.instanceSettings.jsonData.defaultDatabase}.${table}`;
-      }
+      return qualifiedTableName(
+        table,
+        this.instanceSettings.jsonData.defaultDatabase
+      );
     } else {
       return undefined;
     }
@@ -746,18 +783,8 @@ export class DataSource extends DataSourceWithBackend<
   }
 
   private getTableIdentifier(s: string): TableIdentifier {
-    if (s.includes(".")) {
-      let arr = s.split(".");
-      return {
-        schema: arr[0],
-        table: arr[1],
-      };
-    } else {
-      return {
-        schema: this.instanceSettings.jsonData.defaultDatabase,
-        table: s,
-      };
-    }
+    const [schema, table] = splitTableName(s);
+    return { schema, table };
   }
 
   filterQuery(query: HdxQuery): boolean {

@@ -165,6 +165,35 @@ func TestMacroTimeFilter_PKLookupFromCache(t *testing.T) {
 	assert.Contains(t, got, "primary_ts <= toDateTime(1447328726)")
 }
 
+func TestMacroPKLookup_QuotedViewLooksUpBareName(t *testing.T) {
+	sql := "SELECT $__timeFilter FROM akamai.`logs#redacted`"
+	pos := macroPosFor(t, sql)
+	q := &models.HdxQuery{
+		RawSQL:    sql,
+		TimeRange: stdRange(t),
+		Interval:  20 * time.Second,
+	}
+
+	for name, macro := range pkLookupMacros {
+		t.Run(name, func(t *testing.T) {
+			ds := &fakeMetadataDS{
+				queryDataFn: func(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
+					return respondWith(frameOf([]string{"_timestamp"}), "pk_query"), nil
+				},
+			}
+			p := NewMetadataProvider(ds)
+
+			got, err := macro(context.Background(), q, nil, pos, p)
+			require.NoError(t, err)
+			assert.Equal(t,
+				"SELECT primary_key FROM system.tables WHERE database='akamai' AND table ='logs#redacted'",
+				rawSQLOf(t, ds.lastRequest),
+			)
+			assert.Contains(t, got, "_timestamp")
+		})
+	}
+}
+
 func TestMacroTimeInterval(t *testing.T) {
 	q := &models.HdxQuery{
 		RawSQL:   "select $__timeInterval(col) from foo",
