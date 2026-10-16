@@ -249,3 +249,25 @@ deployed Grafana calls the console's real hostname, which is already allowed.
       inert and watching them go red. The earlier ones passed by calling
       `GetKeys` and `GetPK` directly, which is exactly the shape of test that
       cannot catch an identity dropped on the way in.
+- [x] 6.7 e2e, the whole path: `tests/exchangeCredentials.spec.ts` drives a
+      person through the stack's Keycloak, a datasource in the exchanging
+      mode, and a dashboard, against `e2e/exchange-stub` standing in for the
+      console's facade and for a cluster that takes a bearer. Three things
+      the unit tests cannot hold: that Grafana renders the two
+      `[plugin.<id>]` keys (`e2e/grafana.ini`, valued from the compose
+      environment) into the plugin process; that Save & test and a panel
+      both work on that configuration; and that under success, a cluster
+      401 and a refusal alike, the sign-in token never reaches the cluster —
+      the stub remembers every subject_token it was shown and records a
+      cluster request carrying one as `auth: "sign-in"`. Runs only in the
+      compose stack; the CI compose file has neither Keycloak nor the stub.
+      **Run 2026-10-16: 3 passed** against the dev image (Grafana 13.3.0).
+      Two things the first runs taught, both now in the files: Grafana merges
+      a custom ini onto its defaults key by key and SKIPS an empty value
+      (`loadSpecifiedConfigFile`), so the two declared keys carry
+      placeholders rather than nothing; and the dev image's anonymous auth
+      sends a fresh browser from `/login` to the home page, so the spec
+      starts the OAuth flow at `/login/generic_oauth` directly. Also found:
+      the compose file had been mounting `grafana-realm.json` as an EMPTY
+      DIRECTORY (Docker creates one when the file is missing), so the
+      stack's Keycloak had never had a realm; it does now.
