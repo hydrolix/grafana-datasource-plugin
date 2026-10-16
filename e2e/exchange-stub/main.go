@@ -121,9 +121,10 @@ func main() {
 		log.Fatalf("certificate: %v", err)
 	}
 	cluster := &http.Server{
-		Addr:      env("STUB_TLS_ADDR", ":9443"),
-		Handler:   http.HandlerFunc(s.cluster),
-		TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12},
+		Addr:        env("STUB_TLS_ADDR", ":9443"),
+		Handler:     http.HandlerFunc(s.cluster),
+		TLSConfig:   &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12},
+		ReadTimeout: 5 * time.Second,
 	}
 	go func() {
 		log.Printf("cluster (TLS) on %s, forwarding to %s", cluster.Addr, upstream)

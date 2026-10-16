@@ -9,3 +9,4 @@ FROM alpine:3.21
 COPY --from=build /exchange-stub /exchange-stub
 EXPOSE 9080 9443
 ENTRYPOINT ["/exchange-stub"]
+USER stubapp
