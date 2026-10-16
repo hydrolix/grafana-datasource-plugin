@@ -42,7 +42,7 @@ func WithPrincipal(ctx context.Context, p Principal) context.Context {
 	return context.WithValue(ctx, principalKey{}, p)
 }
 
-// PrincipalFrom reads the principal back. A query that reaches the transport
+// PrincipalFrom reads the principal back. A query that reaches the JWT hook
 // without one is a query this package must refuse: there is nothing to exchange,
 // and the alternative — sending the forwarded token to the cluster — is the one
 // thing this whole lane exists to avoid.
@@ -114,7 +114,7 @@ func IdentityOf(jwt string) string {
 // the first live run of this change showed.
 //
 // So the subject, which keys the connection, also keys this registry, and the
-// transport can recover the token for the connection it belongs to. Entries are
+// binding can recover the token for the connection it belongs to. Entries are
 // the newest token seen for that person, and each is dropped once the token
 // itself expires: past its `exp` the facade would refuse it, so holding it is
 // only retention. The idle limit is the backstop for a token with no `exp`.

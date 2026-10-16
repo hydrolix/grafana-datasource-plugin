@@ -158,6 +158,14 @@ func (s *Source) Token(ctx context.Context, audience, subject, subjectToken stri
 		}
 		token, err := s.exchange(ctx, k, audience, subject, subjectToken)
 		if err != nil {
+			if errors.Is(err, ErrRefused) {
+				// The console has withdrawn this person's access, and the
+				// exchange has already dropped the token in hand. Serving it
+				// anyway would carry the old access past the refusal for as
+				// long as the token lived: a transient failure is the
+				// console's problem, a refusal is the answer.
+				return "", err
+			}
 			s.log.Warn("exchange refresh failed, serving the token in hand",
 				"audience", audience, "subject", truncate(subject), "outcome", outcome(err))
 			return cached, nil
@@ -304,6 +312,16 @@ func (s *Source) Invalidate(audience, subject string) {
 	defer s.mu.Unlock()
 	s.gens[k]++
 	delete(s.entries, k)
+}
+
+// ConfiguredFor reports whether the exchanger holds a delegate credential for
+// the audience. Only the HTTP exchanger knows; any other (a test double, nil)
+// answers no rather than panicking on the assertion.
+func (s *Source) ConfiguredFor(audience string) bool {
+	if ex, ok := s.ex.(*HTTPExchanger); ok && ex != nil {
+		return ex.ConfiguredFor(audience)
+	}
+	return false
 }
 
 // outcome names an error for a log line, in a closed vocabulary.

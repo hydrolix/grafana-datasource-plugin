@@ -7,12 +7,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/hydrolix/plugin/pkg/identity"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hydrolix/plugin/pkg/identity"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/proto"
@@ -42,12 +43,9 @@ type Hydrolix struct {
 	// the mode can fail with the reason rather than with an auth error.
 	exchangeConfigErr error
 	// exchangePrincipals holds the newest forwarded token per subject, for the
-	// requests whose context does not reach the transport — the driver's own
+	// requests whose context does not reach the JWT hook — the driver's own
 	// handshake when a connection is established.
 	exchangePrincipals *exchange.Principals
-	// exchangeConfig is kept so a health check can say which clusters this
-	// Grafana is configured to exchange for.
-	exchangeConfig exchange.Config
 }
 
 var (
@@ -69,7 +67,6 @@ func NewHydrolix() *Hydrolix {
 	if cfg, err := exchange.ConfigFromEnv(os.LookupEnv); err == nil {
 		h.exchangeSource = exchange.NewSource(exchange.NewHTTPExchanger(cfg), nil, log.DefaultLogger)
 		h.exchangePrincipals = exchange.NewPrincipals(0, nil)
-		h.exchangeConfig = cfg
 	} else {
 		h.exchangeConfigErr = err
 	}
@@ -84,19 +81,6 @@ func NewHydrolix() *Hydrolix {
 // connection failed its handshake before a query could run.
 func forwardsUserIdentity(credentialsType string) bool {
 	return credentialsType == "forwardOAuth" || credentialsType == exchange.CredentialsType
-}
-
-// exchangeConfiguredFor reports whether this process holds a delegate credential
-// for that cluster. Credentials are per cluster, so a Grafana serving several
-// can be configured for one and not another.
-func (h *Hydrolix) exchangeConfiguredFor(audience string) bool {
-	if h.exchangeSource == nil {
-		return false
-	}
-	return h.exchangeConfig.Credentials != nil && func() bool {
-		_, ok := h.exchangeConfig.Credential(audience)
-		return ok
-	}()
 }
 
 // exchangeAudienceOf answers the audience a datasource exchanges for: its host,
@@ -222,7 +206,12 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 			} else {
 				return nil, backend.DownstreamError(fmt.Errorf("forwardOAuth: missing OAuth token in connection args"))
 			}
-		} else {
+		} else if settings.CredentialsType != exchange.CredentialsType {
+			// The exchanging mode stores no credential, and must not pick one
+			// up by accident: a token left over from an earlier mode would
+			// become an Authorization header below, and the fork applies
+			// HttpHeaders after the JWT hook, so it would win over the
+			// exchanged token.
 			token = settings.Token
 		}
 
@@ -259,28 +248,50 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 
 	if settings.CredentialsType == exchange.CredentialsType {
 		if protocol != clickhouse.HTTP {
-			// The native protocol carries its credential as the connection's
-			// password, which cannot be swapped per request — so a refreshed
-			// cluster token could never reach an open connection. Refusing is
-			// better than a second, worse code path: the console's own
-			// datasources are all HTTP.
+			// Over HTTP the fork asks the JWT hook on every request. Over
+			// native it asks once, at the handshake, and only when the
+			// username is its JWT marker — a handshake no Turbine has been
+			// seen to accept. Refusing is better than a second, unverified
+			// code path: the console's own datasources are all HTTP.
 			return nil, backend.DownstreamError(fmt.Errorf(
 				"%s credentials need the http protocol: the native protocol binds its credential to the connection", exchange.CredentialsType))
 		}
-		if h.exchangeSource == nil {
-			return nil, backend.PluginError(fmt.Errorf(
-				"this Grafana is not configured for %s credentials: %w", exchange.CredentialsType, h.exchangeConfigErr))
+		if tlsConfig == nil {
+			// The fork attaches a JWT only on a TLS connection
+			// (applyOptionsToRequest, conn_http.go): over plain http the hook
+			// is never consulted and the request would go out with no
+			// credential at all. A bearer in the clear is not worth supporting.
+			return nil, backend.DownstreamError(fmt.Errorf(
+				"%s credentials need TLS: the cluster token is a bearer and is attached only over https", exchange.CredentialsType))
 		}
-		// The credential is set per request by the transport, from the token
-		// source, rather than frozen into this connection's headers.
-		//
-		// The connection is bound to the subject that keys it, so a request
-		// whose context does not reach here — the driver's handshake, issued
-		// when database/sql establishes the connection — is still identified.
-		subject, _ := readConnArg(args, "sub")
-		opts.TransportFunc = func(t *http.Transport) (http.RoundTripper, error) {
-			return exchange.NewBoundTransport(t, h.exchangeSource, h.exchangePrincipals,
-				exchangeAudienceOf(settings), subject), nil
+		if h.exchangeSource == nil {
+			// Not a connect failure. sqlds connects once when the instance is
+			// created, before CheckHealth can run, so failing here would turn
+			// Save & test into a raw connect error and hide the message that
+			// names what is missing. The instance exists; every request on it
+			// is answered by the hook with the operator's problem instead.
+			opts.GetJWT = h.unconfiguredJWT
+		} else {
+			// The credential is supplied per request through the fork's
+			// GetJWT hook, from the token source, rather than frozen into
+			// this connection's headers. The hook puts the header on the
+			// initial request, so http.Client's own rule for Authorization
+			// on redirects applies to it.
+			//
+			// The connection is bound to the subject that keys it, so a
+			// request whose context does not reach here — the driver's
+			// handshake, issued when database/sql establishes the connection
+			// — is still identified.
+			subject, _ := readConnArg(args, "sub")
+			binding := exchange.Bind(h.exchangeSource, h.exchangePrincipals, exchangeAudienceOf(settings), subject)
+			opts.GetJWT = binding.JWT
+			// The watch only observes: a cluster's 401 drops the refused
+			// token, and sqlds retries the query once (see Settings) with a
+			// fresh mint.
+			opts.TransportFunc = func(t *http.Transport) (http.RoundTripper, error) {
+				t.DisableCompression = false
+				return binding.Watch(t), nil
+			}
 		}
 	}
 
@@ -349,13 +360,23 @@ func (h *Hydrolix) Settings(ctx context.Context, config backend.DataSourceInstan
 
 	timeoutSec, _ := strconv.Atoi(settings.QueryTimeout)
 
-	return sqlds.DriverSettings{
+	ds := sqlds.DriverSettings{
 		Timeout: time.Second * time.Duration(timeoutSec),
 		FillMode: &data.FillMissing{
 			Mode: data.FillModeNull,
 		},
 		ForwardHeaders: false,
 	}
+	if settings.CredentialsType == exchange.CredentialsType {
+		// A cluster's 401 means the token in hand is no longer accepted,
+		// whatever the source believes. The binding's watch has dropped it by
+		// the time the error reaches sqlds, so one retry — sqlds reconnects
+		// and runs the query again — goes out with a fresh mint. A second 401
+		// is the answer.
+		ds.RetryOn = []string{exchange.UnauthorizedMarker}
+		ds.Retries = 1
+	}
+	return ds
 }
 
 // MutateQueryData merges datasource's query options with the target query's
@@ -529,6 +550,79 @@ func readConnArg(args json.RawMessage, key string) (string, bool) {
 	return v, true
 }
 
+// unconfiguredJWT answers every request on an exchanging datasource whose
+// Grafana has no usable exchange configuration. It is the operator's problem,
+// so it reads as a misconfiguration rather than as this person being refused.
+func (h *Hydrolix) unconfiguredJWT(context.Context) (string, error) {
+	why := h.exchangeConfigErr
+	if why == nil {
+		why = exchange.ErrNotConfigured
+	}
+	return "", fmt.Errorf("%w: this Grafana is not configured for %s credentials: %w",
+		exchange.ErrMisconfigured, exchange.CredentialsType, why)
+}
+
+// exchangeQueryError presents a token source failure to a panel: its message
+// is the exchange's reason alone, and it unwraps to the full chain so nothing
+// that tests the chain (sqlds's ErrorQuery, the exchange sentinels) changes.
+type exchangeQueryError struct {
+	reason error
+	cause  error
+}
+
+func (e *exchangeQueryError) Error() string { return e.reason.Error() }
+func (e *exchangeQueryError) Unwrap() error { return e.cause }
+
+// exchangeFailure finds the token source's own error inside a chain the
+// driver and sqlds wrapped, or nil when the error is not one of its three
+// outcomes. It walks to the innermost error that still carries the outcome,
+// which is the one the exchange package built with its detail.
+func exchangeFailure(err error) error {
+	var outcome error
+	for _, o := range []error{exchange.ErrRefused, exchange.ErrUnavailable, exchange.ErrMisconfigured} {
+		if errors.Is(err, o) {
+			outcome = o
+			break
+		}
+	}
+	if outcome == nil {
+		return nil
+	}
+	e := err
+	for {
+		inner := unwrapTowards(e, outcome)
+		if inner == nil {
+			return e
+		}
+		e = inner
+	}
+}
+
+// unwrapTowards answers the error one level inside err that still wraps the
+// sentinel, or nil when no such level exists. The bare sentinel itself is the
+// floor: the error directly above it is the one the exchange package built
+// with its detail, and that is where the walk stops. A wrapper made with one
+// %w unwraps to one error; one made with two (sqlds's "%w: %w") unwraps to a
+// list, and the sentinel sits in one of them.
+func unwrapTowards(err, sentinel error) error {
+	wraps := func(inner error) bool {
+		return inner != nil && inner != sentinel && errors.Is(inner, sentinel) //nolint:errorlint // identity on purpose
+	}
+	switch u := err.(type) {
+	case interface{ Unwrap() error }:
+		if inner := u.Unwrap(); wraps(inner) {
+			return inner
+		}
+	case interface{ Unwrap() []error }:
+		for _, inner := range u.Unwrap() {
+			if wraps(inner) {
+				return inner
+			}
+		}
+	}
+	return nil
+}
+
 // jsonSet update raw message's root object by applying a value to a key property.
 // A nil value removes the key.
 func jsonSet(jmsg json.RawMessage, val map[string]any) (json.RawMessage, error) {
@@ -538,6 +632,12 @@ func jsonSet(jmsg json.RawMessage, val map[string]any) (json.RawMessage, error) 
 		return nil, err
 	}
 	for k, v := range val {
+		// clean possible duplication
+		for km := range objmap {
+			if strings.EqualFold(km, k) {
+				delete(objmap, km)
+			}
+		}
 		if v == nil {
 			delete(objmap, k)
 			continue
@@ -614,6 +714,20 @@ func convertFieldToString(field *data.Field) (*data.Field, error) {
 }
 
 func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
+	if reason := exchangeFailure(err); reason != nil {
+		// The driver wraps the hook's answer in its own plumbing ("failed to
+		// query server hello info: sendQuery: failed to get JWT: …"). The
+		// panel gets the exchange's reason as the message; the chain stays
+		// underneath for errors.Is, sqlds's retry test included.
+		wrapped := backend.DownstreamError(&exchangeQueryError{reason: reason, cause: err})
+		source := backend.ErrorSourceDownstream
+		if errors.Is(reason, exchange.ErrMisconfigured) {
+			wrapped = backend.PluginError(&exchangeQueryError{reason: reason, cause: err})
+			source = backend.ErrorSourcePlugin
+		}
+		return backend.NewErrorWithSource(wrapped, source)
+	}
+
 	if uw, ok := err.(interface{ Unwrap() []error }); ok {
 		for _, e := range uw.Unwrap() {
 			if ex, ok := e.(*proto.Exception); ok {

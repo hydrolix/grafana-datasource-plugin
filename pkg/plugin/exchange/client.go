@@ -43,6 +43,9 @@ const (
 type Exchanger interface {
 	// Exchange answers a cluster token and the lifetime the console gave it.
 	Exchange(ctx context.Context, audience, subjectToken string) (token string, lifetime time.Duration, err error)
+	// ConfiguredFor reports whether it holds a delegate credential
+	// for that cluster.
+	ConfiguredFor(audience string) bool
 }
 
 // HTTPExchanger calls the console's RFC 8693 facade.
@@ -180,4 +183,9 @@ func describe(e errorResponse) string {
 		return e.Error
 	}
 	return e.Error + "/" + e.Description
+}
+
+func (h *HTTPExchanger) ConfiguredFor(audience string) bool {
+	_, ok := h.Config.Credential(audience)
+	return ok
 }

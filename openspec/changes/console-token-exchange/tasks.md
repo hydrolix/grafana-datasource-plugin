@@ -43,14 +43,18 @@ was decided while building it:
 
 ## 2. Per-request credential (`pkg/plugin/driver.go`)
 
-- [x] 2.1 A `RoundTripper` that sets `Authorization: Bearer <exchanged token>` on
-      each request, from the token source, for the user the connection belongs to.
-- [x] 2.2 Install it through `Options.TransportFunc` for the HTTP protocol when
+- [x] 2.1 A `GetJWT` hook that answers `<exchanged token>` for each request, from
+      the token source, for the user the connection belongs to. The fork sets
+      `Authorization: Bearer` from it on the initial request.
+- [x] 2.2 Install it through `Options.GetJWT` for the HTTP protocol over TLS when
       the mode is the exchanging one. `MutateQueryData` puts the subject in
       `connectionArgs` instead of the token, so the pool key survives a refresh.
 - [x] 2.2a A test that the forwarded console token can never reach the cluster,
       including when the exchange fails.
-- [x] 2.3 On a cluster `401`: invalidate that user and retry the request once.
+- [x] 2.2b A test that a redirect off the cluster host does not carry the token.
+- [x] 2.3 On a cluster `401`: a watch on `TransportFunc` invalidates that user,
+      and sqlds retries the query once (`Settings` lists the 401 as retryable)
+      with a fresh mint.
 - [x] 2.4 Native protocol: the credential is the connection's password and cannot
       be swapped per request. Either refuse the mode for native with a clear
       message, or key the pool on the exchanged token for native only. **Decided:
@@ -60,12 +64,11 @@ was decided while building it:
       worth shipping for a protocol the console's own datasources never use
       (they are http, port 443, path /query).
 
-**The transport seam is built** — `exchange.Transport` plus the context-carried
-`Principal`, 29 tests in the package. The mechanism that makes it work: the
-driver builds its outbound request with `http.NewRequestWithContext`
-(`conn_http.go`), so the query's context reaches the round tripper, and the
-principal can ride it. That is why the subject token needs no side map and no
-place in `connectionArgs`.
+**The credential seam is built** — `exchange.Binding` plus the context-carried
+`Principal`. The mechanism that makes it work: the driver calls `GetJWT` with
+the context it builds the outbound request from (`conn_http.go`), so the
+query's context reaches the hook, and the principal can ride it. That is why
+the subject token needs no side map and no place in `connectionArgs`.
 
 Section 2 is built, including the wiring in `driver.go`. Six tests cover the
 wiring itself (`driver_exchange_test.go`), and every existing suite in the repo
