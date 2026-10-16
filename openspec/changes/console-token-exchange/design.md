@@ -21,11 +21,18 @@ Two ways out:
    25-connection pool — and leaves the old ones to idle out. Pool churn
    proportional to active users divided by token lifetime.
 2. **Keep the pool keyed on the forwarded token and make the credential
-   per-request.** The fork of clickhouse-go this plugin already depends on
-   exposes `TransportFunc func(*http.Transport) (http.RoundTripper, error)`
-   (`clickhouse_options.go`). A `RoundTripper` that sets the Authorization header
-   on each outbound request, reading from a per-user token source, makes refresh
-   invisible to pooling.
+   per-request.** clickhouse-go exposes `Options.GetJWT func(ctx) (string, error)`
+   (`clickhouse_options.go`), consulted on every outbound HTTP request over TLS
+   (`applyOptionsToRequest`, `conn_http.go`), which sets `Authorization: Bearer`
+   from a per-user token source and makes refresh invisible to pooling.
+
+   An earlier draft did this with a `RoundTripper` of our own through the
+   fork's `TransportFunc`. That put the header on every hop the client sent,
+   the redirected ones included, after `http.Client` had already decided to
+   drop `Authorization` for a redirect off the host. `GetJWT` puts the header
+   on the initial request, where that rule applies. The `TransportFunc` hook
+   stays, but only to watch for a cluster `401` and drop the refused token; it
+   attaches nothing.
 
 **This change takes (2).** It is also what the console's own client does: the
 browser attaches a token from its session manager at request time rather than
@@ -139,9 +146,14 @@ unavailable rather than as a refusal of the person.
   fails. Sending the console-realm token to the cluster must be impossible, not
   merely unlikely — it is the invariant the whole model rests on, and it deserves
   a test rather than a comment.
-- **`TransportFunc` is fork-only.** It exists in `hydrolix/clickhouse-go`, which
-  this module reaches through a `replace` directive. Dropping that replace breaks
-  this design, so either keep it or upstream the hook.
+- **`GetJWT` is upstream; `TransportFunc` is fork-only.** `GetJWT` ships in
+  clickhouse-go for ClickHouse Cloud's JWT auth, so the credential path survives
+  dropping the `replace` on `hydrolix/clickhouse-go`. The `401` watch rides
+  `TransportFunc`, which only the fork has; without it the watch goes and a
+  refused token lives until its own refresh window, nothing worse.
+- **The mode needs TLS.** The fork consults `GetJWT` only when the connection
+  has a TLS config, so `Connect` refuses the mode on plain http rather than
+  sending requests with no credential.
 
 ## Hygiene
 

@@ -109,6 +109,9 @@ func ConfigFromEnv(lookup func(string) (string, bool)) (Config, error) {
 
 // Credential answers the delegate for a cluster audience.
 func (c Config) Credential(audience string) (Credential, bool) {
+	if c.Credentials == nil {
+		return Credential{}, false
+	}
 	cred, ok := c.Credentials[audience]
 	return cred, ok
 }

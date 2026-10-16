@@ -43,14 +43,18 @@ was decided while building it:
 
 ## 2. Per-request credential (`pkg/plugin/driver.go`)
 
-- [x] 2.1 A `RoundTripper` that sets `Authorization: Bearer <exchanged token>` on
-      each request, from the token source, for the user the connection belongs to.
-- [x] 2.2 Install it through `Options.TransportFunc` for the HTTP protocol when
+- [x] 2.1 A `GetJWT` hook that answers `<exchanged token>` for each request, from
+      the token source, for the user the connection belongs to. The fork sets
+      `Authorization: Bearer` from it on the initial request.
+- [x] 2.2 Install it through `Options.GetJWT` for the HTTP protocol over TLS when
       the mode is the exchanging one. `MutateQueryData` puts the subject in
       `connectionArgs` instead of the token, so the pool key survives a refresh.
 - [x] 2.2a A test that the forwarded console token can never reach the cluster,
       including when the exchange fails.
-- [x] 2.3 On a cluster `401`: invalidate that user and retry the request once.
+- [x] 2.2b A test that a redirect off the cluster host does not carry the token.
+- [x] 2.3 On a cluster `401`: a watch on `TransportFunc` invalidates that user,
+      and sqlds retries the query once (`Settings` lists the 401 as retryable)
+      with a fresh mint.
 - [x] 2.4 Native protocol: the credential is the connection's password and cannot
       be swapped per request. Either refuse the mode for native with a clear
       message, or key the pool on the exchanged token for native only. **Decided:
@@ -60,12 +64,11 @@ was decided while building it:
       worth shipping for a protocol the console's own datasources never use
       (they are http, port 443, path /query).
 
-**The transport seam is built** — `exchange.Transport` plus the context-carried
-`Principal`, 29 tests in the package. The mechanism that makes it work: the
-driver builds its outbound request with `http.NewRequestWithContext`
-(`conn_http.go`), so the query's context reaches the round tripper, and the
-principal can ride it. That is why the subject token needs no side map and no
-place in `connectionArgs`.
+**The credential seam is built** — `exchange.Binding` plus the context-carried
+`Principal`. The mechanism that makes it work: the driver calls `GetJWT` with
+the context it builds the outbound request from (`conn_http.go`), so the
+query's context reaches the hook, and the principal can ride it. That is why
+the subject token needs no side map and no place in `connectionArgs`.
 
 Section 2 is built, including the wiring in `driver.go`. Six tests cover the
 wiring itself (`driver_exchange_test.go`), and every existing suite in the repo
@@ -246,3 +249,25 @@ deployed Grafana calls the console's real hostname, which is already allowed.
       inert and watching them go red. The earlier ones passed by calling
       `GetKeys` and `GetPK` directly, which is exactly the shape of test that
       cannot catch an identity dropped on the way in.
+- [x] 6.7 e2e, the whole path: `tests/exchangeCredentials.spec.ts` drives a
+      person through the stack's Keycloak, a datasource in the exchanging
+      mode, and a dashboard, against `e2e/exchange-stub` standing in for the
+      console's facade and for a cluster that takes a bearer. Three things
+      the unit tests cannot hold: that Grafana renders the two
+      `[plugin.<id>]` keys (`e2e/grafana.ini`, valued from the compose
+      environment) into the plugin process; that Save & test and a panel
+      both work on that configuration; and that under success, a cluster
+      401 and a refusal alike, the sign-in token never reaches the cluster —
+      the stub remembers every subject_token it was shown and records a
+      cluster request carrying one as `auth: "sign-in"`. Runs only in the
+      compose stack; the CI compose file has neither Keycloak nor the stub.
+      **Run 2026-10-16: 3 passed** against the dev image (Grafana 13.3.0).
+      Two things the first runs taught, both now in the files: Grafana merges
+      a custom ini onto its defaults key by key and SKIPS an empty value
+      (`loadSpecifiedConfigFile`), so the two declared keys carry
+      placeholders rather than nothing; and the dev image's anonymous auth
+      sends a fresh browser from `/login` to the home page, so the spec
+      starts the OAuth flow at `/login/generic_oauth` directly. Also found:
+      the compose file had been mounting `grafana-realm.json` as an EMPTY
+      DIRECTORY (Docker creates one when the file is missing), so the
+      stack's Keycloak had never had a realm; it does now.

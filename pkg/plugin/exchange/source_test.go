@@ -45,6 +45,8 @@ func (f *fakeExchanger) Exchange(ctx context.Context, audience, subjectToken str
 
 func (f *fakeExchanger) count() int { return int(atomic.LoadInt32(&f.calls)) }
 
+func (f *fakeExchanger) ConfiguredFor(string) bool { return true }
+
 // clock is a hand-wound clock: these semantics are all about time, and a test
 // that sleeps is a test that flakes.
 type clock struct {
@@ -254,14 +256,32 @@ func TestARefusalDropsAUsableToken(t *testing.T) {
 	ck.advance(241 * time.Second) // stale but usable
 	ex.err = fmt.Errorf("%w: access_denied", ErrRefused)
 
-	// The refresh fails with a refusal: this call still answers from the token
-	// in hand, because it was usable when the call began...
-	if _, err := s.Token(context.Background(), aud, sub, stok); err != nil {
-		t.Fatalf("unexpected error on the refreshing call: %v", err)
+	// The refresh fails with a refusal. The token in hand was usable when the
+	// call began, and a transient failure would serve it, but a refusal is the
+	// console's answer about this person: the refreshing call is refused too,
+	// not served from the token the refusal just withdrew...
+	if _, err := s.Token(context.Background(), aud, sub, stok); !errors.Is(err, ErrRefused) {
+		t.Fatalf("expected the refreshing call to be refused, got %v", err)
 	}
-	// ...but the token is gone, so the next call is refused rather than served.
+	// ...and so is the next one: the token is gone.
 	if _, err := s.Token(context.Background(), aud, sub, stok); !errors.Is(err, ErrRefused) {
 		t.Fatalf("expected the next call to be refused, got %v", err)
+	}
+}
+
+func TestATransientRefreshFailureStillServesTheTokenInHand(t *testing.T) {
+	// The counterpart: the console being unreachable says nothing about this
+	// person, so a usable token keeps serving while the refresh backs off.
+	s, ex, ck := newFixture(300 * time.Second)
+	first, err := s.Token(context.Background(), aud, sub, stok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ck.advance(241 * time.Second) // stale but usable
+	ex.err = fmt.Errorf("%w: dial", ErrUnavailable)
+	got, err := s.Token(context.Background(), aud, sub, stok)
+	if err != nil || got != first {
+		t.Fatalf("expected the token in hand, got %q, %v", got, err)
 	}
 }
 
@@ -422,6 +442,8 @@ type cancellableExchanger struct {
 }
 
 func (c *cancellableExchanger) count() int { return int(atomic.LoadInt32(&c.calls)) }
+
+func (c *cancellableExchanger) ConfiguredFor(string) bool { return true }
 
 func (c *cancellableExchanger) Exchange(ctx context.Context, audience, subjectToken string) (string, time.Duration, error) {
 	atomic.AddInt32(&c.calls, 1)

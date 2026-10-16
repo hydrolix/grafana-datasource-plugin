@@ -130,7 +130,7 @@ func (ds *HdxSqlDatasource) CheckHealth(ctx context.Context, req *backend.CheckH
 	}
 
 	audience := exchangeAudienceOf(*ds.Settings)
-	if !hdx.exchangeConfiguredFor(audience) {
+	if !hdx.exchangeSource.ConfiguredFor(audience) {
 		return &backend.CheckHealthResult{
 			Status: backend.HealthStatusError,
 			Message: "No delegate credential is configured on this Grafana for " + audience +

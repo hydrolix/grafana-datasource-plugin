@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/sqlds/v5"
 	"github.com/hydrolix/plugin/pkg/plugin/exchange"
 	"github.com/hydrolix/plugin/pkg/plugin/models"
 	"github.com/stretchr/testify/assert"
@@ -155,7 +157,7 @@ func TestExchangeMode_ATokenNamingNoIssuerYieldsNoPrincipal(t *testing.T) {
 
 func TestExchangeMode_AnUnreadableTokenYieldsNoPrincipal(t *testing.T) {
 	// No subject means nothing to key on and nothing to exchange. The query
-	// then fails at the transport rather than reaching a cluster unidentified.
+	// then fails at the JWT hook rather than reaching a cluster unidentified.
 	h := NewHydrolix()
 	req := makeQueryDataReq(t, exchange.CredentialsType,
 		map[string]string{backend.OAuthIdentityTokenHeaderName: "Bearer not-a-jwt"},
@@ -205,18 +207,20 @@ func TestExchangeMode_NativeProtocolIsRefused(t *testing.T) {
 	assert.Contains(t, strings.ToLower(err.Error()), "http protocol")
 }
 
-func TestExchangeMode_AnUnconfiguredGrafanaSaysSoRatherThanFailingAuth(t *testing.T) {
+func TestExchangeMode_PlainHTTPIsRefused(t *testing.T) {
+	// The fork consults the JWT hook only on a TLS connection, so a plain-http
+	// datasource in this mode would send no credential at all. Say so.
 	settings := models.PluginSettings{
-		Host: "localhost", Port: 80, Protocol: "http",
+		Host: "localhost", Port: 8123, Protocol: "http", Secure: false,
 		CredentialsType: exchange.CredentialsType,
 		DialTimeout:     "10", QueryTimeout: "20",
 	}
 	jsonData, err := json.Marshal(settings)
 	require.NoError(t, err)
 
-	// NewHydrolix reads the environment, which carries no exchange config here.
 	h := NewHydrolix()
-	require.Nil(t, h.exchangeSource, "the fixture assumes an unconfigured process")
+	h.exchangeSource = exchange.NewSource(nil, nil, nil)
+	h.exchangePrincipals = exchange.NewPrincipals(0, nil)
 
 	_, err = h.Connect(context.Background(), backend.DataSourceInstanceSettings{
 		JSONData:                jsonData,
@@ -224,8 +228,75 @@ func TestExchangeMode_AnUnconfiguredGrafanaSaysSoRatherThanFailingAuth(t *testin
 	}, nil)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not configured",
-		"an operator must read what is missing, not an auth failure")
+	assert.Contains(t, strings.ToLower(err.Error()), "tls")
+}
+
+func TestExchangeMode_AClustersUnauthorizedIsRetriedOnceAndOnlyInThisMode(t *testing.T) {
+	// The retry is sqlds's: the driver names the error to retry on, the
+	// binding's watch has already dropped the refused token, and the retried
+	// query's JWT call is a fresh mint. The other modes keep no retry.
+	settingsOf := func(t *testing.T, s models.PluginSettings) sqlds.DriverSettings {
+		t.Helper()
+		jsonData, err := json.Marshal(s)
+		require.NoError(t, err)
+		return NewHydrolix().Settings(context.Background(), backend.DataSourceInstanceSettings{
+			JSONData: jsonData, DecryptedSecureJSONData: map[string]string{},
+		})
+	}
+
+	ds := settingsOf(t, exchangingSettings())
+	assert.Equal(t, []string{exchange.UnauthorizedMarker}, ds.RetryOn)
+	assert.Equal(t, 1, ds.Retries, "one re-mint, not a loop")
+
+	for _, mode := range []string{"forwardOAuth", "serviceAccount", "userAccount"} {
+		s := exchangingSettings()
+		s.CredentialsType = mode
+		ds := settingsOf(t, s)
+		assert.Empty(t, ds.RetryOn, mode)
+		assert.Zero(t, ds.Retries, mode)
+	}
+}
+
+func TestExchangeMode_AnUnconfiguredGrafanaStillGetsAnInstanceSoHealthCanSayWhatIsMissing(t *testing.T) {
+	// sqlds connects once when the instance is created, before CheckHealth can
+	// run. If Connect failed on a missing exchange configuration, Save & test
+	// would show that raw connect error and the health message naming what is
+	// missing could never be reached. So Connect succeeds, the instance
+	// exists, health says what is missing, and the hook answers every request
+	// with the operator's problem.
+	settings := models.PluginSettings{
+		Host: "cluster.example.hydrolix.net", Port: 443, Protocol: "http", Secure: true,
+		CredentialsType: exchange.CredentialsType,
+		DialTimeout:     "10", QueryTimeout: "20",
+	}
+	jsonData, err := json.Marshal(settings)
+	require.NoError(t, err)
+	instance := backend.DataSourceInstanceSettings{
+		UID: "unconfigured", JSONData: jsonData, DecryptedSecureJSONData: map[string]string{},
+	}
+
+	// NewHydrolix reads the environment, which carries no exchange config here.
+	h := NewHydrolix()
+	require.Nil(t, h.exchangeSource, "the fixture assumes an unconfigured process")
+
+	t.Run("the instance factory succeeds", func(t *testing.T) {
+		ds := NewHdxSqlDatasource(h, instance)
+		_, err := ds.NewDatasource(context.Background(), instance)
+		require.NoError(t, err, "instance creation must not fail on the missing configuration")
+
+		res, err := ds.CheckHealth(context.Background(), &backend.CheckHealthRequest{})
+		require.NoError(t, err)
+		assert.Equal(t, backend.HealthStatusError, res.Status)
+		assert.Contains(t, res.Message, "not configured",
+			"an operator must read what is missing, not an auth failure")
+	})
+	t.Run("the hook answers with the operator's problem", func(t *testing.T) {
+		_, err := h.unconfiguredJWT(context.Background())
+		require.Error(t, err)
+		assert.ErrorIs(t, err, exchange.ErrMisconfigured)
+		assert.ErrorIs(t, err, exchange.ErrNotConfigured)
+		assert.Contains(t, err.Error(), "not configured")
+	})
 }
 
 func TestExchangeMode_ConnectDoesNotPingTheCluster(t *testing.T) {
@@ -304,7 +375,6 @@ func TestHealth_SaysWhichClusterHasNoCredential(t *testing.T) {
 			URL:         "https://console/api/v1/auth/token-exchange",
 			Credentials: map[string]exchange.Credential{"other.cluster": {ClientID: "a", ClientSecret: "b"}},
 		}
-		h.exchangeConfig = cfg
 		h.exchangeSource = exchange.NewSource(exchange.NewHTTPExchanger(cfg), nil, nil)
 		h.exchangePrincipals = exchange.NewPrincipals(0, nil)
 	})
@@ -322,7 +392,6 @@ func TestHealth_IsHonestThatItCannotTestAnyonesAccess(t *testing.T) {
 				"cluster.example.hydrolix.net": {ClientID: "grafana-cluster", ClientSecret: "s"},
 			},
 		}
-		h.exchangeConfig = cfg
 		h.exchangeSource = exchange.NewSource(exchange.NewHTTPExchanger(cfg), nil, nil)
 		h.exchangePrincipals = exchange.NewPrincipals(0, nil)
 	})
@@ -387,4 +456,88 @@ func TestExchangeMode_AMetadataLookupWithNoTokenYieldsNoPrincipal(t *testing.T) 
 	assert.NotContains(t, connArgsOf(t, out), "sub")
 	_, ok := exchange.PrincipalFrom(ctx)
 	assert.False(t, ok, "no token means no principal, and the transport refuses the request")
+}
+
+func TestExchangeMode_AnExchangeFailureReachesThePanelAsItsReason(t *testing.T) {
+	// The driver wraps the hook's answer in plumbing: "failed to query server
+	// hello info: sendQuery: failed to get JWT: …", and sqlds adds "error
+	// querying the database" on top. The panel gets the exchange's own reason;
+	// the chain underneath is kept for everything that tests it.
+	h := NewHydrolix()
+	driverWrap := func(inner error) error {
+		return fmt.Errorf("%w: %w", sqlds.ErrorQuery,
+			fmt.Errorf("failed to query server hello: failed to query server hello info: sendQuery: failed to get JWT: %w", inner))
+	}
+
+	t.Run("a refusal", func(t *testing.T) {
+		res := h.MutateQueryError(driverWrap(fmt.Errorf("%w: access_denied", exchange.ErrRefused)))
+		assert.Equal(t, "exchange: the console refused this account access to this cluster: access_denied", res.Error())
+		assert.Equal(t, backend.ErrorSourceDownstream, res.ErrorSource())
+		assert.ErrorIs(t, res, exchange.ErrRefused)
+		assert.ErrorIs(t, res, sqlds.ErrorQuery, "sqlds decides retries on the chain")
+	})
+	t.Run("an unavailable console", func(t *testing.T) {
+		res := h.MutateQueryError(driverWrap(fmt.Errorf("%w: dial tcp: i/o timeout", exchange.ErrUnavailable)))
+		assert.True(t, strings.HasPrefix(res.Error(), "exchange: the console could not be reached"), res.Error())
+		assert.NotContains(t, res.Error(), "server hello")
+	})
+	t.Run("an unconfigured Grafana is the plugin's problem", func(t *testing.T) {
+		unconfigured := &Hydrolix{exchangeConfigErr: exchange.ErrNotConfigured}
+		_, hookErr := unconfigured.unconfiguredJWT(context.Background())
+		res := h.MutateQueryError(driverWrap(hookErr))
+		assert.Equal(t, backend.ErrorSourcePlugin, res.ErrorSource())
+		assert.Contains(t, res.Error(), "not configured")
+		assert.NotContains(t, res.Error(), "server hello")
+	})
+	t.Run("a cluster 401 keeps the retry marker", func(t *testing.T) {
+		// Not an exchange failure: the cluster answered. sqlds matches the
+		// marker in the message to retry once, so the message is untouched.
+		raw := fmt.Errorf("%w: sendQuery: %s response body: \"Code: 516\"", sqlds.ErrorQuery, exchange.UnauthorizedMarker)
+		res := h.MutateQueryError(raw)
+		assert.Contains(t, res.Error(), exchange.UnauthorizedMarker)
+	})
+}
+
+func TestExchangeMode_ACaseVariantConnectionArgsKeyNeverSurvives(t *testing.T) {
+	// Go's encoding/json matches object keys case-insensitively, so sqlds would
+	// read `ConnectionArgs` or `connectionargs` as the connection key just as
+	// it reads `connectionArgs`. Every variant the browser sent is removed, and
+	// only the one built here remains.
+	h := NewHydrolix()
+	victim := identityAt("kc-sub-victim")
+	query := `{"rawSql":"SELECT 1",` +
+		`"ConnectionArgs":{"sub":"` + victim + `"},` +
+		`"connectionargs":{"sub":"` + victim + `"},` +
+		`"CONNECTIONARGS":{"sub":"` + victim + `"}}`
+
+	keysLike := func(t *testing.T, req *backend.QueryDataRequest, name string) map[string]any {
+		t.Helper()
+		var obj map[string]any
+		require.NoError(t, json.Unmarshal(req.Queries[0].JSON, &obj))
+		found := map[string]any{}
+		for k, v := range obj {
+			if strings.EqualFold(k, name) {
+				found[k] = v
+			}
+		}
+		return found
+	}
+
+	t.Run("with no forwarded token every variant is gone", func(t *testing.T) {
+		req := makeQueryDataReq(t, exchange.CredentialsType, nil, query)
+		_, out := h.MutateQueryData(context.Background(), req)
+		assert.Empty(t, keysLike(t, out, "connectionArgs"))
+	})
+	t.Run("with a forwarded token only the built key remains", func(t *testing.T) {
+		req := makeQueryDataReq(t, exchange.CredentialsType,
+			map[string]string{backend.OAuthIdentityTokenHeaderName: "Bearer " + jwtWithSubject("kc-sub-mallory")},
+			query)
+		_, out := h.MutateQueryData(context.Background(), req)
+		found := keysLike(t, out, "connectionArgs")
+		require.Len(t, found, 1)
+		args, ok := found["connectionArgs"].(map[string]any)
+		require.True(t, ok, "the surviving key is the canonical one: %v", found)
+		assert.Equal(t, identityAt("kc-sub-mallory"), args["sub"])
+		assert.NotContains(t, string(out.Queries[0].JSON), victim)
+	})
 }

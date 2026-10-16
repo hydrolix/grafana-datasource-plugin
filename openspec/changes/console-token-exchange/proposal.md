@@ -34,7 +34,7 @@ cluster's **own** realm, so this is an additional mode, not a replacement.
   invalidate-and-retry-once on a cluster `401`.
 - Connection pooling is unchanged: entries stay keyed on the **forwarded**
   sign-in token, and the exchanged token is attached per request through the
-  driver's `TransportFunc` hook, so a token refresh never churns the pool.
+  driver's `GetJWT` hook, so a token refresh never churns the pool.
 
 ## Capabilities
 
