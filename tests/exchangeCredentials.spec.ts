@@ -202,10 +202,11 @@ test("the exchanging datasource saves without a user, and a signed-in user's pan
   await field.useDefaultPortSwitch().uncheck({ force: true });
   await field.port().fill(CLUSTER_PORT);
   await field.protocolItem("http").check({ force: true });
-  // The mode refuses plain http: the bearer rides only over TLS. The stub's
-  // certificate is self-signed, hence skip verify.
+  // The mode refuses plain http and skipped verification: the bearer rides
+  // only over verified TLS. The stack mounts the stub's self-signed
+  // certificate into Grafana's trust store (docker-compose.yaml).
   await field.secureSwitch().check({ force: true });
-  await field.skipTlsVerifySwitch().check({ force: true });
+  await expect(field.skipTlsVerifySwitch()).not.toBeChecked();
   await field.credentialsTypeItem(FORWARD_EXCHANGE).check({ force: true });
 
   // Save & test has no signed-in user to exchange for, and says so rather

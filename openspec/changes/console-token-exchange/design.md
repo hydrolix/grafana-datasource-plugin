@@ -154,6 +154,22 @@ unavailable rather than as a refusal of the person.
 - **The mode needs TLS.** The fork consults `GetJWT` only when the connection
   has a TLS config, so `Connect` refuses the mode on plain http rather than
   sending requests with no credential.
+- **Verified TLS, both legs.** `Connect` also refuses *Skip TLS verify*: TLS
+  that checks nobody hands the bearer to whoever answers at the host, and a
+  cluster's certificate chains to a public root, so the switch has nothing to
+  work around. The exchange carries the sign-in token in its form and the
+  delegate secret in its basic auth, so `exchange_url` must be `https` —
+  refused at load, where Save & test names it. The exchange client follows no
+  redirect: a 307 or 308 resends the form wherever it points, and
+  `http.Client` follows a downgrade to http as readily as any other hop. The
+  3xx is reported as the operator's problem.
+  - Alternative considered: refusing only redirects that leave https. Rejected
+    because a redirect to another https host still resends the sign-in token
+    to a host nobody configured, and the facade never redirects.
+  - [Risk] An operator with a self-signed console or cluster loses the mode.
+    → The error names the switch. Proving signal:
+    `TestExchangeMode_UnverifiedTLSIsRefused`; the e2e stack trusts its stub's
+    certificate rather than skipping verification.
 
 ## Hygiene
 

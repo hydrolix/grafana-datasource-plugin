@@ -7,7 +7,8 @@
   cluster does not accept directly. The data source stores no credential; the exchange endpoint and its per-cluster
   credentials come from a `[plugin.hydrolix-hydrolix-datasource]` section in Grafana's configuration file, which
   reaches the plugin as `GF_PLUGIN_EXCHANGE_URL` / `GF_PLUGIN_EXCHANGE_CREDENTIALS`. The audience is always the data
-  source's host. Requires the HTTP protocol — native binds its credential to the connection and cannot carry a
+  source's host. Requires verified TLS to the cluster, with *Skip TLS verify* refused, and an `https` exchange URL
+  whose redirects are not followed. Requires the HTTP protocol — native binds its credential to the connection and cannot carry a
   refreshed token, and Grafana's `use_refresh_token`
 - **Fix**: A query's own `connectionArgs` no longer reach the connection cache in any credentials mode. sqlds reads
   them from the query JSON the browser sends, so a caller could otherwise choose which cached connection a query ran

@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -84,8 +85,15 @@ func ConfigFromEnv(lookup func(string) (string, bool)) (Config, error) {
 	if !hasURL && !hasCreds {
 		return Config{}, ErrNotConfigured
 	}
-	if !hasURL || strings.TrimSpace(rawURL) == "" {
+	rawURL = strings.TrimSpace(rawURL)
+	if !hasURL || rawURL == "" {
 		return Config{}, fmt.Errorf("exchange: %s is empty or unset", EnvURL)
+	}
+	// The exchange sends the sign-in token in its form and the delegate secret
+	// in its basic auth, so a plaintext URL leaks both on every exchange. The
+	// URL is not quoted in the error: it can carry userinfo.
+	if u, err := url.Parse(rawURL); err != nil || u.Scheme != "https" || u.Host == "" {
+		return Config{}, fmt.Errorf("exchange: %s must be an https URL: the exchange sends the sign-in token and the delegate secret", EnvURL)
 	}
 	if !hasCreds || strings.TrimSpace(rawCreds) == "" {
 		return Config{}, fmt.Errorf("exchange: %s is empty or unset", EnvCredentials)

@@ -8,6 +8,9 @@ x-common-variables: &common-variables
   GF_INSTALL_PLUGINS: "grafana-clickhouse-datasource 4.8.2"
 volumes:
   prometheus_data: {}
+  # The exchange stub's TLS certificate, kept across restarts so a running
+  # Grafana keeps trusting it (e2e/exchange-stub/main.go, certificate).
+  exchange-stub-certs: {}
 services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
@@ -27,8 +30,12 @@ services:
       service: grafana
     container_name: grafana-dashboards
     depends_on:
-      - keycloak
-      - exchange-stub
+      keycloak:
+        condition: service_started
+      # Healthy means its certificate is on the shared volume, which the
+      # trust-store mount below needs to exist before Grafana starts.
+      exchange-stub:
+        condition: service_healthy
     environment:
       <<: *common-variables
       # Comma-separated feature toggles, e.g. to reproduce a nightly-e2e
@@ -60,12 +67,23 @@ services:
       # these values replace them (pluginSettingsEnvVars reads the process
       # environment for every declared key). The audience in the credential
       # map is the datasource HOST, so it must be the stub's service name.
-      GF_PLUGIN_EXCHANGE_URL: "http://exchange-stub:9080/token"
+      # https, on the stub's TLS listener: the plugin refuses any other URL.
+      GF_PLUGIN_EXCHANGE_URL: "https://exchange-stub:9443/token"
       GF_PLUGIN_EXCHANGE_CREDENTIALS: '{"exchange-stub":{"client_id":"grafana-e2e","client_secret":"e2e-delegate-secret"}}'
     volumes:
       # Merged with the base file's mounts. Replaces the image's grafana.ini,
       # which is all comments, with the two-key file above.
       - ./e2e/grafana.ini:/etc/grafana/grafana.ini:ro
+      # The exchanging mode refuses an unverified certificate for both the
+      # exchange and the cluster, so the plugin must trust the stub's. Go reads
+      # every file in /etc/ssl/certs, and a plugin process gets none of
+      # Grafana's environment, so a file here works where SSL_CERT_FILE cannot.
+      - type: volume
+        source: exchange-stub-certs
+        target: /etc/ssl/certs/exchange-stub.pem
+        read_only: true
+        volume:
+          subpath: cert.pem
     build:
       args:
         grafana_version: 13.2.1
@@ -90,6 +108,7 @@ services:
     depends_on:
       - clickhouse-server
     environment:
+      STUB_CERT_DIR: /certs
       STUB_CLIENT_ID: grafana-e2e
       STUB_CLIENT_SECRET: e2e-delegate-secret
       STUB_AUDIENCE: exchange-stub
@@ -97,6 +116,14 @@ services:
       STUB_UPSTREAM_USER: testuser
       STUB_UPSTREAM_PASSWORD: testpass
       STUB_TOKEN_TTL: 300s
+    volumes:
+      - exchange-stub-certs:/certs
+    # The control port answers only once the certificate is written.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9080/e2e/events"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
     ports:
       - 9080:9080
       - 9443:9443

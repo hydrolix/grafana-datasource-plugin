@@ -74,7 +74,17 @@ func NewHTTPExchanger(cfg Config) *HTTPExchanger {
 		// client keeps the mode working rather than unavailable.
 		client = &http.Client{Timeout: exchangeTimeout}
 	}
+	client.CheckRedirect = answerRedirects
 	return &HTTPExchanger{Config: cfg, Client: client}
+}
+
+// answerRedirects makes a redirect the exchange's answer rather than a hop.
+// Following one would resend the form, and with it the sign-in token, to
+// wherever it points: a 307 or 308 keeps the body, and http.Client follows a
+// downgrade from https to http as readily as any other. The facade answers at
+// its own URL, so classify reports the 3xx as the operator's problem.
+func answerRedirects(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
 }
 
 type tokenResponse struct {
@@ -154,6 +164,10 @@ func classify(status int, body []byte) error {
 		return fmt.Errorf("%w: %s", ErrUnavailable, describe(e))
 	case status >= 500, status == http.StatusTooManyRequests:
 		return fmt.Errorf("%w: the exchange answered %d", ErrUnavailable, status)
+	case status >= 300 && status < 400:
+		// Not followed (answerRedirects): the URL names something other than
+		// the endpoint itself.
+		return fmt.Errorf("%w: the exchange URL answered a redirect (%d); set it to the endpoint itself", ErrMisconfigured, status)
 	case status == http.StatusUnauthorized:
 		// The delegate credential itself was refused: an operator problem, not
 		// this person's access.

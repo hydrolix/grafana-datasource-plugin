@@ -231,6 +231,52 @@ func TestExchangeMode_PlainHTTPIsRefused(t *testing.T) {
 	assert.Contains(t, strings.ToLower(err.Error()), "tls")
 }
 
+func TestExchangeMode_UnverifiedTLSIsRefused(t *testing.T) {
+	// TLS with verification skipped hands the bearer to whoever answers at
+	// the host, which is no better than plain http for a bearer.
+	settings := models.PluginSettings{
+		Host: "cluster.example.hydrolix.net", Port: 443, Protocol: "http",
+		Secure: true, SkipTlsVerify: true,
+		CredentialsType: exchange.CredentialsType,
+		DialTimeout:     "10", QueryTimeout: "20",
+	}
+	jsonData, err := json.Marshal(settings)
+	require.NoError(t, err)
+
+	h := NewHydrolix()
+	h.exchangeSource = exchange.NewSource(nil, nil, nil)
+	h.exchangePrincipals = exchange.NewPrincipals(0, nil)
+
+	_, err = h.Connect(context.Background(), backend.DataSourceInstanceSettings{
+		JSONData:                jsonData,
+		DecryptedSecureJSONData: map[string]string{},
+	}, nil)
+
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "verified tls certificate")
+	assert.True(t, backend.IsDownstreamError(err), "the remedy is the datasource's settings")
+}
+
+func TestSkipTLSVerifyStillWorksOutsideTheExchangingMode(t *testing.T) {
+	// The refusal is the exchanging mode's alone: other modes carry a
+	// credential the operator chose to send, and keep the switch.
+	settings := models.PluginSettings{
+		Host: "cluster.example.hydrolix.net", Port: 443, Protocol: "http",
+		Secure: true, SkipTlsVerify: true,
+		CredentialsType: "forwardOAuth",
+		DialTimeout:     "10", QueryTimeout: "20",
+	}
+	jsonData, err := json.Marshal(settings)
+	require.NoError(t, err)
+
+	db, err := NewHydrolix().Connect(context.Background(), backend.DataSourceInstanceSettings{
+		JSONData:                jsonData,
+		DecryptedSecureJSONData: map[string]string{},
+	}, nil)
+	require.NoError(t, err)
+	_ = db.Close()
+}
+
 func TestExchangeMode_AClustersUnauthorizedIsRetriedOnceAndOnlyInThisMode(t *testing.T) {
 	// The retry is sqlds's: the driver names the error to retry on, the
 	// binding's watch has already dropped the refused token, and the retried

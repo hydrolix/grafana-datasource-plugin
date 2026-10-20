@@ -264,6 +264,13 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 			return nil, backend.DownstreamError(fmt.Errorf(
 				"%s credentials need TLS: the cluster token is a bearer and is attached only over https", exchange.CredentialsType))
 		}
+		if settings.SkipTlsVerify {
+			// TLS that checks nobody is a bearer handed to whoever answers at
+			// the host. A cluster's certificate chains to a public root, so
+			// there is nothing for skipping to work around.
+			return nil, backend.DownstreamError(fmt.Errorf(
+				"%s credentials need a verified TLS certificate: turn off Skip TLS verify, or the cluster token goes to whoever answers at the host", exchange.CredentialsType))
+		}
 		if h.exchangeSource == nil {
 			// Not a connect failure. sqlds connects once when the instance is
 			// created, before CheckHealth can run, so failing here would turn

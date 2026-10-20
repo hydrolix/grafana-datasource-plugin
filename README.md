@@ -120,7 +120,7 @@ exchange_credentials = $__env{SOME_VAR_HOLDING_THE_JSON}
 
 | Key | Meaning |
 | --- | --- |
-| `exchange_url` | The token-exchange endpoint. |
+| `exchange_url` | The token-exchange endpoint. Must be `https`. |
 | `exchange_credentials` | A JSON object mapping each cluster's audience to its credential. |
 
 Grafana renders a key in that section into the plugin's environment with a `GF_PLUGIN_` prefix, so `exchange_url`
@@ -164,6 +164,9 @@ Notes:
 
 - The mode requires the **HTTP** protocol. Native binds its credential to the connection as a password, which cannot be
   replaced when the token is refreshed, so the plugin refuses the combination and says so.
+- The mode requires **verified TLS**: *Secure Connection* on and *Skip TLS verify* off. The cluster token is a bearer,
+  so the plugin refuses plain http and an unchecked certificate rather than send it to whoever answers. For the same
+  reason `exchange_url` must be `https`, and a redirect from it is reported as a configuration error, not followed.
 - **Save & test** reports whether this Grafana holds a credential for this cluster. It does not prove any individual's
   access, which is established when a panel runs as that person.
 - An instance with no exchange configuration reports the mode as unavailable rather than failing panels with an

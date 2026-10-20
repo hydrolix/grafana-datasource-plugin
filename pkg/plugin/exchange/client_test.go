@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -190,6 +191,42 @@ func TestConfigFromEnv(t *testing.T) {
 			t.Fatal("expected an error naming the incomplete credential")
 		}
 	})
+	t.Run("an exchange URL that is not https is refused", func(t *testing.T) {
+		creds := `{"c1":{"client_id":"grafana-c1","client_secret":"s1"}}`
+		for _, u := range []string{
+			"http://console/api/v1/auth/token-exchange",
+			"console/api/v1/auth/token-exchange",
+			"https:///api/v1/auth/token-exchange",
+			"unset",
+		} {
+			_, err := ConfigFromEnv(env(map[string]string{EnvURL: u, EnvCredentials: creds}))
+			if err == nil || errors.Is(err, ErrNotConfigured) || !contains(err.Error(), "https") {
+				t.Fatalf("%q: got %v, want a refusal naming https", u, err)
+			}
+		}
+	})
+	t.Run("the scheme is read case-insensitively and space is trimmed", func(t *testing.T) {
+		cfg, err := ConfigFromEnv(env(map[string]string{
+			EnvURL:         " HTTPS://console/api/v1/auth/token-exchange\n",
+			EnvCredentials: `{"c1":{"client_id":"grafana-c1","client_secret":"s1"}}`,
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.URL != "HTTPS://console/api/v1/auth/token-exchange" {
+			t.Fatalf("URL = %q", cfg.URL)
+		}
+	})
+	t.Run("a refused URL is not echoed", func(t *testing.T) {
+		// A URL can carry userinfo.
+		_, err := ConfigFromEnv(env(map[string]string{
+			EnvURL:         "http://operator:hunter2@console/api",
+			EnvCredentials: `{"c1":{"client_id":"grafana-c1","client_secret":"s1"}}`,
+		}))
+		if err == nil || contains(err.Error(), "hunter2") {
+			t.Fatalf("got %v", err)
+		}
+	})
 	t.Run("malformed json does not echo its input", func(t *testing.T) {
 		_, err := ConfigFromEnv(env(map[string]string{
 			EnvURL:         "https://console/api",
@@ -236,5 +273,34 @@ func TestAnOAuthErrorIsStillARefusal(t *testing.T) {
 	err := classify(400, []byte(`{"error":"invalid_grant","error_description":"access_denied"}`))
 	if !errors.Is(err, ErrRefused) {
 		t.Fatalf("want ErrRefused, got %v", err)
+	}
+}
+
+// A redirect is the exchange's answer, never a hop: following one resends the
+// form, and the sign-in token in it, wherever it points — an http downgrade
+// included, since a 307 keeps the body and http.Client follows downgrades.
+func TestARedirectIsNotFollowed(t *testing.T) {
+	for _, status := range []int{http.StatusMovedPermanently, http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			var reached int32
+			elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				atomic.AddInt32(&reached, 1)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"access_token":"t","expires_in":300,"token_type":"Bearer"}`))
+			}))
+			defer elsewhere.Close()
+			endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, elsewhere.URL+"/token", status)
+			}))
+			defer endpoint.Close()
+
+			_, _, err := NewHTTPExchanger(testConfig(endpoint.URL)).Exchange(context.Background(), aud, stok)
+			if atomic.LoadInt32(&reached) != 0 {
+				t.Fatal("the exchange followed the redirect")
+			}
+			if !errors.Is(err, ErrMisconfigured) || !contains(err.Error(), "redirect") {
+				t.Fatalf("got %v, want the operator's problem naming the redirect", err)
+			}
+		})
 	}
 }
