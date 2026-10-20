@@ -64,8 +64,9 @@ type claims struct {
 // claimsOf reads a JWT's payload without verifying its signature.
 //
 // Unverified is correct here: these values only pick a cache slot and a
-// connection-pool key. The console's exchange facade is the verifier — it pins
-// the issuer, the audience and the signature before it mints anything.
+// connection-pool key, and the slot is answered only to the exact token that
+// filled it (see Source). The console's exchange facade is the verifier — it
+// pins the issuer, the audience and the signature before it mints anything.
 func claimsOf(jwt string) (claims, bool) {
 	parts := strings.Split(jwt, ".")
 	if len(parts) < 2 {

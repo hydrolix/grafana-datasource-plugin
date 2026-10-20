@@ -511,3 +511,84 @@ func TestOneCallerLeavingDoesNotCancelTheOthers(t *testing.T) {
 		t.Fatalf("a cancellation was recorded as a failure: attempts=%d nextTry=%v", attempts, nextTry)
 	}
 }
+
+// The subject claim keys the cache without being verified, so the key alone
+// must not decide who is served. An entry is answered only to the forwarded
+// token that minted it: that is the string the console checked.
+
+func TestARefreshedSubjectTokenIsExchangedAfresh(t *testing.T) {
+	s, ex, ck := newFixture(3600 * time.Second)
+	first, err := s.Token(context.Background(), aud, sub, stok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ck.advance(10 * time.Second) // fresh by every clock
+	const refreshed = "the.refreshed.token"
+	got, err := s.Token(context.Background(), aud, sub, refreshed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ex.count() != 2 || got == first {
+		t.Fatalf("a token the console never saw must be exchanged: calls=%d token=%q", ex.count(), got)
+	}
+	// The refreshed token now owns the slot and is served from it.
+	if again, _ := s.Token(context.Background(), aud, sub, refreshed); again != got || ex.count() != 2 {
+		t.Fatalf("expected the cache to serve the refreshed token: calls=%d token=%q", ex.count(), again)
+	}
+	// The superseded token is no longer the one the entry was minted from.
+	if _, err := s.Token(context.Background(), aud, sub, stok); err != nil || ex.count() != 3 {
+		t.Fatalf("expected the old token to be exchanged again: calls=%d err=%v", ex.count(), err)
+	}
+}
+
+func TestAnUnverifiedSubjectTokenIsNeverServedTheTokenInHand(t *testing.T) {
+	// The transient-failure path serves the token in hand. That token was
+	// minted for another string: for this one, nothing has been verified, so
+	// the failure is the answer.
+	s, ex, ck := newFixture(300 * time.Second)
+	if _, err := s.Token(context.Background(), aud, sub, stok); err != nil {
+		t.Fatal(err)
+	}
+	ck.advance(241 * time.Second) // stale but usable for stok
+	ex.err = fmt.Errorf("%w: dial", ErrUnavailable)
+	got, err := s.Token(context.Background(), aud, sub, "the.refreshed.token")
+	if !errors.Is(err, ErrUnavailable) || got != "" {
+		t.Fatalf("expected a closed failure for an unverified token, got %q, %v", got, err)
+	}
+}
+
+func TestTwoSubjectTokensInFlightMakeTwoExchanges(t *testing.T) {
+	// A dashboard load straddling a Grafana refresh: panels on each token
+	// coalesce among themselves, never across, so nobody receives a token
+	// minted from a string they did not present.
+	s, ex, _ := newFixture(300 * time.Second)
+	ex.block = make(chan struct{})
+	var wg sync.WaitGroup
+	tokens := make([]string, 4)
+	for i := range tokens {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			subjectToken := stok
+			if i%2 == 1 {
+				subjectToken = "the.refreshed.token"
+			}
+			tokens[i], _ = s.Token(context.Background(), aud, sub, subjectToken)
+		}(i)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for ex.count() < 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("expected two flights, saw %d", ex.count())
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(ex.block)
+	wg.Wait()
+	if ex.count() != 2 {
+		t.Fatalf("expected exactly one exchange per token, got %d", ex.count())
+	}
+	if tokens[0] != tokens[2] || tokens[1] != tokens[3] || tokens[0] == tokens[1] {
+		t.Fatalf("callers must share a result only with callers on the same token: %q", tokens)
+	}
+}

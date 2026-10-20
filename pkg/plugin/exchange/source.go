@@ -2,6 +2,7 @@ package exchange
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"strings"
 	"sync"
@@ -62,6 +63,12 @@ type entry struct {
 	deadline time.Time // client clock, stamped from the request's start
 	lead     time.Duration
 
+	// subjectHash names the forwarded token this entry was minted from: the
+	// one the console verified. The entry is answered only to that token,
+	// so a hit never stands in for a verification the console did not do.
+	// A refreshed sign-in token is a new string, misses, and is exchanged.
+	subjectHash [sha256.Size]byte
+
 	// attempts and nextTry drive the retry ladder for a failed refresh.
 	attempts int
 	nextTry  time.Time
@@ -74,6 +81,17 @@ func (e *entry) usable(now time.Time) bool {
 	return e.token != "" && now.Before(e.deadline.Add(-expirySkew))
 }
 
+// mintedFrom reports whether this entry was minted from that forwarded token.
+func (e *entry) mintedFrom(subjectHash [sha256.Size]byte) bool {
+	return e.subjectHash == subjectHash
+}
+
+// hashOf fingerprints a forwarded token. The fingerprint is kept rather than
+// the token: an entry needs to recognise its token, not hold a second copy.
+func hashOf(subjectToken string) [sha256.Size]byte {
+	return sha256.Sum256([]byte(subjectToken))
+}
+
 func (e *entry) stale(now time.Time) bool {
 	return e.lead > 0 && !now.Before(e.deadline.Add(-e.lead))
 }
@@ -83,8 +101,16 @@ func (e *entry) stale(now time.Time) bool {
 //
 // It is keyed on the subject claim, not on the forwarded token: Grafana
 // refreshes the sign-in token, so the token string changes every few minutes
-// while the person does not. Keying on the token would re-exchange on every
-// refresh and, where the key reaches the connection pool, churn that too.
+// while the person does not, and where the key reaches the connection pool,
+// keying on the token would churn that too.
+//
+// The subject claim is read without verifying the token, so the key alone
+// must never decide who is served. Each entry remembers a hash of the
+// forwarded token that minted it, and is answered only to that token: on a
+// hit, the console verified this very string; on a miss, the console is
+// asked. A refreshed sign-in token therefore costs one exchange per refresh,
+// coalesced across a dashboard's panels, which is the price of never serving
+// a cluster token to a string nobody checked.
 type Source struct {
 	ex  Exchanger
 	now func() time.Time
@@ -129,6 +155,7 @@ func key(audience, subject string) string { return audience + "\x00" + subject }
 // this return an error.
 func (s *Source) Token(ctx context.Context, audience, subject, subjectToken string) (string, error) {
 	k := key(audience, subject)
+	h := hashOf(subjectToken)
 	now := s.now()
 
 	s.mu.Lock()
@@ -141,7 +168,11 @@ func (s *Source) Token(ctx context.Context, audience, subject, subjectToken stri
 		stillRefused bool
 	)
 	if e != nil {
-		cached, isUsable, isStale = e.token, e.usable(now), e.stale(now)
+		// An entry minted from another forwarded token is not usable for
+		// this one, whatever its clock says: not served, and not served as
+		// the token in hand when a refresh fails either. The refusal memory
+		// and the retry ladder stay, as they restrict rather than grant.
+		cached, isUsable, isStale = e.token, e.usable(now) && e.mintedFrom(h), e.stale(now)
 		mayTry = !now.Before(e.nextTry)
 		stillRefused = now.Before(e.refusedUntil)
 	}
@@ -185,8 +216,15 @@ func (s *Source) Token(ctx context.Context, audience, subject, subjectToken stri
 
 // exchange performs one exchange for the key, coalescing concurrent callers.
 // Thirty panels opening one dashboard make one exchange, not thirty.
+//
+// The flight is keyed on the forwarded token as well as the subject, so a
+// caller only ever receives a token minted from the string it presented. A
+// dashboard load that straddles a Grafana refresh makes two exchanges, one per
+// token, rather than handing the second token's panels a result the console
+// minted for the first.
 func (s *Source) exchange(ctx context.Context, k, audience, subject, subjectToken string) (string, error) {
-	ch := s.flight.DoChan(k, func() (any, error) {
+	h := hashOf(subjectToken)
+	ch := s.flight.DoChan(k+"\x00"+string(h[:]), func() (any, error) {
 		// Detached from every caller, deliberately. The flight is SHARED: the
 		// thirty panels above are one exchange, and running it on whichever
 		// caller happened to arrive first lets that one caller cancel work the
@@ -204,7 +242,7 @@ func (s *Source) exchange(ctx context.Context, k, audience, subject, subjectToke
 		// exchange produced instead of making a second one.
 		s.mu.Lock()
 		gen := s.gens[k]
-		if e := s.entries[k]; e != nil && e.usable(s.now()) && !e.stale(s.now()) {
+		if e := s.entries[k]; e != nil && e.usable(s.now()) && !e.stale(s.now()) && e.mintedFrom(h) {
 			cached := e.token
 			s.mu.Unlock()
 			return cached, nil
@@ -220,7 +258,7 @@ func (s *Source) exchange(ctx context.Context, k, audience, subject, subjectToke
 			s.noteFailure(k, exErr)
 			return "", exErr
 		}
-		s.store(k, gen, token, started, lifetime)
+		s.store(k, gen, token, h, started, lifetime)
 		s.log.Debug("exchanged", "audience", audience, "subject", truncate(subject),
 			"lifetime_s", int(lifetime.Seconds()))
 		return token, nil
@@ -246,7 +284,7 @@ func (s *Source) exchange(ctx context.Context, k, audience, subject, subjectToke
 // store caches a fresh token unless the session was invalidated while it was in
 // flight. Without the generation check, an exchange that began before an
 // invalidation would quietly restore the session it was meant to end.
-func (s *Source) store(k string, gen uint64, token string, started time.Time, lifetime time.Duration) {
+func (s *Source) store(k string, gen uint64, token string, subjectHash [sha256.Size]byte, started time.Time, lifetime time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.gens[k] != gen {
@@ -262,7 +300,7 @@ func (s *Source) store(k string, gen uint64, token string, started time.Time, li
 			lead = renewalLeadMax
 		}
 	}
-	s.entries[k] = &entry{token: token, deadline: started.Add(lifetime), lead: lead}
+	s.entries[k] = &entry{token: token, deadline: started.Add(lifetime), lead: lead, subjectHash: subjectHash}
 }
 
 // noteFailure advances the retry ladder, or remembers a refusal.
