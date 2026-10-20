@@ -28,8 +28,11 @@ var (
 	// ErrMisconfigured: the operator's problem rather than this person's —
 	// no delegate credential for this cluster, a credential the console
 	// refuses, or an exchange URL that reaches something other than the
-	// console's facade.
-	ErrMisconfigured = errors.New("exchange: this Grafana's exchange configuration is not usable for this cluster")
+	// console's facade. The message never names the cluster or says which of
+	// those it is: the credential map is instance-wide, and a message that
+	// distinguished "no delegate for this host" from the rest would tell an
+	// org admin on a shared Grafana which other customers' clusters it serves.
+	ErrMisconfigured = errors.New("exchange: no exchange configuration is usable")
 )
 
 // RFC 8693.
@@ -43,9 +46,6 @@ const (
 type Exchanger interface {
 	// Exchange answers a cluster token and the lifetime the console gave it.
 	Exchange(ctx context.Context, audience, subjectToken string) (token string, lifetime time.Duration, err error)
-	// ConfiguredFor reports whether it holds a delegate credential
-	// for that cluster.
-	ConfiguredFor(audience string) bool
 }
 
 // HTTPExchanger calls the console's RFC 8693 facade.
@@ -101,7 +101,8 @@ type errorResponse struct {
 func (h *HTTPExchanger) Exchange(ctx context.Context, audience, subjectToken string) (string, time.Duration, error) {
 	cred, ok := h.Config.Credential(audience)
 	if !ok {
-		return "", 0, fmt.Errorf("%w: %s", ErrMisconfigured, audience)
+		// Not wrapped with the audience: see ErrMisconfigured.
+		return "", 0, ErrMisconfigured
 	}
 
 	form := url.Values{
@@ -197,9 +198,4 @@ func describe(e errorResponse) string {
 		return e.Error
 	}
 	return e.Error + "/" + e.Description
-}
-
-func (h *HTTPExchanger) ConfiguredFor(audience string) bool {
-	_, ok := h.Config.Credential(audience)
-	return ok
 }

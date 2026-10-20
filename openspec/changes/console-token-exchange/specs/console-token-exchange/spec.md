@@ -56,12 +56,22 @@ names.
 - **WHEN** a data source whose audience is `a.example` exchanges
 - **THEN** the exchange SHALL present the credential configured for `a.example`
 
-#### Scenario: A cluster with no credential is not a query failure
+#### Scenario: A cluster with no credential is the operator's problem, not the person's
 
 - **GIVEN** a data source whose audience has no configured credential
-- **WHEN** its health is checked
-- **THEN** the check SHALL report that this Grafana holds no credential for
-  that cluster
+- **WHEN** a query exchanges for it
+- **THEN** the failure SHALL read as a misconfiguration rather than as a
+  refusal of the person, and SHALL NOT name the cluster or say that the
+  credential for it is the part that is missing
+
+#### Scenario: Health does not reveal which clusters hold a credential
+
+- **GIVEN** credentials configured for audience `a.example` only
+- **WHEN** the health of a data source whose audience is `a.example` is
+  checked, and the health of one whose audience is `b.example` is checked
+- **THEN** both checks SHALL return the same status and the same message,
+  so that someone who can edit a data source cannot learn which clusters
+  this Grafana serves by naming them
 
 ### Requirement: One exchange per user, reused until shortly before expiry
 
@@ -101,8 +111,11 @@ token is refreshed.
 
 For both forwarding modes, the health check SHALL NOT verify the bootstrap
 connection, which carries no signed-in user. For `forwardOAuthExchange` it
-SHALL report whether this Grafana holds a credential for this data source's
-cluster, and SHALL state that an individual's access is established when a
+SHALL report whether this Grafana has an exchange configuration at all, SHALL
+NOT report whether that configuration holds a credential for this data
+source's cluster (the credential map is instance-wide, and a per-host answer
+would tell an org admin on a shared Grafana which other customers' clusters it
+serves), and SHALL state that an individual's access is established when a
 panel runs.
 
 #### Scenario: A working forward-mode data source is not reported degraded

@@ -352,16 +352,6 @@ func (s *Source) Invalidate(audience, subject string) {
 	delete(s.entries, k)
 }
 
-// ConfiguredFor reports whether the exchanger holds a delegate credential for
-// the audience. Only the HTTP exchanger knows; any other (a test double, nil)
-// answers no rather than panicking on the assertion.
-func (s *Source) ConfiguredFor(audience string) bool {
-	if ex, ok := s.ex.(*HTTPExchanger); ok && ex != nil {
-		return ex.ConfiguredFor(audience)
-	}
-	return false
-}
-
 // outcome names an error for a log line, in a closed vocabulary.
 func outcome(err error) string {
 	switch {

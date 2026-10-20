@@ -100,8 +100,14 @@ func NewHdxSqlDatasource(driver sqlds.Driver, settings backend.DataSourceInstanc
 // tested.
 //
 // So for the forwarding modes this reports what it can actually establish —
-// whether this Grafana is configured to exchange for this cluster — and says
+// whether this Grafana has an exchange configuration at all — and says
 // plainly that a person's access is proven by running a query, not here.
+//
+// It deliberately does not say whether a delegate exists for THIS host. The
+// credential map is instance-wide, and on a shared Grafana an org admin can
+// point a datasource at any hostname and press Save & test; a per-host answer
+// would tell them which other customers' clusters this instance serves. A host
+// with no delegate therefore passes here and fails in its first panel.
 func (ds *HdxSqlDatasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
 	if ds.Settings == nil || !forwardsUserIdentity(ds.Settings.CredentialsType) {
 		return ds.SQLDatasource.CheckHealth(ctx, req)
@@ -129,19 +135,9 @@ func (ds *HdxSqlDatasource) CheckHealth(ctx context.Context, req *backend.CheckH
 		}, nil
 	}
 
-	audience := exchangeAudienceOf(*ds.Settings)
-	if !hdx.exchangeSource.ConfiguredFor(audience) {
-		return &backend.CheckHealthResult{
-			Status: backend.HealthStatusError,
-			Message: "No delegate credential is configured on this Grafana for " + audience +
-				". Each cluster has its own; add this one to the plugin's exchange configuration.",
-		}, nil
-	}
-
 	return &backend.CheckHealthResult{
-		Status: backend.HealthStatusOk,
-		Message: "Token exchange is configured for " + audience +
-			". Open a panel to confirm access: a connection test carries no signed-in user, so it cannot check anyone's permissions.",
+		Status:  backend.HealthStatusOk,
+		Message: "Open a panel to confirm access: a connection test carries no signed-in user, so it cannot check anyone's permissions.",
 	}, nil
 }
 

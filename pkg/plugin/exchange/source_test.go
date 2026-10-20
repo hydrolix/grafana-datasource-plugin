@@ -45,8 +45,6 @@ func (f *fakeExchanger) Exchange(ctx context.Context, audience, subjectToken str
 
 func (f *fakeExchanger) count() int { return int(atomic.LoadInt32(&f.calls)) }
 
-func (f *fakeExchanger) ConfiguredFor(string) bool { return true }
-
 // clock is a hand-wound clock: these semantics are all about time, and a test
 // that sleeps is a test that flakes.
 type clock struct {
@@ -442,8 +440,6 @@ type cancellableExchanger struct {
 }
 
 func (c *cancellableExchanger) count() int { return int(atomic.LoadInt32(&c.calls)) }
-
-func (c *cancellableExchanger) ConfiguredFor(string) bool { return true }
 
 func (c *cancellableExchanger) Exchange(ctx context.Context, audience, subjectToken string) (string, time.Duration, error) {
 	atomic.AddInt32(&c.calls, 1)

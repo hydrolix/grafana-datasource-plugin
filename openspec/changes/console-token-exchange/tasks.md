@@ -100,10 +100,11 @@ field name.
       forward-mode datasource reported degraded health — and a green tick would
       have read as "your access works" when nothing about anyone's access was
       tested. Both forwarding modes now answer with what can actually be
-      established: for the exchanging mode, whether this Grafana holds a
-      delegate credential **for this cluster** (they are per cluster, so the
-      message names which), and in every case that a person's access is proven
-      by opening a panel, not here. Four tests.
+      established: for the exchanging mode, whether this Grafana has an
+      exchange configuration at all, and in every case that a person's access
+      is proven by opening a panel, not here. Four tests. (It first also said
+      whether the delegate **for this cluster** was present; 5b.2 took that
+      out.)
 
 ## 4. The gaps this mode inherits, named not assumed
 
@@ -199,6 +200,25 @@ deployed Grafana calls the console's real hostname, which is already allowed.
         classifier a well-formed facade error, because that is what the facade
         returns. Nothing was wrong with the tests; the case they missed was one
         the facade cannot produce.
+- [x] 5b.2 **Save & test was a yes/no oracle on the credential map** (PR
+      review, 2026-10-21). The health check answered "no delegate for
+      `<host>`" or "configured for `<host>`", so on a shared Grafana an org
+      admin could name any cluster hostname and learn whether another
+      customer's cluster is served by the same instance. Health now checks
+      only that an exchange configuration exists at all, which is the same
+      answer for every host, and no longer names the host; a host with no
+      delegate passes Save & test and fails in its first panel. The
+      `ErrMisconfigured` sentinel and the no-credential error no longer say
+      "for this cluster" or carry the audience, for the same reason.
+      `ConfiguredFor` had no other caller and is gone. Two health cases
+      (delegate present, delegate absent) assert the identical result.
+      - Not closed here, and said so in the thread: a panel still distinguishes
+        a plugin-sourced misconfiguration from a downstream refusal, and the
+        no-delegate path returns without a round trip. Closing those means
+        either presenting a missing delegate as a refusal, which the failure
+        table in the design rejects, or an audience-to-org mapping in server
+        configuration, which the reviewer proposed and the console side has to
+        weigh.
 
 ## 6. Landing
 

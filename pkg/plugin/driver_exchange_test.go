@@ -413,19 +413,27 @@ func TestHealth_SaysWhatIsMissingWhenTheExchangeIsNotConfigured(t *testing.T) {
 	assert.Contains(t, res.Message, "not configured")
 }
 
-func TestHealth_SaysWhichClusterHasNoCredential(t *testing.T) {
-	// Credentials are per cluster: a Grafana serving several can be configured
-	// for one and not another, and the message has to name which.
-	res := healthOf(t, exchangingSettings(), func(h *Hydrolix) {
-		cfg := exchange.Config{
-			URL:         "https://console/api/v1/auth/token-exchange",
-			Credentials: map[string]exchange.Credential{"other.cluster": {ClientID: "a", ClientSecret: "b"}},
-		}
-		h.exchangeSource = exchange.NewSource(exchange.NewHTTPExchanger(cfg), nil, nil)
-		h.exchangePrincipals = exchange.NewPrincipals(0, nil)
-	})
-	assert.Equal(t, backend.HealthStatusError, res.Status)
-	assert.Contains(t, res.Message, "cluster.example.hydrolix.net")
+func TestHealth_DoesNotSayWhetherThisClusterHasACredential(t *testing.T) {
+	// The credential map is instance-wide. On a shared Grafana an org admin can
+	// point a datasource at any hostname and press Save & test, so a per-host
+	// answer would reveal which other customers' clusters this instance serves.
+	// A host with and a host without a delegate must get the same result.
+	for name, credentials := range map[string]map[string]exchange.Credential{
+		"with a delegate for this host": {"cluster.example.hydrolix.net": {ClientID: "a", ClientSecret: "b"}},
+		"with a delegate for another":   {"other.cluster": {ClientID: "a", ClientSecret: "b"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			res := healthOf(t, exchangingSettings(), func(h *Hydrolix) {
+				cfg := exchange.Config{URL: "https://console/api/v1/auth/token-exchange", Credentials: credentials}
+				h.exchangeSource = exchange.NewSource(exchange.NewHTTPExchanger(cfg), nil, nil)
+				h.exchangePrincipals = exchange.NewPrincipals(0, nil)
+			})
+			assert.Equal(t, backend.HealthStatusOk, res.Status)
+			assert.NotContains(t, res.Message, "cluster.example.hydrolix.net")
+			assert.NotContains(t, res.Message, "other.cluster")
+			assert.Equal(t, "Open a panel to confirm access: a connection test carries no signed-in user, so it cannot check anyone's permissions.", res.Message)
+		})
+	}
 }
 
 func TestHealth_IsHonestThatItCannotTestAnyonesAccess(t *testing.T) {
@@ -442,7 +450,6 @@ func TestHealth_IsHonestThatItCannotTestAnyonesAccess(t *testing.T) {
 		h.exchangePrincipals = exchange.NewPrincipals(0, nil)
 	})
 	assert.Equal(t, backend.HealthStatusOk, res.Status)
-	assert.Contains(t, res.Message, "cluster.example.hydrolix.net")
 	assert.Contains(t, strings.ToLower(res.Message), "no signed-in user")
 }
 
