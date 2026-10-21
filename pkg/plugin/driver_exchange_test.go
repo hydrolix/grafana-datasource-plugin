@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -543,6 +546,23 @@ func TestExchangeMode_AnExchangeFailureReachesThePanelAsItsReason(t *testing.T) 
 		assert.Equal(t, exchange.ErrRefused.Error(), res.Error())
 		assert.Equal(t, backend.ErrorSourceDownstream, res.ErrorSource())
 		assert.ErrorIs(t, res, exchange.ErrRefused)
+	})
+	t.Run("the SDK's status guess asks Is about a nil target", func(t *testing.T) {
+		// backend.ErrorSourceMiddleware runs statusFromError on every failed
+		// response, and guessErrorStatus (status.go) calls errors.Is with a nil
+		// *url.Error and a nil *net.OpError as targets. errors.Is hands those
+		// targets to Error.Is as they are; an Is that unwrapped them would call
+		// (*url.Error)(nil).Unwrap and take the whole query down with a panic,
+		// which is what the refusal e2e test saw before Is stopped walking.
+		res := h.MutateQueryError(driverWrap(&exchange.Error{Outcome: exchange.Refused, Detail: "access_denied"}))
+		var connErr *url.Error
+		var netErr *net.OpError
+		assert.NotPanics(t, func() {
+			assert.False(t, errors.Is(res, connErr))
+			assert.False(t, errors.Is(res, netErr))
+		})
+		assert.ErrorIs(t, res, exchange.ErrRefused, "the outcome still matches by value")
+		assert.NotErrorIs(t, res, exchange.ErrUnavailable)
 	})
 	t.Run("a host with no delegate reads as the configuration, not the driver", func(t *testing.T) {
 		// The exchanger answers without a round trip, and the panel reads its

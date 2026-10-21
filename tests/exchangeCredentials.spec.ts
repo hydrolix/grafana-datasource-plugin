@@ -1,4 +1,5 @@
-import { test, expect } from "@grafana/plugin-e2e";
+import { test as base, expect } from "@grafana/plugin-e2e";
+import type { DataSourceConfigPage } from "@grafana/plugin-e2e";
 import type {
   APIRequestContext,
   BrowserContext,
@@ -60,7 +61,70 @@ interface StubEvent {
   path?: string;
 }
 
-test.describe.configure({ mode: "serial" });
+/**
+ * What every test here starts from: a datasource in the exchanging mode, a
+ * dashboard on it, and alice signed in with that dashboard rendered once, so
+ * the plugin holds a cluster token minted for her. Each test gets its own, and
+ * the stub's event log is reset just before alice signs in, so a test reads
+ * only what its own traffic produced.
+ */
+interface Exchanging {
+  /** The admin's config page, still showing the Save & test result. */
+  dsConfigPage: DataSourceConfigPage;
+  dashboardUid: string;
+  /** alice's page and the query responses captured on it. */
+  alice: { page: Page; responses: string[] };
+}
+
+const test = base.extend<{ exchanging: Exchanging }>({
+  exchanging: async ({ createDataSourceConfigPage, page, browser, request }, use) => {
+    // --- as the admin: a datasource in the exchanging mode, pointed at the stub.
+    const steps = new ConfigPageSteps(page);
+    const dsConfigPage = await steps.createDatasourceConfigPage(
+      `exchange ${Date.now()}`,
+      createDataSourceConfigPage
+    );
+    const field = steps.configPageLocator;
+    await field.host().fill(CLUSTER_HOST);
+    await field.useDefaultPortSwitch().uncheck({ force: true });
+    await field.port().fill(CLUSTER_PORT);
+    await field.protocolItem("http").check({ force: true });
+    // The mode refuses plain http and skipped verification: the bearer rides
+    // only over verified TLS. The stack mounts the stub's self-signed
+    // certificate into Grafana's trust store (docker-compose.yaml).
+    await field.secureSwitch().check({ force: true });
+    await expect(field.skipTlsVerifySwitch()).not.toBeChecked();
+    await field.credentialsTypeItem(FORWARD_EXCHANGE).check({ force: true });
+    await expect(dsConfigPage.saveAndTest()).toBeOK();
+
+    const { uid: dashboardUid } = await new DashboardBuilder(page, dsConfigPage.datasource)
+      .withTitle(`exchange-${Date.now()}`)
+      .addPanel({ title: "count", type: "table", rawSql: COUNT_SQL })
+      .create();
+
+    await stubPost(request, "/e2e/reset");
+
+    // --- as alice, signed in through Keycloak: the panel renders once.
+    const context = await browser.newContext();
+    try {
+      const { responses } = await captureRequestsAndResponses(context);
+      const alicePage = await signInThroughKeycloak(context, ALICE);
+      await alicePage.goto(`${GRAFANA_URL}/d/${dashboardUid}`);
+      await expect
+        .poll(() => valuesIn(responses), { timeout: 30_000 })
+        .toContain(COUNT);
+
+      await use({ dsConfigPage, dashboardUid, alice: { page: alicePage, responses } });
+    } finally {
+      await context.close();
+    }
+  },
+});
+
+// The stub's revoke and refuse switches are global, so the tests must not
+// overlap; "default" keeps them in one worker, in order, without "serial"'s
+// rule that one failure skips the rest.
+test.describe.configure({ mode: "default" });
 test.skip(!STUB_URL, "needs the exchange stub: E2E_EXCHANGE_STUB_URL is unset");
 
 /**
@@ -180,72 +244,28 @@ const clusterHits = (events: StubEvent[]) => events.filter((e) => e.kind === "cl
 const foreignClusterHits = (events: StubEvent[]) =>
   events.filter((e) => e.kind === "cluster" && e.auth !== "minted" && e.auth !== "revoked");
 
-// Shared by the serial tests below: one datasource, one dashboard, one
-// signed-in person, one capture of her query traffic.
+// The port forward is infrastructure, not state: one per worker.
 let stopForwarding: () => Promise<void> = async () => {};
-let dashboardUid = "";
-let alice: { context: BrowserContext; page: Page; responses: string[] };
 
 test.beforeAll(async () => {
   stopForwarding = await forwardLocalhostToKeycloak();
 });
 
 test.afterAll(async () => {
-  await alice?.context.close();
   await stopForwarding();
 });
 
 test("the exchanging datasource saves without a user, and a signed-in user's panel reaches the cluster with a minted token only", async ({
-  createDataSourceConfigPage,
-  browser,
-  page,
+  exchanging,
   request,
 }) => {
-  // --- as the admin: a datasource in the exchanging mode, pointed at the stub.
-  const steps = new ConfigPageSteps(page);
-  const dsConfigPage = await steps.createDatasourceConfigPage(
-    `exchange ${Date.now()}`,
-    createDataSourceConfigPage
-  );
-  const field = steps.configPageLocator;
-  await field.host().fill(CLUSTER_HOST);
-  await field.useDefaultPortSwitch().uncheck({ force: true });
-  await field.port().fill(CLUSTER_PORT);
-  await field.protocolItem("http").check({ force: true });
-  // The mode refuses plain http and skipped verification: the bearer rides
-  // only over verified TLS. The stack mounts the stub's self-signed
-  // certificate into Grafana's trust store (docker-compose.yaml).
-  await field.secureSwitch().check({ force: true });
-  await expect(field.skipTlsVerifySwitch()).not.toBeChecked();
-  await field.credentialsTypeItem(FORWARD_EXCHANGE).check({ force: true });
-
-  // Save & test has no signed-in user to exchange for, and says so rather
+  // Save & test had no signed-in user to exchange for, and said so rather
   // than pretending it tested anyone's access.
-  await expect(dsConfigPage.saveAndTest()).toBeOK();
-  await expect(dsConfigPage).toHaveAlert("success", {
+  await expect(exchanging.dsConfigPage).toHaveAlert("success", {
     hasText: /no signed-in user/i,
   });
 
-  const { uid } = await new DashboardBuilder(page, dsConfigPage.datasource)
-    .withTitle(`exchange-${Date.now()}`)
-    .addPanel({ title: "count", type: "table", rawSql: COUNT_SQL })
-    .create();
-  dashboardUid = uid;
-
-  await stubPost(request, "/e2e/reset");
-
-  // --- as alice, signed in through Keycloak: the panel renders.
-  const context = await browser.newContext();
-  const { responses } = await captureRequestsAndResponses(context);
-  const alicePage = await signInThroughKeycloak(context, ALICE);
-  alice = { context, page: alicePage, responses };
-
-  await alicePage.goto(`${GRAFANA_URL}/d/${dashboardUid}`);
-  await expect
-    .poll(() => valuesIn(responses), { timeout: 30_000 })
-    .toContain(COUNT);
-
-  // --- what the stub saw.
+  // --- what the stub saw of alice's one dashboard load.
   const events = await stubEvents(request);
   const minted = exchanges(events);
   expect(minted, "one panel, one person: one exchange").toHaveLength(1);
@@ -262,6 +282,7 @@ test("the exchanging datasource saves without a user, and a signed-in user's pan
 });
 
 test("a cluster 401 drops the token and the query is retried once with a fresh mint", async ({
+  exchanging: { alice },
   request,
 }) => {
   const before = await stubEvents(request);
@@ -295,6 +316,7 @@ test("a cluster 401 drops the token and the query is retried once with a fresh m
 });
 
 test("a refusal reaches the panel as a refusal, and the sign-in token is still never forwarded", async ({
+  exchanging: { alice },
   request,
 }) => {
   const before = await stubEvents(request);

@@ -80,9 +80,14 @@ func (e *Error) Unwrap() error { return e.Cause }
 // Is answers by outcome, so errors.Is(err, ErrRefused) holds for every refusal
 // whatever its detail. The bare outcomes below are the vocabulary callers
 // compare against.
+//
+// The target is looked at, never walked: errors.Is hands every node of the
+// chain the caller's target as it is, and the plugin SDK's status guess calls
+// errors.Is with a nil *url.Error, whose Unwrap panics when something unwraps
+// it. A target that is not an *Error is simply not an outcome.
 func (e *Error) Is(target error) bool {
-	var t *Error
-	return errors.As(target, &t) && t.Outcome == e.Outcome
+	t, ok := target.(*Error)
+	return ok && t != nil && t.Outcome == e.Outcome
 }
 
 // The bare outcomes: returned as they are when there is nothing to add, and
