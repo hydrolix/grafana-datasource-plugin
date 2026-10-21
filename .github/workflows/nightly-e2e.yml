@@ -87,6 +87,16 @@ jobs:
             exit 1
           }
 
+      - name: Wait for Keycloak
+        # tests/exchangeCredentials.spec.ts signs in through it; the realm
+        # answers only once `--import-realm` has finished.
+        run: |
+          timeout 120s bash -c 'until curl -sf http://localhost:8080/realms/grafana >/dev/null; do sleep 2; done' || {
+            echo "::error::Keycloak never served the grafana realm within 120s."
+            docker logs keycloak 2>&1 | tail -50
+            exit 1
+          }
+
       - name: Verify feature toggle state
         # Otherwise a toggle that never reached the container makes
         # nightly×true a silent duplicate of nightly×false. Reads the startup
@@ -129,6 +139,14 @@ jobs:
           # published port resolves. CLICKHOUSE_HOSTNAME is Grafana's own
           # address and must stay the service name.
           E2E_CLICKHOUSE_HTTP_HOST: localhost
+          # tests/exchangeCredentials.spec.ts runs only when the stub is
+          # named, over its published control port. The cluster host is what
+          # the datasource under test is pointed at: the stub's TLS listener,
+          # by the service name the credential map in the compose file is
+          # keyed on. Keycloak's browser URL is localhost:8080 both for
+          # Grafana and for the runner, so the spec's port forward is a no-op.
+          E2E_EXCHANGE_STUB_URL: http://localhost:9080
+          E2E_EXCHANGE_CLUSTER_HOST: exchange-stub
 
       - name: Flag tolerated nightly failure
         # Bare `if:` on purpose — the implicit success() confines this to the
