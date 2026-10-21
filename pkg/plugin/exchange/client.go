@@ -18,8 +18,7 @@ const (
 	tokenTypeAccess = "urn:ietf:params:oauth:token-type:access_token"
 )
 
-// Exchanger performs one exchange. The interface exists so the token source can
-// be tested without a console.
+// Exchanger performs one exchange.
 type Exchanger interface {
 	// Exchange answers a cluster token and the lifetime the console gave it.
 	Exchange(ctx context.Context, audience, subjectToken string) (token string, lifetime time.Duration, err error)

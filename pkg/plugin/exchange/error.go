@@ -7,8 +7,7 @@ import (
 
 // Outcome is what a failed exchange means for the caller. The three are
 // separate because the remedies differ and a panel should say which one
-// happened: a refusal is about this person's access, unavailability is about
-// the console, and a misconfiguration is about the operator.
+// happened.
 type Outcome int
 
 const (
