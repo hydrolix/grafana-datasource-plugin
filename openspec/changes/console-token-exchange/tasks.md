@@ -233,6 +233,24 @@ deployed Grafana calls the console's real hostname, which is already allowed.
       past the idle limit while a younger one and a still-usable one stay,
       and an invalidation keeps its generation against a flight after its
       token is gone.
+- [x] 5b.4 **The connectionArgs rewrite failed open** (PR review, 2026-10-21).
+      When `jsonSet` could not patch a query's JSON, `MutateQueryData` logged
+      and moved on, leaving the query as the browser sent it, so a
+      client-supplied `connectionArgs` would have reached sqlds and chosen
+      the connection, which in this mode is a person's cluster token. Both
+      sides decode with encoding/json, which made the gap look narrow, but
+      it was reachable: the generic map decode converts every number to a
+      float64 and fails on one out of range, while sqlds's struct decode
+      skips an unknown field without converting it and keeps
+      `connectionArgs` raw. `{"rawSql":"SELECT 1","connectionArgs":
+      {"sub":"<victim>"},"x":1e999}` failed `jsonSet`, took the `continue`,
+      and reached sqlds with the victim's subject intact (confirmed by
+      running the new test against the old branch: red). On a failed patch
+      the query now carries only the patches, our key and no SQL, so sqlds
+      refuses it. `jsonSet` also returns an error on a JSON `null`, which
+      decoded into a nil map and would have panicked on the first
+      assignment. Seven malformed shapes tested, the two number ones
+      included, each with and without a forwarded token.
 
 ## 6. Landing
 

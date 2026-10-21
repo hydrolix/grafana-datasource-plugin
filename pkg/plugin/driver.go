@@ -477,12 +477,20 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 		if len(connArgs) > 0 {
 			patches["connectionArgs"] = connArgs
 		}
-		if jmsg, err := jsonSet(q.JSON, patches); err == nil {
-			req.Queries[i].JSON = jmsg
-		} else {
+		jmsg, err := jsonSet(q.JSON, patches)
+		if err != nil {
+			// Fail CLOSED. Leaving the query as the browser sent it would hand
+			// sqlds whatever connectionArgs it carried, which is exactly the
+			// choice this block exists to take away. The query keeps only the
+			// patches: our key, and no SQL, so sqlds refuses it rather than
+			// running it on somebody else's connection.
 			log.DefaultLogger.Error("failed to serialize query JSON", "err", err, "refId", q.RefID)
-			continue
+			jmsg = json.RawMessage("{}")
+			if fallback, err := json.Marshal(withoutNil(patches)); err == nil {
+				jmsg = fallback
+			}
 		}
+		req.Queries[i].JSON = jmsg
 	}
 
 	return ctx, req
@@ -638,6 +646,11 @@ func jsonSet(jmsg json.RawMessage, val map[string]any) (json.RawMessage, error) 
 	if err != nil {
 		return nil, err
 	}
+	if objmap == nil {
+		// A JSON `null` decodes into a nil map without an error, and the
+		// first assignment below would panic rather than fail.
+		return nil, errors.New("query JSON is null, not an object")
+	}
 	for k, v := range val {
 		// clean possible duplication
 		for km := range objmap {
@@ -652,6 +665,19 @@ func jsonSet(jmsg json.RawMessage, val map[string]any) (json.RawMessage, error) 
 		objmap[k] = v
 	}
 	return json.Marshal(objmap)
+}
+
+// withoutNil copies a patch set without the keys whose value means "remove".
+// Marshalled directly, those would become JSON nulls, and sqlds reads a null
+// connectionArgs as a nil map it then writes into.
+func withoutNil(val map[string]any) map[string]any {
+	out := make(map[string]any, len(val))
+	for k, v := range val {
+		if v != nil {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // clickhouseContextHandler applies query options to context

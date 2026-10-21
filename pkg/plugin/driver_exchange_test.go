@@ -594,3 +594,51 @@ func TestExchangeMode_ACaseVariantConnectionArgsKeyNeverSurvives(t *testing.T) {
 		assert.NotContains(t, string(out.Queries[0].JSON), victim)
 	})
 }
+
+func TestExchangeMode_AQueryWhoseJSONCannotBePatchedFailsClosed(t *testing.T) {
+	// The patch rewrites connectionArgs so the browser cannot choose the
+	// connection. If the rewrite fails, the query must not go on to sqlds as
+	// the browser sent it: whatever it carried is replaced by our key alone,
+	// with no SQL, so sqlds refuses it instead of running it on somebody
+	// else's connection.
+	h := NewHydrolix()
+	victim := identityAt("kc-sub-victim")
+	for name, query := range map[string]string{
+		"null":      `null`,
+		"an array":  `["SELECT 1",{"connectionArgs":{"sub":"` + victim + `"}}]`,
+		"not JSON":  `{"rawSql":"SELECT 1","connectionArgs":{"sub":"` + victim + `"}`,
+		"a string":  `"{\"connectionArgs\":{\"sub\":\"` + victim + `\"}}"`,
+		"a boolean": `true`,
+		// The one that was reachable: a number too large for a float64 fails
+		// the generic map decode, which converts every number, while sqlds's
+		// struct decode skips the unknown field and keeps connectionArgs raw.
+		// Before the fail-closed branch this body reached sqlds untouched.
+		"an out-of-range number": `{"rawSql":"SELECT 1","connectionArgs":{"sub":"` + victim + `"},"x":1e999}`,
+		"one inside the key":     `{"rawSql":"SELECT 1","connectionArgs":{"sub":"` + victim + `","n":1e999}}`,
+	} {
+		t.Run(name+", with a forwarded token", func(t *testing.T) {
+			req := makeQueryDataReq(t, exchange.CredentialsType,
+				map[string]string{backend.OAuthIdentityTokenHeaderName: "Bearer " + jwtWithSubject("kc-sub-mallory")},
+				query)
+			_, out := h.MutateQueryData(context.Background(), req)
+
+			var obj map[string]any
+			require.NoError(t, json.Unmarshal(out.Queries[0].JSON, &obj), "the query must leave as an object")
+			args, ok := obj["connectionArgs"].(map[string]any)
+			require.True(t, ok, "the built key must be present: %s", out.Queries[0].JSON)
+			assert.Equal(t, identityAt("kc-sub-mallory"), args["sub"])
+			assert.NotContains(t, obj, "rawSql")
+			assert.NotContains(t, string(out.Queries[0].JSON), victim)
+		})
+		t.Run(name+", with no forwarded token", func(t *testing.T) {
+			req := makeQueryDataReq(t, exchange.CredentialsType, nil, query)
+			_, out := h.MutateQueryData(context.Background(), req)
+
+			var obj map[string]any
+			require.NoError(t, json.Unmarshal(out.Queries[0].JSON, &obj), "the query must leave as an object")
+			assert.NotContains(t, obj, "connectionArgs", "no key built, so none left for sqlds to read")
+			assert.NotContains(t, obj, "rawSql")
+			assert.NotContains(t, string(out.Queries[0].JSON), victim)
+		})
+	}
+}
