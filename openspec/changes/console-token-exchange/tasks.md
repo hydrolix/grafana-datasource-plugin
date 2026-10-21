@@ -271,6 +271,18 @@ deployed Grafana calls the console's real hostname, which is already allowed.
       updated to say so. Three tests: a refreshed token is exchanged afresh,
       an unverified token is never served the token in hand, two tokens in
       flight make two exchanges.
+- [x] 5b.6 **One error shape for the exchange** (review, 2026-10-21). The
+      package reported failures by wrapping one of three sentinels with a
+      detail, and the driver walked the chain to "the error directly above
+      the sentinel" to find the detail for the panel. A bare sentinel, which
+      the no-delegate path and the refusal memory both returned, put the
+      fork's "failed to get JWT" wrapper at that level, and the panel showed
+      the driver's plumbing. `exchange.Error{Outcome, Detail, Cause}` is now
+      the only shape; `ErrRefused`, `ErrUnavailable` and `ErrMisconfigured`
+      are its bare values and still the targets for `errors.Is`, so no
+      caller changed. The driver finds the reason with one `errors.As`; the
+      walk, its identity compare and its `nolint` are gone. Tests: a bare
+      outcome and a detailed one both reach the panel as the message.
 
 ## 6. Landing
 

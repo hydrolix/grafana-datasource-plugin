@@ -3,8 +3,6 @@ package exchange
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -12,27 +10,6 @@ import (
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/httpclient"
-)
-
-// The three outcomes a caller can act on differently. They are separate because
-// the remedies differ and a panel should say which one happened: a refusal is
-// about this person's access, unavailability is about the console, and a
-// misconfiguration is about the operator.
-var (
-	// ErrRefused: the console answered, and the answer was no.
-	ErrRefused = errors.New("exchange: the console refused this account access to this cluster")
-	// ErrUnavailable: the console did not answer, or answered that it could not
-	// mint just now — a role removal converging, Keycloak unreachable,
-	// provisioning deferred.
-	ErrUnavailable = errors.New("exchange: the console could not be reached")
-	// ErrMisconfigured: the operator's problem rather than this person's —
-	// no delegate credential for this cluster, a credential the console
-	// refuses, or an exchange URL that reaches something other than the
-	// console's facade. The message never names the cluster or says which of
-	// those it is: the credential map is instance-wide, and a message that
-	// distinguished "no delegate for this host" from the rest would tell an
-	// org admin on a shared Grafana which other customers' clusters it serves.
-	ErrMisconfigured = errors.New("exchange: no exchange configuration is usable")
 )
 
 // RFC 8693.
@@ -101,11 +78,9 @@ type errorResponse struct {
 func (h *HTTPExchanger) Exchange(ctx context.Context, audience, subjectToken string) (string, time.Duration, error) {
 	cred, ok := h.Config.Credential(audience)
 	if !ok {
-		// Wrapped, so that the panel's message is this detail rather than the
-		// driver's plumbing above the bare sentinel; see exchangeFailure in
-		// the driver. The detail names neither the audience nor the
-		// credential as the missing part: see ErrMisconfigured.
-		return "", 0, fmt.Errorf("%w: check the exchange URL and credentials in Grafana's configuration", ErrMisconfigured)
+		// The detail names neither the audience nor the credential as the
+		// missing part: see Misconfigured.
+		return "", 0, &Error{Outcome: Misconfigured, Detail: "check the exchange URL and credentials in Grafana's configuration"}
 	}
 
 	form := url.Values{
@@ -117,7 +92,7 @@ func (h *HTTPExchanger) Exchange(ctx context.Context, audience, subjectToken str
 	// No `scope`: the facade refuses a request that carries one.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.Config.URL, strings.NewReader(form.Encode()))
 	if err != nil {
-		return "", 0, fmt.Errorf("%w: building the request failed", ErrUnavailable)
+		return "", 0, &Error{Outcome: Unavailable, Detail: "building the request failed"}
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
@@ -146,7 +121,7 @@ func (h *HTTPExchanger) Exchange(ctx context.Context, audience, subjectToken str
 	if err := json.Unmarshal(body, &ok200); err != nil || ok200.AccessToken == "" || ok200.ExpiresIn <= 0 {
 		// A 200 that is not a token response is the console's wiring, not this
 		// person's access.
-		return "", 0, fmt.Errorf("%w: the exchange answered 200 without a usable token", ErrUnavailable)
+		return "", 0, &Error{Outcome: Unavailable, Detail: "the exchange answered 200 without a usable token"}
 	}
 	return ok200.AccessToken, time.Duration(ok200.ExpiresIn) * time.Second, nil
 }
@@ -165,21 +140,21 @@ func classify(status int, body []byte) error {
 
 	switch {
 	case e.Error == "temporarily_unavailable", e.Error == "server_error":
-		return fmt.Errorf("%w: %s", ErrUnavailable, describe(e))
+		return &Error{Outcome: Unavailable, Detail: describe(e)}
 	case status >= 500, status == http.StatusTooManyRequests:
-		return fmt.Errorf("%w: the exchange answered %d", ErrUnavailable, status)
+		return failf(Unavailable, "the exchange answered %d", status)
 	case status >= 300 && status < 400:
 		// Not followed (answerRedirects): the URL names something other than
 		// the endpoint itself.
-		return fmt.Errorf("%w: the exchange URL answered a redirect (%d); set it to the endpoint itself", ErrMisconfigured, status)
+		return failf(Misconfigured, "the exchange URL answered a redirect (%d); set it to the endpoint itself", status)
 	case status == http.StatusUnauthorized:
 		// The delegate credential itself was refused: an operator problem, not
 		// this person's access.
-		return fmt.Errorf("%w: the exchange refused the delegate credential", ErrMisconfigured)
+		return &Error{Outcome: Misconfigured, Detail: "the exchange refused the delegate credential"}
 	case e.Error == "invalid_client":
-		return fmt.Errorf("%w: the exchange refused the delegate credential", ErrMisconfigured)
+		return &Error{Outcome: Misconfigured, Detail: "the exchange refused the delegate credential"}
 	case e.Error != "":
-		return fmt.Errorf("%w: %s", ErrRefused, describe(e))
+		return &Error{Outcome: Refused, Detail: describe(e)}
 	default:
 		// Nothing in the facade's vocabulary came back. The facade answers
 		// every failure with one of its codes, so whatever replied is not the
@@ -189,8 +164,7 @@ func classify(status int, body []byte) error {
 		// statement about this person's access, and reporting one as a refusal
 		// sends an operator to look at someone's permissions when the cause is
 		// the URL.
-		return fmt.Errorf("%w: the exchange URL answered %d with no OAuth error, so it may not be the console's exchange endpoint",
-			ErrMisconfigured, status)
+		return failf(Misconfigured, "the exchange URL answered %d with no OAuth error, so it may not be the console's exchange endpoint", status)
 	}
 }
 

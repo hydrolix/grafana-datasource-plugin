@@ -398,20 +398,6 @@ func (s *Source) Invalidate(audience, subject string) {
 	*e = entry{gen: e.gen + 1, touched: s.now()}
 }
 
-// outcome names an error for a log line, in a closed vocabulary.
-func outcome(err error) string {
-	switch {
-	case errors.Is(err, ErrRefused):
-		return "refused"
-	case errors.Is(err, ErrMisconfigured):
-		return "misconfigured"
-	case errors.Is(err, ErrUnavailable):
-		return "unavailable"
-	default:
-		return "error"
-	}
-}
-
 // truncate shortens a subject for a log line. A subject is an opaque id rather
 // than a secret, but a whole one in a log is more than a reader needs.
 func truncate(subject string) string {

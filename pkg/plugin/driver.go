@@ -578,70 +578,23 @@ func (h *Hydrolix) unconfiguredJWT(context.Context) (string, error) {
 	if why == nil {
 		why = exchange.ErrNotConfigured
 	}
-	return "", fmt.Errorf("%w: this Grafana is not configured for %s credentials: %w",
-		exchange.ErrMisconfigured, exchange.CredentialsType, why)
+	return "", &exchange.Error{
+		Outcome: exchange.Misconfigured,
+		Detail:  fmt.Sprintf("this Grafana is not configured for %s credentials: %v", exchange.CredentialsType, why),
+		Cause:   why,
+	}
 }
 
 // exchangeQueryError presents a token source failure to a panel: its message
 // is the exchange's reason alone, and it unwraps to the full chain so nothing
-// that tests the chain (sqlds's ErrorQuery, the exchange sentinels) changes.
+// that tests the chain (sqlds's ErrorQuery, the exchange outcomes) changes.
 type exchangeQueryError struct {
-	reason error
+	reason *exchange.Error
 	cause  error
 }
 
 func (e *exchangeQueryError) Error() string { return e.reason.Error() }
 func (e *exchangeQueryError) Unwrap() error { return e.cause }
-
-// exchangeFailure finds the token source's own error inside a chain the
-// driver and sqlds wrapped, or nil when the error is not one of its three
-// outcomes. It walks to the innermost error that still carries the outcome,
-// which is the one the exchange package built with its detail.
-func exchangeFailure(err error) error {
-	var outcome error
-	for _, o := range []error{exchange.ErrRefused, exchange.ErrUnavailable, exchange.ErrMisconfigured} {
-		if errors.Is(err, o) {
-			outcome = o
-			break
-		}
-	}
-	if outcome == nil {
-		return nil
-	}
-	e := err
-	for {
-		inner := unwrapTowards(e, outcome)
-		if inner == nil {
-			return e
-		}
-		e = inner
-	}
-}
-
-// unwrapTowards answers the error one level inside err that still wraps the
-// sentinel, or nil when no such level exists. The bare sentinel itself is the
-// floor: the error directly above it is the one the exchange package built
-// with its detail, and that is where the walk stops. A wrapper made with one
-// %w unwraps to one error; one made with two (sqlds's "%w: %w") unwraps to a
-// list, and the sentinel sits in one of them.
-func unwrapTowards(err, sentinel error) error {
-	wraps := func(inner error) bool {
-		return inner != nil && inner != sentinel && errors.Is(inner, sentinel) //nolint:errorlint // identity on purpose
-	}
-	switch u := err.(type) {
-	case interface{ Unwrap() error }:
-		if inner := u.Unwrap(); wraps(inner) {
-			return inner
-		}
-	case interface{ Unwrap() []error }:
-		for _, inner := range u.Unwrap() {
-			if wraps(inner) {
-				return inner
-			}
-		}
-	}
-	return nil
-}
 
 // jsonSet update raw message's root object by applying a value to a key property.
 // A nil value removes the key.
@@ -756,14 +709,15 @@ func convertFieldToString(field *data.Field) (*data.Field, error) {
 }
 
 func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
-	if reason := exchangeFailure(err); reason != nil {
+	var reason *exchange.Error
+	if errors.As(err, &reason) {
 		// The driver wraps the hook's answer in its own plumbing ("failed to
 		// query server hello info: sendQuery: failed to get JWT: …"). The
 		// panel gets the exchange's reason as the message; the chain stays
 		// underneath for errors.Is, sqlds's retry test included.
 		wrapped := backend.DownstreamError(&exchangeQueryError{reason: reason, cause: err})
 		source := backend.ErrorSourceDownstream
-		if errors.Is(reason, exchange.ErrMisconfigured) {
+		if reason.Outcome == exchange.Misconfigured {
 			wrapped = backend.PluginError(&exchangeQueryError{reason: reason, cause: err})
 			source = backend.ErrorSourcePlugin
 		}

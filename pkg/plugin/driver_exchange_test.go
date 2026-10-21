@@ -523,22 +523,30 @@ func TestExchangeMode_AnExchangeFailureReachesThePanelAsItsReason(t *testing.T) 
 	}
 
 	t.Run("a refusal", func(t *testing.T) {
-		res := h.MutateQueryError(driverWrap(fmt.Errorf("%w: access_denied", exchange.ErrRefused)))
+		res := h.MutateQueryError(driverWrap(&exchange.Error{Outcome: exchange.Refused, Detail: "access_denied"}))
 		assert.Equal(t, "exchange: the console refused this account access to this cluster: access_denied", res.Error())
 		assert.Equal(t, backend.ErrorSourceDownstream, res.ErrorSource())
 		assert.ErrorIs(t, res, exchange.ErrRefused)
 		assert.ErrorIs(t, res, sqlds.ErrorQuery, "sqlds decides retries on the chain")
 	})
 	t.Run("an unavailable console", func(t *testing.T) {
-		res := h.MutateQueryError(driverWrap(fmt.Errorf("%w: dial tcp: i/o timeout", exchange.ErrUnavailable)))
+		res := h.MutateQueryError(driverWrap(&exchange.Error{Outcome: exchange.Unavailable, Detail: "dial tcp: i/o timeout"}))
 		assert.True(t, strings.HasPrefix(res.Error(), "exchange: the console could not be reached"), res.Error())
 		assert.NotContains(t, res.Error(), "server hello")
 	})
+	t.Run("a bare outcome with no detail is still the message", func(t *testing.T) {
+		// The refusal memory in the source answers with the bare outcome.
+		// Before errors reported an outcome and a detail in one value, the
+		// driver walked the chain to "the error above the sentinel", which
+		// for a bare one was the fork's wrapper, and the panel showed that.
+		res := h.MutateQueryError(driverWrap(exchange.ErrRefused))
+		assert.Equal(t, exchange.ErrRefused.Error(), res.Error())
+		assert.Equal(t, backend.ErrorSourceDownstream, res.ErrorSource())
+		assert.ErrorIs(t, res, exchange.ErrRefused)
+	})
 	t.Run("a host with no delegate reads as the configuration, not the driver", func(t *testing.T) {
-		// The exchanger answers without a round trip. Its error must still
-		// carry a detail above the sentinel, or the walk in exchangeFailure
-		// stops at the fork's "failed to get JWT" wrapper and the panel
-		// shows that. The detail names neither the host nor the credential.
+		// The exchanger answers without a round trip, and the panel reads its
+		// detail, which names neither the host nor the credential.
 		_, _, hookErr := exchange.NewHTTPExchanger(exchange.Config{URL: "https://console.example/token"}).
 			Exchange(context.Background(), "cluster.example.hydrolix.net", "sign-in-token")
 		require.ErrorIs(t, hookErr, exchange.ErrMisconfigured)

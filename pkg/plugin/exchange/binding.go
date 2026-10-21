@@ -2,7 +2,6 @@ package exchange
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 )
 
@@ -77,7 +76,7 @@ func (b *Binding) principalFor(ctx context.Context) (Principal, bool) {
 func (b *Binding) JWT(ctx context.Context) (string, error) {
 	p, ok := b.principalFor(ctx)
 	if !ok {
-		return "", fmt.Errorf("%w: this request carries no signed-in user", ErrRefused)
+		return "", &Error{Outcome: Refused, Detail: "this request carries no signed-in user"}
 	}
 	return b.Source.Token(ctx, p.Audience, p.Subject, p.SubjectToken)
 }
