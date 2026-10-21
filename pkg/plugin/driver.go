@@ -657,7 +657,11 @@ func jsonSet(jmsg json.RawMessage, val map[string]any) (json.RawMessage, error) 
 		return nil, errors.New("query JSON is null, not an object")
 	}
 	for k, v := range val {
-		// clean possible duplication
+		// Drop every key that folds to this one, not just the exact spelling.
+		// sqlds decodes the query with encoding/json, which matches field
+		// names case-insensitively, so a surviving `ConnectionArgs` sent by
+		// the browser would be read as connectionArgs and choose the
+		// connection a query runs on.
 		for km := range objmap {
 			if strings.EqualFold(km, k) {
 				delete(objmap, km)

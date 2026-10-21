@@ -534,6 +534,22 @@ func TestExchangeMode_AnExchangeFailureReachesThePanelAsItsReason(t *testing.T) 
 		assert.True(t, strings.HasPrefix(res.Error(), "exchange: the console could not be reached"), res.Error())
 		assert.NotContains(t, res.Error(), "server hello")
 	})
+	t.Run("a host with no delegate reads as the configuration, not the driver", func(t *testing.T) {
+		// The exchanger answers without a round trip. Its error must still
+		// carry a detail above the sentinel, or the walk in exchangeFailure
+		// stops at the fork's "failed to get JWT" wrapper and the panel
+		// shows that. The detail names neither the host nor the credential.
+		_, _, hookErr := exchange.NewHTTPExchanger(exchange.Config{URL: "https://console.example/token"}).
+			Exchange(context.Background(), "cluster.example.hydrolix.net", "sign-in-token")
+		require.ErrorIs(t, hookErr, exchange.ErrMisconfigured)
+		res := h.MutateQueryError(driverWrap(hookErr))
+		assert.Equal(t, backend.ErrorSourcePlugin, res.ErrorSource())
+		assert.True(t, strings.HasPrefix(res.Error(), exchange.ErrMisconfigured.Error()), res.Error())
+		assert.NotContains(t, res.Error(), "JWT")
+		assert.NotContains(t, res.Error(), "server hello")
+		assert.NotContains(t, res.Error(), "cluster.example.hydrolix.net")
+		assert.NotContains(t, strings.ToLower(res.Error()), "no credential")
+	})
 	t.Run("an unconfigured Grafana is the plugin's problem", func(t *testing.T) {
 		unconfigured := &Hydrolix{exchangeConfigErr: exchange.ErrNotConfigured}
 		_, hookErr := unconfigured.unconfiguredJWT(context.Background())

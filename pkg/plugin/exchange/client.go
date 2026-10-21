@@ -101,8 +101,11 @@ type errorResponse struct {
 func (h *HTTPExchanger) Exchange(ctx context.Context, audience, subjectToken string) (string, time.Duration, error) {
 	cred, ok := h.Config.Credential(audience)
 	if !ok {
-		// Not wrapped with the audience: see ErrMisconfigured.
-		return "", 0, ErrMisconfigured
+		// Wrapped, so that the panel's message is this detail rather than the
+		// driver's plumbing above the bare sentinel; see exchangeFailure in
+		// the driver. The detail names neither the audience nor the
+		// credential as the missing part: see ErrMisconfigured.
+		return "", 0, fmt.Errorf("%w: check the exchange URL and credentials in Grafana's configuration", ErrMisconfigured)
 	}
 
 	form := url.Values{
