@@ -36,7 +36,8 @@ type Binding struct {
 	// principal — the driver's own handshake, which runs when the connection
 	// is established — still be identified.
 	Bound Slot
-	// Principals holds the newest forwarded token per slot, for that case.
+	// Principals holds the forwarded token last presented per slot, for that
+	// case.
 	Principals *Principals
 }
 
@@ -50,7 +51,7 @@ func Bind(src *Source, principals *Principals, bound Slot) *Binding {
 // principalFor answers who a request runs as. The context is tried first
 // because it is exact — it carries the token of the very request being served.
 // The connection's bound identity is the fallback, and the registry supplies
-// that person's newest token.
+// that person's last presented token.
 func (b *Binding) principalFor(ctx context.Context) (Principal, bool) {
 	if p, ok := PrincipalFrom(ctx); ok {
 		return p, true

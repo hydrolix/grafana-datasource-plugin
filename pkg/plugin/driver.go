@@ -42,7 +42,7 @@ type Hydrolix struct {
 	// exchangeConfigErr says why exchangeSource is nil, so a datasource set to
 	// the mode can fail with the reason rather than with an auth error.
 	exchangeConfigErr error
-	// exchangePrincipals holds the newest forwarded token per subject, for the
+	// exchangePrincipals holds the last forwarded token per subject, for the
 	// requests whose context does not reach the JWT hook — the driver's own
 	// handshake when a connection is established.
 	exchangePrincipals *exchange.Principals

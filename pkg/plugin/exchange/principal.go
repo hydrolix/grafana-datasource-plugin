@@ -117,7 +117,7 @@ func IdentityOf(jwt string) string {
 	return c.Iss + "|" + c.Sub
 }
 
-// Principals remembers the newest forwarded token for each subject.
+// Principals remembers the forwarded token last presented for each subject.
 //
 // The context is the better carrier and is tried first, but it does not always
 // arrive: a connection's own handshake — clickhouse-go's "server hello" — runs
@@ -127,10 +127,14 @@ func IdentityOf(jwt string) string {
 // the first live run of this change showed.
 //
 // So the subject, which keys the connection, also keys this registry, and the
-// binding can recover the token for the connection it belongs to. Entries are
-// the newest token seen for that person, and each is dropped once the token
-// itself expires: past its `exp` the facade would refuse it, so holding it is
-// only retention. The idle limit is the backstop for a token with no `exp`.
+// binding can recover the token for the connection it belongs to. An entry is
+// the token that person's most recent request carried — last presented, not
+// newest by issuance: in the moment after a Grafana refresh, a request that
+// still carries the previous token writes it back, and the handshake
+// exchanges that one instead, at the cost of one more exchange. Each entry
+// is dropped once the token itself expires: past its `exp` the facade would
+// refuse it, so holding it is only retention. The idle limit is the backstop
+// for a token with no `exp`.
 type Principals struct {
 	mu    sync.Mutex
 	known map[string]remembered
@@ -155,7 +159,8 @@ func NewPrincipals(idle time.Duration, now func() time.Time) *Principals {
 	return &Principals{known: map[string]remembered{}, idle: idle, now: now}
 }
 
-// Remember records the newest token for this subject at this cluster.
+// Remember records the token this subject has just presented at this cluster,
+// replacing whatever was there.
 func (p *Principals) Remember(pr Principal) {
 	if !pr.named() || pr.SubjectToken == "" {
 		return
@@ -173,7 +178,7 @@ func (p *Principals) Remember(pr Principal) {
 	p.pruneLocked(now)
 }
 
-// Lookup answers the newest token for this slot.
+// Lookup answers the token last presented for this slot.
 func (p *Principals) Lookup(s Slot) (Principal, bool) {
 	if !s.named() {
 		return Principal{}, false
