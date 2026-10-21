@@ -39,7 +39,8 @@
     },
     "moment": "^2.31.0",
     "basic-ftp": "^6.2.2",
-    "micromatch": "npm:picomatch@^4.0.7"
+    "micromatch": "npm:picomatch@^4.0.7",
+    "follow-redirects": "^1.16.1"
   },
   "devDependencies": {
     "@grafana/eslint-config": "^9.0.0",
