@@ -80,13 +80,13 @@ jobs:
     name: Build Backend
     uses: ./.github/workflows/build-backend.yml
     with:
-      go_version: '1.26.8'
+      go_version: '1.27.3'
 
   test-backend:
     name: Test Backend
     uses: ./.github/workflows/test-backend.yml
     with:
-      go_version: '1.26.8'
+      go_version: '1.27.3'
 
   package:
     name: Package Plugin
