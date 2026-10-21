@@ -9,7 +9,8 @@
   reaches the plugin as `GF_PLUGIN_EXCHANGE_URL` / `GF_PLUGIN_EXCHANGE_CREDENTIALS`. The audience is always the data
   source's host. Requires verified TLS to the cluster, with *Skip TLS verify* refused, and an `https` exchange URL
   whose redirects are not followed. Requires the HTTP protocol — native binds its credential to the connection and cannot carry a
-  refreshed token, and Grafana's `use_refresh_token`
+  refreshed token — and Grafana's `use_refresh_token`, since every exchange after the sign-in token expires is refused.
+  A cluster token is reused only by the exact sign-in token it was minted from, so a refresh costs one exchange.
 - **Fix**: A query's own `connectionArgs` no longer reach the connection cache in any credentials mode. sqlds reads
   them from the query JSON the browser sends, so a caller could otherwise choose which cached connection a query ran
   on

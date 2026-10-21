@@ -15,13 +15,13 @@ const UnauthorizedMarker = "[HTTP 401]"
 // Binding is one connection's supply of cluster tokens: where they come from,
 // and who the connection belongs to.
 //
-// The driver asks it for a token on every outbound request through the fork's
-// `Options.GetJWT` hook, so the credential is read at request time rather than
-// frozen into the connection. That is the seam the design turns on: the
-// connection cache holds a *sql.DB for up to an hour while a cluster token lives
-// minutes, so a credential built when the connection was opened is dead for
-// most of that connection's life. Supplying it per request makes a token
-// refresh invisible to pooling — and mirrors the console's browser client, which
+// The driver asks it for a token on every outbound request through
+// clickhouse-go's `Options.GetJWT` hook, so the credential is read at request
+// time rather than frozen into the connection. It has to be: the connection
+// cache holds a *sql.DB for up to an hour while a cluster token lives minutes,
+// so a credential built when the connection was opened would be dead for most
+// of that connection's life. Supplying it per request makes a token refresh
+// invisible to pooling — and mirrors the console's browser client, which
 // attaches a token from its session manager to each request.
 //
 // Going through the fork's hook rather than a RoundTripper of our own matters

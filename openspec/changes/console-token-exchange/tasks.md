@@ -3,10 +3,12 @@
 ## 1. The token source (`pkg/plugin/exchange`)
 
 - [x] 1.1 `TokenSource` with `Token(ctx, sub string) (string, error)`, a cache of
-      `{token, deadline}` keyed on the subject claim — **never on the forwarded
-      token**, which changes on every Grafana refresh — and a
-      `singleflight.Group` keyed the same way (`golang.org/x/sync` is already an
-      indirect dependency).
+      `{token, deadline}` in a slot keyed on the subject claim, and a
+      `singleflight.Group` (`golang.org/x/sync` is already an indirect
+      dependency). As first built the slot alone decided what was served, so a
+      Grafana refresh cost nothing; 5b.5 changed that, and an entry is now
+      answered only to the forwarded token it was minted from, with the
+      singleflight keyed on that token as well.
 - [x] 1.2 Deadlines stamped from the request start, never from a server clock.
       Refresh lead = 20 % of lifetime clamped to [60 s, 300 s]; lazy skew 30 s;
       no scheduling under a 120 s lifetime.
@@ -251,6 +253,24 @@ deployed Grafana calls the console's real hostname, which is already allowed.
       decoded into a nil map and would have panicked on the first
       assignment. Seven malformed shapes tested, the two number ones
       included, each with and without a forwarded token.
+- [x] 5b.5 **A cache hit stood in for a verification the console never did**
+      (PR review, 2026-10-21). The subject claim is read without checking the
+      token's signature, and the source served a cached cluster token to any
+      forwarded token naming the right `iss|sub`. The boundary argument (the
+      header is set server-side by Grafana from its own session, so a forged
+      claim already means Grafana is forwarding attacker-chosen tokens) is
+      true and was not leaned on. Each entry now remembers a SHA-256 of the
+      forwarded token it was minted from and is answered only to that exact
+      string; the hash is folded into "usable", so a mismatched entry is
+      neither served nor served as the token in hand when a refresh fails
+      transiently, and the singleflight key carries it, so a dashboard load
+      straddling a refresh makes one exchange per token. Pool key,
+      `Invalidate` and `Principals` still key on the subject, which picks a
+      slot and decides nothing. Cost: one exchange per Grafana refresh per
+      person per cluster, coalesced across a dashboard. Spec and design
+      updated to say so. Three tests: a refreshed token is exchanged afresh,
+      an unverified token is never served the token in hand, two tokens in
+      flight make two exchanges.
 
 ## 6. Landing
 

@@ -167,12 +167,15 @@ Notes:
 - The mode requires **verified TLS**: *Secure Connection* on and *Skip TLS verify* off. The cluster token is a bearer,
   so the plugin refuses plain http and an unchecked certificate rather than send it to whoever answers. For the same
   reason `exchange_url` must be `https`, and a redirect from it is reported as a configuration error, not followed.
-- **Save & test** reports whether this Grafana holds a credential for this cluster. It does not prove any individual's
-  access, which is established when a panel runs as that person.
+- **Save & test** reports whether this Grafana has an exchange configuration at all. It does not say whether that
+  configuration holds a credential for this data source's host (a host with no credential passes Save & test and
+  fails in its first panel), and it does not prove any individual's access, which is established when a panel runs
+  as that person.
 - An instance with no exchange configuration reports the mode as unavailable rather than failing panels with an
   authentication error.
 - The exchange is keyed per person on the token's issuer and subject together, so users of two OAuth providers who
-  happen to share a `sub` never share a cluster token.
+  happen to share a `sub` never share a cluster token. A cluster token is reused only by the exact sign-in token it
+  was minted from, so each Grafana refresh of the sign-in token costs one exchange per person per cluster.
 
 ### Provision the data source
 

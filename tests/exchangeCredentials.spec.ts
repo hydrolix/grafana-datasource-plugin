@@ -25,9 +25,11 @@ import { DashboardBuilder } from "./dashboardBuilder";
  *     container environment, rendered by Grafana into the plugin process;
  *   - the exchange and the cluster are one stub (e2e/exchange-stub), which
  *     mints an opaque token for the sign-in token's subject, forwards a query
- *     carrying that token to ClickHouse, and refuses everything else. It also
- *     remembers every sign-in token it was shown, so a request that carried
- *     one to the cluster is recorded as `auth: "sign-in"` — the invariant the
+ *     carrying that token to ClickHouse, and refuses everything else. It
+ *     labels every cluster request by what it carried: a token the stub
+ *     minted (`minted`, or `revoked` once withdrawn), a sign-in token it was
+ *     shown as a subject (`sign-in`), or anything else (`unknown`, `none`).
+ *     Only tokens the stub minted may reach the cluster — the invariant the
  *     mode exists to keep, asserted here under success, revocation and
  *     refusal alike.
  *
@@ -169,6 +171,14 @@ function errorsIn(responses: string[]): string[] {
 
 const exchanges = (events: StubEvent[]) => events.filter((e) => e.kind === "exchange");
 const clusterHits = (events: StubEvent[]) => events.filter((e) => e.kind === "cluster");
+/**
+ * Cluster requests carrying anything but a token the stub minted. A sign-in
+ * token the stub recognises is labelled `sign-in`; one it never saw as a
+ * subject, or any other bearer, is `unknown`; a missing header is `none`.
+ * Filtering on `sign-in` alone would let the second case through.
+ */
+const foreignClusterHits = (events: StubEvent[]) =>
+  events.filter((e) => e.kind === "cluster" && e.auth !== "minted" && e.auth !== "revoked");
 
 // Shared by the serial tests below: one datasource, one dashboard, one
 // signed-in person, one capture of her query traffic.
@@ -279,8 +289,8 @@ test("a cluster 401 drops the token and the query is retried once with a fresh m
     expect(hit.auth).toBe("minted");
   }
   expect(
-    since.filter((e) => e.kind === "cluster" && e.auth === "sign-in"),
-    "the sign-in token never reached the cluster"
+    foreignClusterHits(since),
+    "nothing but a token the stub minted reached the cluster"
   ).toHaveLength(0);
 });
 
@@ -311,8 +321,8 @@ test("a refusal reaches the panel as a refusal, and the sign-in token is still n
       "nothing reached the cluster after the refusal"
     ).toHaveLength(0);
     expect(
-      since.filter((e) => e.kind === "cluster" && e.auth === "sign-in"),
-      "the sign-in token never reached the cluster"
+      foreignClusterHits(since),
+      "nothing but a token the stub minted reached the cluster"
     ).toHaveLength(0);
   } finally {
     await stubPost(request, "/e2e/refuse?on=0");

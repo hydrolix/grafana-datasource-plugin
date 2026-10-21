@@ -380,6 +380,11 @@ func (h *Hydrolix) Settings(ctx context.Context, config backend.DataSourceInstan
 		// the time the error reaches sqlds, so one retry — sqlds reconnects
 		// and runs the query again — goes out with a fresh mint. A second 401
 		// is the answer.
+		//
+		// A non-zero Retries also sends sqlds's own health check through its
+		// reconnect-and-ping path. That path never runs in this mode:
+		// HdxSqlDatasource.CheckHealth answers the forwarding modes itself,
+		// because the bootstrap connection carries no signed-in user.
 		ds.RetryOn = []string{exchange.UnauthorizedMarker}
 		ds.Retries = 1
 	}

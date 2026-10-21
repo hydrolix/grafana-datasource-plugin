@@ -2,6 +2,8 @@ package exchange
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ClickHouse/clickhouse-go/v2"
 )
 
 // recordingBase records what reached the wire and answers a scripted status.
@@ -186,13 +190,20 @@ func TestTheWatchNeitherAttachesNorRemovesACredential(t *testing.T) {
 }
 
 func TestARedirectToAnotherHostDoesNotCarryTheToken(t *testing.T) {
-	// End to end through net/http. The fork sets the header on the initial
-	// request; http.Client drops Authorization when a redirect leaves the host;
-	// and nothing below it puts the header back. This is the property a
-	// token-attaching RoundTripper broke, so it is pinned here.
-	var elsewhereSaw string
+	// Through clickhouse-go's own HTTP client, wired as the driver wires it:
+	// the GetJWT hook puts the header on the initial request, http.Client
+	// drops Authorization when a redirect leaves the host, and nothing below
+	// it puts the header back. This is the property a token-attaching
+	// RoundTripper broke, so it is pinned on the real request path rather
+	// than on a bare client with the header set by hand. The cluster is
+	// recorded too, so a run where the hook never attached anything cannot
+	// pass by accident.
+	var mu sync.Mutex
+	var clusterSaw, elsewhereSaw []string
 	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		elsewhereSaw = r.Header.Get("Authorization")
+		mu.Lock()
+		elsewhereSaw = append(elsewhereSaw, r.Header.Get("Authorization"))
+		mu.Unlock()
 		_, _ = fmt.Fprintln(w, "captured")
 	}))
 	defer elsewhere.Close()
@@ -200,32 +211,58 @@ func TestARedirectToAnotherHostDoesNotCarryTheToken(t *testing.T) {
 	// cross hosts as far as http.Client's rule is concerned.
 	elsewhereURL := strings.Replace(elsewhere.URL, "127.0.0.1", "localhost", 1)
 
-	cluster := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, elsewhereURL+"/query", http.StatusTemporaryRedirect)
+	// TLS, because the hook is consulted only over TLS. The client trusts the
+	// test server's certificate; a redirect to plain http is followed as is.
+	cluster := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		clusterSaw = append(clusterSaw, r.Header.Get("Authorization"))
+		mu.Unlock()
+		http.Redirect(w, r, elsewhereURL+r.URL.RequestURI(), http.StatusTemporaryRedirect)
 	}))
 	defer cluster.Close()
+	roots := x509.NewCertPool()
+	roots.AddCert(cluster.Certificate())
 
 	s, _, _ := newFixture(300 * time.Second)
 	b := unbound(s)
-	client := &http.Client{Transport: b.Watch(http.DefaultTransport)}
+	db := clickhouse.OpenDB(&clickhouse.Options{
+		Protocol:    clickhouse.HTTP,
+		Addr:        []string{cluster.Listener.Addr().String()},
+		TLS:         &tls.Config{RootCAs: roots},
+		Compression: &clickhouse.Compression{Method: clickhouse.CompressionNone},
+		DialTimeout: 5 * time.Second,
+		ReadTimeout: 5 * time.Second,
+		GetJWT:      b.JWT,
+		TransportFunc: func(t *http.Transport) (http.RoundTripper, error) {
+			return b.Watch(t), nil
+		},
+	})
+	defer func() { _ = db.Close() }()
 
-	req, err := http.NewRequestWithContext(principalCtx(), http.MethodPost, cluster.URL+"/query", strings.NewReader("SELECT 1"))
-	if err != nil {
-		t.Fatal(err)
+	// The answer from "elsewhere" is not a ClickHouse handshake, so the query
+	// fails; what matters is where the header went on the way.
+	rows, err := db.QueryContext(principalCtx(), "SELECT 1")
+	if err == nil {
+		_ = rows.Close()
 	}
-	jwt, err := b.JWT(req.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Authorization", "Bearer "+jwt) // as applyOptionsToRequest does
 
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(clusterSaw) == 0 {
+		t.Fatal("no request reached the cluster")
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if elsewhereSaw != "" {
-		t.Fatalf("the cluster token followed a redirect off the cluster: %q", elsewhereSaw)
+	for _, auth := range clusterSaw {
+		if auth != "Bearer cluster-token-1" {
+			t.Fatalf("the cluster saw %q: the hook did not attach the exchanged token on the initial request", auth)
+		}
+	}
+	if len(elsewhereSaw) == 0 {
+		t.Fatal("the redirect was not followed, so the property was not exercised")
+	}
+	for _, auth := range elsewhereSaw {
+		if auth != "" {
+			t.Fatalf("the cluster token followed a redirect off the cluster: %q", auth)
+		}
 	}
 }
 

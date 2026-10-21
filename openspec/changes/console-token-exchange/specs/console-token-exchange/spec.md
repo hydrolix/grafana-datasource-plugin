@@ -73,13 +73,16 @@ names.
   so that someone who can edit a data source cannot learn which clusters
   this Grafana serves by naming them
 
-### Requirement: One exchange per user, reused until shortly before expiry
+### Requirement: One exchange per sign-in token, reused until shortly before expiry
 
-The plugin SHALL cache an exchanged token per subject, keyed on the token's
-issuer and subject claims together and never on the forwarded token, which changes when Grafana refreshes
-it. Concurrent requests for one subject SHALL result in a single exchange in
-flight. Expiry SHALL be computed from the moment the exchange request began,
-never from a server-supplied clock.
+The plugin SHALL cache an exchanged token per subject, in a slot keyed on the
+token's issuer and subject claims together, and SHALL answer a cached token
+only to the exact forwarded token it was minted from: on a hit, the console
+verified that very token when it minted the entry, so a hit never stands in
+for a verification the console did not do. Concurrent requests carrying one
+forwarded token SHALL result in a single exchange in flight. Expiry SHALL be
+computed from the moment the exchange request began, never from a
+server-supplied clock.
 
 #### Scenario: A dashboard load causes one exchange
 
@@ -88,11 +91,29 @@ never from a server-supplied clock.
 - **THEN** the plugin SHALL perform one exchange for that user
 - **AND** every panel's query SHALL use its result
 
-#### Scenario: A refreshed sign-in token does not force a new exchange
+#### Scenario: A refreshed sign-in token is exchanged afresh
 
 - **GIVEN** a cached token for a subject
 - **WHEN** the same subject arrives with a newly refreshed forwarded token
-- **THEN** the cached token SHALL still be used
+- **THEN** the plugin SHALL perform one exchange for the new token
+- **AND** SHALL NOT serve the cached token to it, usable or stale
+
+#### Scenario: A dashboard load that straddles a refresh makes one exchange per token
+
+- **GIVEN** panels of one dashboard arriving with two forwarded tokens for one
+  subject, the one before and the one after a Grafana refresh
+- **WHEN** both are in flight at once
+- **THEN** the plugin SHALL perform one exchange per forwarded token
+- **AND** the panels carrying the second token SHALL NOT be handed the result
+  minted for the first
+
+#### Scenario: A forwarded token nobody verified is never served the token in hand
+
+- **GIVEN** a cached token for a subject, inside its refresh window
+- **WHEN** the same subject arrives with a different forwarded token and the
+  exchange for it fails transiently
+- **THEN** the plugin SHALL fail that request rather than serve the cached
+  token, which was minted for a token the console verified and this one is not
 
 ### Requirement: The mode requires the HTTP protocol
 

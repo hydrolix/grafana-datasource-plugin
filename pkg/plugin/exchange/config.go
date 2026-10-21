@@ -9,8 +9,7 @@
 //
 // The semantics here are a port of the console's own browser client
 // (`packages/cluster-client/src/session/ClusterSessionManager.ts` in
-// hydrolix/hydrolix-console), whose behaviour was shaped by incidents this
-// package has no wish to repeat: deadlines stamped on the client clock from the
+// hydrolix/hydrolix-console): deadlines stamped on the client clock from the
 // moment a request started, refresh ahead of expiry in proportion to lifetime,
 // one exchange in flight per user, a bounded retry ladder, and an invalidation
 // that an in-flight exchange cannot undo.
@@ -75,8 +74,8 @@ const (
 // saying what is missing, rather than failing a panel with an auth error.
 var ErrNotConfigured = errors.New("exchange: not configured")
 
-// ConfigFromEnv reads the configuration from a lookup function (os.LookupEnv in
-// production, a map in tests). It returns ErrNotConfigured when neither key is
+// ConfigFromEnv reads the configuration through a lookup function shaped like
+// os.LookupEnv. It returns ErrNotConfigured when neither key is
 // set, and a descriptive error when one is set and unusable — a half-configured
 // instance is an operator mistake worth naming, not a silent fallback.
 func ConfigFromEnv(lookup func(string) (string, bool)) (Config, error) {

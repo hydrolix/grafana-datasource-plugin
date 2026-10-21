@@ -49,8 +49,32 @@ still good.
 
 The subject claim is stable for the person, distinct between people, and not a
 secret. So `MutateQueryData` puts `sub` into `connectionArgs` in place of the
-token, the pool keys on that, and the token source caches on that. Two users
-still never share a connection, and a refresh costs nothing.
+token, the pool keys on that, and the token source keeps one slot per subject.
+Two users still never share a connection, and a refresh keeps the pooled
+connection.
+
+**The token source's slot is keyed on the subject; what it serves is decided by
+the forwarded token.** Review of the first cut pointed out that the subject claim
+is read without verifying the token's signature, so a cache hit keyed on it alone
+would stand in for a verification the console never did: any token naming the
+right `iss|sub` would be served a cluster token minted for somebody else's. Each
+entry therefore remembers a SHA-256 of the forwarded token it was minted from and
+is answered only to that exact string. On a hit the console verified this very
+token when it minted the entry; anything else misses and is exchanged, so the
+console verifies it. The hash is folded into "usable", so a mismatched entry is
+neither served nor served as the token in hand when a refresh fails transiently,
+and the singleflight key carries it too, so a dashboard load that straddles a
+refresh makes one exchange per token rather than handing the second token's
+panels a result minted for the first. The pool key, `Invalidate` and the
+`Principals` registry still key on the subject, which only picks a slot and never
+decides what is served.
+
+What this costs: a refreshed sign-in token is a new string, so each Grafana
+refresh costs one exchange per person per cluster, coalesced across a dashboard.
+With Keycloak's 300 s access token and a 300 s cluster token that is close to the
+subject-keyed behaviour; with a longer cluster token it is more console traffic,
+which is the right side of the trade. Verifying the signature instead would need
+the issuer's JWKS and a network dependency for the same guarantee.
 
 The same key fixes the metadata caches, which today key on `database_table` and
 the CTE reference with no user component at all.
@@ -146,11 +170,11 @@ unavailable rather than as a refusal of the person.
   fails. Sending the console-realm token to the cluster must be impossible, not
   merely unlikely — it is the invariant the whole model rests on, and it deserves
   a test rather than a comment.
-- **`GetJWT` is upstream; `TransportFunc` is fork-only.** `GetJWT` ships in
-  clickhouse-go for ClickHouse Cloud's JWT auth, so the credential path survives
-  dropping the `replace` on `hydrolix/clickhouse-go`. The `401` watch rides
-  `TransportFunc`, which only the fork has; without it the watch goes and a
-  refused token lives until its own refresh window, nothing worse.
+- **Both hooks are upstream.** `GetJWT` ships in clickhouse-go since v2.36 for
+  ClickHouse Cloud's JWT auth, with the same TLS gate the fork applies, and
+  `TransportFunc` since v2.42; `go.mod` requires v2.44. So neither the credential
+  path nor the `401` watch depends on the `replace` on `hydrolix/clickhouse-go`,
+  and dropping it costs this mode nothing.
 - **The mode needs TLS.** The fork consults `GetJWT` only when the connection
   has a TLS config, so `Connect` refuses the mode on plain http rather than
   sending requests with no credential.
