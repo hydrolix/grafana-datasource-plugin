@@ -56,6 +56,13 @@ services:
       # cycles); at 60 minutes it survives. 60 comfortably outlasts a run
       # (~5 min healthy) without disabling rotation outright.
       - GF_AUTH_TOKEN_ROTATION_INTERVAL_MINUTES=60
+      # Grafana caches each user's RBAC permissions for 60s and, on 11.x,
+      # does not refresh them when a dashboard is created, so a signed-in
+      # user whose permissions were read a moment ago is refused a dashboard
+      # the admin has just made. tests/exchangeCredentials.spec.ts creates
+      # one per test and loads it as alice at once; without this, 11.6 answered
+      # "Access denied to this dashboard" on the second test in a row.
+      - GF_RBAC_PERMISSION_CACHE=false
       # --- OAuth2 / Keycloak (tests/exchangeCredentials.spec.ts) ---
       # Mirrors docker-compose.yaml. The browser runs on the runner host, so
       # the auth URL is the published port; Grafana itself reaches Keycloak

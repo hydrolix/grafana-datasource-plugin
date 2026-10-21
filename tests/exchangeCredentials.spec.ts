@@ -109,6 +109,13 @@ const test = base.extend<{ exchanging: Exchanging }>({
     try {
       const { responses } = await captureRequestsAndResponses(context);
       const alicePage = await signInThroughKeycloak(context, ALICE);
+      // Grafana caches each user's RBAC permissions for 60s and, on 11.x,
+      // does not refresh them when a dashboard is created, so alice would be
+      // refused a dashboard newer than her cache: "Access denied to this
+      // dashboard" on the second test in a row. The e2e stacks run with
+      // GF_RBAC_PERMISSION_CACHE=false (docker-compose.yaml and
+      // .github/e2e-docker-compose.yml) so a dashboard is readable as soon
+      // as it exists.
       await alicePage.goto(`${GRAFANA_URL}/d/${dashboardUid}`);
       await expect
         .poll(() => valuesIn(responses), { timeout: 30_000 })
