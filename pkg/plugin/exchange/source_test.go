@@ -319,6 +319,110 @@ func TestAnExchangeInFlightCannotOutliveAnInvalidation(t *testing.T) {
 	}
 }
 
+func TestEntriesNobodyUsesAreDropped(t *testing.T) {
+	// Entries are keyed on the person, so without a prune the cache grows by
+	// one per (cluster, person) pair ever seen and never shrinks. An expired,
+	// untouched entry is dropped on the next write; one whose token is still
+	// usable is kept whatever its age.
+	s, ex, ck := newFixture(300 * time.Second)
+	for i := 0; i < 50; i++ {
+		if _, err := s.Token(context.Background(), aud, fmt.Sprintf("sub-%d", i), stok); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A refusal and an invalidation make entries with no token at all; they
+	// must age out the same way.
+	ex.mu.Lock()
+	ex.err = ErrRefused
+	ex.mu.Unlock()
+	_, _ = s.Token(context.Background(), aud, "sub-refused", stok)
+	ex.mu.Lock()
+	ex.err = nil
+	ex.mu.Unlock()
+	s.Invalidate(aud, "sub-invalidated")
+	if n := s.entryCount(); n != 52 {
+		t.Fatalf("expected 52 entries before any pruning, got %d", n)
+	}
+
+	// Everyone's token has expired, but nobody has written since. The prune
+	// runs on a write, not on a clock.
+	ck.advance(300*time.Second + 1)
+	if n := s.entryCount(); n != 52 {
+		t.Fatalf("expected no pruning without a write, got %d entries", n)
+	}
+
+	// Not idle yet: a write at this point keeps every entry.
+	if _, err := s.Token(context.Background(), aud, "sub-late", stok); err != nil {
+		t.Fatal(err)
+	}
+	if n := s.entryCount(); n != 53 {
+		t.Fatalf("expected 53 entries before entryIdle has passed, got %d", n)
+	}
+
+	// Past entryIdle since those entries were last touched, the next write
+	// drops them. The late subject's entry is younger than entryIdle, so it
+	// stays even though its token has expired too.
+	ck.advance(entryIdle - 299*time.Second)
+	if _, err := s.Token(context.Background(), aud, "sub-latest", stok); err != nil {
+		t.Fatal(err)
+	}
+	if n := s.entryCount(); n != 2 {
+		t.Fatalf("expected only the two recent subjects to survive, got %d entries", n)
+	}
+	if s.cachedToken(aud, "sub-late") == "" {
+		t.Fatal("an entry touched within entryIdle was pruned")
+	}
+
+	// A token that is still usable is kept however long ago it was written.
+	long, _, lck := newFixture(3 * time.Hour)
+	if _, err := long.Token(context.Background(), aud, "sub-long", stok); err != nil {
+		t.Fatal(err)
+	}
+	lck.advance(2 * time.Hour)
+	if _, err := long.Token(context.Background(), aud, "sub-other", stok); err != nil {
+		t.Fatal(err)
+	}
+	if n := long.entryCount(); n != 2 {
+		t.Fatalf("expected a usable token to survive the prune, got %d entries", n)
+	}
+}
+
+func TestAnInvalidationOutlivesItsTokenUntilPruned(t *testing.T) {
+	// The generation is what makes an invalidation stick against a flight
+	// already running. It lives on the entry, so the entry must survive the
+	// invalidation itself, and an exchange that captured the old generation
+	// must still be refused after the token is gone.
+	s, ex, _ := newFixture(300 * time.Second)
+	if _, err := s.Token(context.Background(), aud, sub, stok); err != nil {
+		t.Fatal(err)
+	}
+	s.Invalidate(aud, sub)
+	if s.entryCount() != 1 {
+		t.Fatal("an invalidated entry must stay so its generation is remembered")
+	}
+
+	ex.block = make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = s.Token(context.Background(), aud, sub, stok)
+	}()
+	// waitForExchange waits for the first call; this is the second.
+	for deadline := time.Now().Add(2 * time.Second); ex.count() < 2; {
+		if time.Now().After(deadline) {
+			t.Fatal("the second exchange did not begin within two seconds")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	s.Invalidate(aud, sub) // a second invalidation, with the generation now non-zero
+	close(ex.block)
+	<-done
+
+	if s.cachedToken(aud, sub) != "" {
+		t.Fatal("an exchange that started before the second invalidation populated the cache")
+	}
+}
+
 func TestTwoSubjectsDoNotShareAToken(t *testing.T) {
 	s, ex, _ := newFixture(300 * time.Second)
 	a, err := s.Token(context.Background(), aud, "sub-a", stok)

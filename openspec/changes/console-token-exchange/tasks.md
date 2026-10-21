@@ -219,6 +219,20 @@ deployed Grafana calls the console's real hostname, which is already allowed.
         table in the design rejects, or an audience-to-org mapping in server
         configuration, which the reviewer proposed and the console side has to
         weigh.
+- [x] 5b.3 **The token cache never shrank** (PR review, 2026-10-21). Entries
+      are keyed on the person, so the map grew by one per (cluster, person)
+      pair ever seen and only a cluster 401 removed one; the generation map
+      beside it was never pruned at all. Slow, bounded by the population
+      rather than by time, and real. The generation now lives on the entry,
+      `Invalidate` empties the entry instead of deleting it, and every write
+      under the lock drops entries whose token is unusable and that nobody
+      has written to for an hour, as the principals registry already did.
+      An hour is far above the 30 s exchange ceiling, so no flight can
+      straddle a prune and lose the invalidation it captured. Two tests on
+      the hand-wound clock: fifty-two stale entries go on the first write
+      past the idle limit while a younger one and a still-usable one stay,
+      and an invalidation keeps its generation against a flight after its
+      token is gone.
 
 ## 6. Landing
 

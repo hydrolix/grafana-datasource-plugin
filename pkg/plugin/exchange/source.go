@@ -43,6 +43,15 @@ const (
 	// dashboard would otherwise ask the console thirty times, and a converging
 	// role removal would become a load spike against one delegate's quota.
 	refusalMemory = 10 * time.Second
+
+	// An entry untouched for this long is dropped on the next write. Entries
+	// are keyed on the person, so without this the map grows by one per
+	// (cluster, person) pair ever seen and never shrinks. The limit must stay
+	// well above exchangeCeiling: an entry's generation outlives its token so
+	// that an exchange in flight across an invalidation cannot repopulate the
+	// cache, and pruning a generation sooner than a flight can finish would
+	// forget the invalidation.
+	entryIdle = time.Hour
 )
 
 // Logger is the narrow logging surface this package needs. Implementations must
@@ -75,6 +84,16 @@ type entry struct {
 
 	// refusedUntil suppresses asking again after the console said no.
 	refusedUntil time.Time
+
+	// gen is bumped by Invalidate. An exchange captures it when it starts and
+	// store refuses a result from an older generation, so an exchange already
+	// in flight cannot restore a session that was ended while it ran. It lives
+	// on the entry, which outlives its token, rather than in a map of its own
+	// that nothing would ever prune.
+	gen uint64
+
+	// touched is the last write to this entry; the prune reads it.
+	touched time.Time
 }
 
 func (e *entry) usable(now time.Time) bool {
@@ -118,7 +137,6 @@ type Source struct {
 
 	mu      sync.Mutex
 	entries map[string]*entry
-	gens    map[string]uint64
 
 	flight singleflight.Group
 }
@@ -136,7 +154,6 @@ func NewSource(ex Exchanger, now func() time.Time, log Logger) *Source {
 		now:     now,
 		log:     log,
 		entries: map[string]*entry{},
-		gens:    map[string]uint64{},
 	}
 }
 
@@ -241,11 +258,14 @@ func (s *Source) exchange(ctx context.Context, k, audience, subject, subjectToke
 		// again first, so that late caller gets the token a moment ago's
 		// exchange produced instead of making a second one.
 		s.mu.Lock()
-		gen := s.gens[k]
-		if e := s.entries[k]; e != nil && e.usable(s.now()) && !e.stale(s.now()) && e.mintedFrom(h) {
-			cached := e.token
-			s.mu.Unlock()
-			return cached, nil
+		var gen uint64
+		if e := s.entries[k]; e != nil {
+			gen = e.gen
+			if e.usable(s.now()) && !e.stale(s.now()) && e.mintedFrom(h) {
+				cached := e.token
+				s.mu.Unlock()
+				return cached, nil
+			}
 		}
 		s.mu.Unlock()
 
@@ -287,7 +307,13 @@ func (s *Source) exchange(ctx context.Context, k, audience, subject, subjectToke
 func (s *Source) store(k string, gen uint64, token string, subjectHash [sha256.Size]byte, started time.Time, lifetime time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.gens[k] != gen {
+	now := s.now()
+	s.pruneLocked(now)
+	var current uint64
+	if e := s.entries[k]; e != nil {
+		current = e.gen
+	}
+	if current != gen {
 		return
 	}
 	lead := time.Duration(0)
@@ -300,19 +326,32 @@ func (s *Source) store(k string, gen uint64, token string, subjectHash [sha256.S
 			lead = renewalLeadMax
 		}
 	}
-	s.entries[k] = &entry{token: token, deadline: started.Add(lifetime), lead: lead, subjectHash: subjectHash}
+	s.entries[k] = &entry{token: token, deadline: started.Add(lifetime), lead: lead, subjectHash: subjectHash, gen: gen, touched: now}
+}
+
+// pruneLocked drops entries nobody has written to for entryIdle. An entry
+// whose token is still usable is kept whatever its age: the person is simply
+// holding a long-lived token. The caller holds s.mu.
+func (s *Source) pruneLocked(now time.Time) {
+	for k, e := range s.entries {
+		if !e.usable(now) && !now.Before(e.touched.Add(entryIdle)) {
+			delete(s.entries, k)
+		}
+	}
 }
 
 // noteFailure advances the retry ladder, or remembers a refusal.
 func (s *Source) noteFailure(k string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := s.now()
+	s.pruneLocked(now)
 	e := s.entries[k]
 	if e == nil {
 		e = &entry{}
 		s.entries[k] = e
 	}
-	now := s.now()
+	e.touched = now
 
 	if errors.Is(err, ErrRefused) {
 		// The console says this person may not query this cluster. Drop the
@@ -344,12 +383,19 @@ func (s *Source) noteFailure(k string, err error) {
 // generation, so an exchange already in flight cannot repopulate it. The caller
 // is the cluster: a 401 means the cluster no longer accepts what we hold,
 // whatever this cache believes.
+//
+// The entry itself stays, emptied: its generation has to outlive the token
+// for as long as a flight can run, and the prune retires it after entryIdle.
 func (s *Source) Invalidate(audience, subject string) {
 	k := key(audience, subject)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.gens[k]++
-	delete(s.entries, k)
+	e := s.entries[k]
+	if e == nil {
+		e = &entry{}
+		s.entries[k] = e
+	}
+	*e = entry{gen: e.gen + 1, touched: s.now()}
 }
 
 // outcome names an error for a log line, in a closed vocabulary.
