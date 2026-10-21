@@ -14,15 +14,11 @@ import (
 // cluster token before it is used.
 const CredentialsType = "forwardOAuthExchange"
 
-// Principal is who a query runs as, carried on the query's context from the
-// point Grafana hands over the forwarded token to the point the outbound HTTP
-// request is built.
-//
-// It travels on the context rather than in `connectionArgs` because
-// connectionArgs are the connection cache's key: the subject belongs there (it
-// is stable for a person), the subject token does not (Grafana refreshes it
-// every few minutes, and keying on it would rebuild the pool each time).
-type Principal struct {
+// Slot is one person at one cluster: what the token cache and the principal
+// registry key on, and what a connection is bound to. It carries no token, so
+// it can name a person whose token is not in hand — the connection's own
+// handshake, which runs before any query's context arrives.
+type Slot struct {
 	// Audience is the cluster's configured token audience — what the exchange
 	// asks for, and what the cluster checks.
 	Audience string
@@ -30,6 +26,22 @@ type Principal struct {
 	// IdentityOf joins them. Stable per person, distinct between people, and not
 	// a secret.
 	Subject string
+}
+
+// named is whether the slot names somebody at some cluster. An empty slot is
+// nobody's, and answers nothing.
+func (s Slot) named() bool { return s.Audience != "" && s.Subject != "" }
+
+// Principal is who a query runs as, carried on the query's context from the
+// point Grafana hands over the forwarded token to the point the outbound HTTP
+// request is built: a slot, and the token that proves the person is in it.
+//
+// It travels on the context rather than in `connectionArgs` because
+// connectionArgs are the connection cache's key: the subject belongs there (it
+// is stable for a person), the subject token does not (Grafana refreshes it
+// every few minutes, and keying on it would rebuild the pool each time).
+type Principal struct {
+	Slot
 	// SubjectToken is the token Grafana forwarded. It is exchanged, never sent
 	// to a cluster.
 	SubjectToken string
@@ -48,7 +60,7 @@ func WithPrincipal(ctx context.Context, p Principal) context.Context {
 // thing this whole lane exists to avoid.
 func PrincipalFrom(ctx context.Context) (Principal, bool) {
 	p, ok := ctx.Value(principalKey{}).(Principal)
-	if !ok || p.Subject == "" || p.SubjectToken == "" || p.Audience == "" {
+	if !ok || !p.named() || p.SubjectToken == "" {
 		return Principal{}, false
 	}
 	return p, true
@@ -145,7 +157,7 @@ func NewPrincipals(idle time.Duration, now func() time.Time) *Principals {
 
 // Remember records the newest token for this subject at this cluster.
 func (p *Principals) Remember(pr Principal) {
-	if pr.Subject == "" || pr.SubjectToken == "" || pr.Audience == "" {
+	if !pr.named() || pr.SubjectToken == "" {
 		return
 	}
 	now := p.now()
@@ -157,18 +169,18 @@ func (p *Principals) Remember(pr Principal) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.known[key(pr.Audience, pr.Subject)] = remembered{principal: pr, until: until}
+	p.known[key(pr.Slot)] = remembered{principal: pr, until: until}
 	p.pruneLocked(now)
 }
 
-// Lookup answers the newest token for this subject at this cluster.
-func (p *Principals) Lookup(audience, subject string) (Principal, bool) {
-	if audience == "" || subject == "" {
+// Lookup answers the newest token for this slot.
+func (p *Principals) Lookup(s Slot) (Principal, bool) {
+	if !s.named() {
 		return Principal{}, false
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	entry, ok := p.known[key(audience, subject)]
+	entry, ok := p.known[key(s)]
 	if !ok || !p.now().Before(entry.until) {
 		return Principal{}, false
 	}

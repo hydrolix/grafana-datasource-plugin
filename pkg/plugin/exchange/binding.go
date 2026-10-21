@@ -31,24 +31,20 @@ const UnauthorizedMarker = "[HTTP 401]"
 // would send the token wherever the Location header pointed.
 type Binding struct {
 	Source *Source
-	// Bound is the connection's own (audience, subject), known because the
-	// subject keys the connection cache. It lets a request that arrives without
-	// a context principal — the driver's own handshake, which runs when the
-	// connection is established — still be identified.
-	Bound Principal
-	// Principals holds the newest forwarded token per subject, for that case.
+	// Bound is the connection's own slot, known because the subject keys the
+	// connection cache. It lets a request that arrives without a context
+	// principal — the driver's own handshake, which runs when the connection
+	// is established — still be identified.
+	Bound Slot
+	// Principals holds the newest forwarded token per slot, for that case.
 	Principals *Principals
 }
 
-// Bind describes a connection belonging to one person at one cluster. An empty
-// subject binds nobody: such a connection answers only requests whose context
-// carries a principal.
-func Bind(src *Source, principals *Principals, audience, subject string) *Binding {
-	return &Binding{
-		Source:     src,
-		Principals: principals,
-		Bound:      Principal{Audience: audience, Subject: subject},
-	}
+// Bind describes a connection belonging to one person at one cluster. A slot
+// that names nobody binds nobody: such a connection answers only requests
+// whose context carries a principal.
+func Bind(src *Source, principals *Principals, bound Slot) *Binding {
+	return &Binding{Source: src, Principals: principals, Bound: bound}
 }
 
 // principalFor answers who a request runs as. The context is tried first
@@ -59,10 +55,10 @@ func (b *Binding) principalFor(ctx context.Context) (Principal, bool) {
 	if p, ok := PrincipalFrom(ctx); ok {
 		return p, true
 	}
-	if b.Principals == nil || b.Bound.Subject == "" || b.Bound.Audience == "" {
+	if b.Principals == nil || !b.Bound.named() {
 		return Principal{}, false
 	}
-	return b.Principals.Lookup(b.Bound.Audience, b.Bound.Subject)
+	return b.Principals.Lookup(b.Bound)
 }
 
 // JWT is the fork's GetJWT hook: the cluster token for the request this context
@@ -78,7 +74,7 @@ func (b *Binding) JWT(ctx context.Context) (string, error) {
 	if !ok {
 		return "", &Error{Outcome: Refused, Detail: "this request carries no signed-in user"}
 	}
-	return b.Source.Token(ctx, p.Audience, p.Subject, p.SubjectToken)
+	return b.Source.Token(ctx, p)
 }
 
 // Watch wraps the connection's round tripper so that a cluster's 401 drops the
@@ -107,7 +103,7 @@ func (w *unauthorizedWatch) RoundTrip(req *http.Request) (*http.Response, error)
 	resp, err := w.base.RoundTrip(req)
 	if err == nil && resp != nil && resp.StatusCode == http.StatusUnauthorized {
 		if p, ok := w.binding.principalFor(req.Context()); ok {
-			w.binding.Source.Invalidate(p.Audience, p.Subject)
+			w.binding.Source.Invalidate(p.Slot)
 		}
 	}
 	return resp, err

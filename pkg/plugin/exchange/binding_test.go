@@ -48,9 +48,7 @@ func (r *recordingBase) seen() []string {
 }
 
 func principalCtx() context.Context {
-	return WithPrincipal(context.Background(), Principal{
-		Audience: aud, Subject: sub, SubjectToken: stok,
-	})
+	return WithPrincipal(context.Background(), alice)
 }
 
 func newRequest(t *testing.T, ctx context.Context) *http.Request {
@@ -65,7 +63,7 @@ func newRequest(t *testing.T, ctx context.Context) *http.Request {
 
 // unbound is a binding for a connection that belongs to nobody: only a context
 // principal can identify a request on it.
-func unbound(s *Source) *Binding { return Bind(s, nil, "", "") }
+func unbound(s *Source) *Binding { return Bind(s, nil, Slot{}) }
 
 func TestTheJWTIsTheExchangedTokenAndNeverTheForwardedOne(t *testing.T) {
 	s, _, _ := newFixture(300 * time.Second)
@@ -128,7 +126,7 @@ func TestAClusterUnauthorizedDropsTheTokenSoTheNextRequestMintsAfresh(t *testing
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("the cluster's 401 must reach the caller unchanged, got %d", resp.StatusCode)
 	}
-	if tok := s.cachedToken(aud, sub); tok != "" {
+	if tok := s.cachedToken(alice.Slot); tok != "" {
 		t.Fatalf("the refused token is still cached: %q", tok)
 	}
 
@@ -305,9 +303,9 @@ func TestARequestWithNoContextIsIdentifiedByTheConnectionItBelongsTo(t *testing.
 	// even though Grafana had forwarded a perfectly good token.
 	s, _, _ := newFixture(300 * time.Second)
 	principals := NewPrincipals(0, nil)
-	principals.Remember(Principal{Audience: aud, Subject: sub, SubjectToken: stok})
+	principals.Remember(alice)
 
-	jwt, err := Bind(s, principals, aud, sub).JWT(context.Background())
+	jwt, err := Bind(s, principals, alice.Slot).JWT(context.Background())
 	if err != nil {
 		t.Fatalf("a handshake on a bound connection must be identified: %v", err)
 	}
@@ -321,16 +319,16 @@ func TestTheContextWinsOverTheConnectionsBinding(t *testing.T) {
 	// the better answer where both exist.
 	s, _, _ := newFixture(300 * time.Second)
 	principals := NewPrincipals(0, nil)
-	principals.Remember(Principal{Audience: aud, Subject: "stale-subject", SubjectToken: "stale-token"})
+	principals.Remember(Principal{Slot: Slot{Audience: aud, Subject: "stale-subject"}, SubjectToken: "stale-token"})
 
-	if _, err := Bind(s, principals, aud, "stale-subject").JWT(principalCtx()); err != nil {
+	if _, err := Bind(s, principals, Slot{Audience: aud, Subject: "stale-subject"}).JWT(principalCtx()); err != nil {
 		t.Fatal(err)
 	}
 	// One exchange, for the context's subject rather than the bound one.
-	if tok := s.cachedToken(aud, sub); tok == "" {
+	if tok := s.cachedToken(alice.Slot); tok == "" {
 		t.Fatal("the context's subject was not the one exchanged for")
 	}
-	if tok := s.cachedToken(aud, "stale-subject"); tok != "" {
+	if tok := s.cachedToken(Slot{Audience: aud, Subject: "stale-subject"}); tok != "" {
 		t.Fatal("the bound subject was used despite a context principal")
 	}
 }
@@ -340,9 +338,9 @@ func TestAnUnboundConnectionWithNoContextIsStillRefused(t *testing.T) {
 	// somebody's token: it only answers for the connection's own subject.
 	s, _, _ := newFixture(300 * time.Second)
 	principals := NewPrincipals(0, nil)
-	principals.Remember(Principal{Audience: aud, Subject: sub, SubjectToken: stok})
+	principals.Remember(alice)
 
-	b := Bind(s, principals, "", "") // registry present, binding absent
+	b := Bind(s, principals, Slot{}) // registry present, binding absent
 	if _, err := b.JWT(context.Background()); !errors.Is(err, ErrRefused) {
 		t.Fatalf("expected a refusal, got %v", err)
 	}
@@ -354,11 +352,11 @@ func TestAForgottenPrincipalIsNotServed(t *testing.T) {
 	// a session nobody is in.
 	s, _, ck := newFixture(300 * time.Second)
 	principals := NewPrincipals(time.Minute, ck.now)
-	principals.Remember(Principal{Audience: aud, Subject: sub, SubjectToken: stok})
+	principals.Remember(alice)
 
 	ck.advance(2 * time.Minute)
 
-	if _, err := Bind(s, principals, aud, sub).JWT(context.Background()); !errors.Is(err, ErrRefused) {
+	if _, err := Bind(s, principals, alice.Slot).JWT(context.Background()); !errors.Is(err, ErrRefused) {
 		t.Fatalf("expected a refusal once the entry lapsed, got %v", err)
 	}
 }
@@ -370,14 +368,14 @@ func TestAPrincipalIsDroppedWhenItsTokenExpires(t *testing.T) {
 	principals := NewPrincipals(time.Hour, ck.now)
 	exp := ck.now().Add(5 * time.Minute).Unix()
 	token := "header." + base64url(fmt.Sprintf(`{"iss":"https://kc","sub":"alice","exp":%d}`, exp)) + ".signature"
-	principals.Remember(Principal{Audience: aud, Subject: sub, SubjectToken: token})
+	principals.Remember(presenting(token))
 
-	if _, ok := principals.Lookup(aud, sub); !ok {
+	if _, ok := principals.Lookup(alice.Slot); !ok {
 		t.Fatal("a live token was not served")
 	}
 	ck.advance(6 * time.Minute)
 
-	if _, err := Bind(s, principals, aud, sub).JWT(context.Background()); !errors.Is(err, ErrRefused) {
+	if _, err := Bind(s, principals, alice.Slot).JWT(context.Background()); !errors.Is(err, ErrRefused) {
 		t.Fatalf("expected a refusal once the token expired, got %v", err)
 	}
 }

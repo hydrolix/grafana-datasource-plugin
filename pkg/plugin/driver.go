@@ -290,7 +290,8 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 			// handshake, issued when database/sql establishes the connection
 			// — is still identified.
 			subject, _ := readConnArg(args, "sub")
-			binding := exchange.Bind(h.exchangeSource, h.exchangePrincipals, exchangeAudienceOf(settings), subject)
+			binding := exchange.Bind(h.exchangeSource, h.exchangePrincipals,
+				exchange.Slot{Audience: exchangeAudienceOf(settings), Subject: subject})
 			opts.GetJWT = binding.JWT
 			// The watch only observes: a cluster's 401 drops the refused
 			// token, and sqlds retries the query once (see Settings) with a
@@ -430,8 +431,7 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 			if subject := exchange.IdentityOf(token); subject != "" {
 				connArgs["sub"] = subject
 				principal := exchange.Principal{
-					Audience:     exchangeAudienceOf(pluginSettings),
-					Subject:      subject,
+					Slot:         exchange.Slot{Audience: exchangeAudienceOf(pluginSettings), Subject: subject},
 					SubjectToken: token,
 				}
 				ctx = exchange.WithPrincipal(ctx, principal)

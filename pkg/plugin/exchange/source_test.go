@@ -17,6 +17,19 @@ const (
 	stok = "the.subject.token"
 )
 
+// alice is the one person most tests here run as, at the one cluster.
+var alice = Principal{Slot: Slot{Audience: aud, Subject: sub}, SubjectToken: stok}
+
+// someone is a person other than alice at the test cluster, with her token.
+func someone(subject string) Principal {
+	return Principal{Slot: Slot{Audience: aud, Subject: subject}, SubjectToken: stok}
+}
+
+// presenting is alice with a different forwarded token in hand.
+func presenting(token string) Principal {
+	return Principal{Slot: alice.Slot, SubjectToken: token}
+}
+
 // fakeExchanger counts calls and answers whatever the test sets.
 type fakeExchanger struct {
 	mu       sync.Mutex
@@ -95,7 +108,7 @@ func TestConcurrentCallersCauseOneExchange(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			got[i], errs[i] = s.Token(context.Background(), aud, sub, stok)
+			got[i], errs[i] = s.Token(context.Background(), alice)
 		}(i)
 	}
 	// Wait for the one exchange to begin, then release it.
@@ -118,13 +131,13 @@ func TestConcurrentCallersCauseOneExchange(t *testing.T) {
 
 func TestCachedTokenIsServedWithoutExchanging(t *testing.T) {
 	s, ex, ck := newFixture(300 * time.Second)
-	if _, err := s.Token(context.Background(), aud, sub, stok); err != nil {
+	if _, err := s.Token(context.Background(), alice); err != nil {
 		t.Fatal(err)
 	}
 	// Well inside the lead window (300 s ⇒ lead 60 s ⇒ stale at 240 s).
 	ck.advance(100 * time.Second)
 	for i := 0; i < 5; i++ {
-		if _, err := s.Token(context.Background(), aud, sub, stok); err != nil {
+		if _, err := s.Token(context.Background(), alice); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -135,15 +148,15 @@ func TestCachedTokenIsServedWithoutExchanging(t *testing.T) {
 
 func TestRefreshAheadOfExpiry(t *testing.T) {
 	s, ex, ck := newFixture(300 * time.Second) // lead = max(60s, 20% of 300s) = 60s
-	if _, err := s.Token(context.Background(), aud, sub, stok); err != nil {
+	if _, err := s.Token(context.Background(), alice); err != nil {
 		t.Fatal(err)
 	}
 	ck.advance(239 * time.Second) // not yet stale
-	if _, _ = s.Token(context.Background(), aud, sub, stok); ex.count() != 1 {
+	if _, _ = s.Token(context.Background(), alice); ex.count() != 1 {
 		t.Fatalf("refreshed too early: %d exchanges", ex.count())
 	}
 	ck.advance(2 * time.Second) // now inside the lead window
-	tok, err := s.Token(context.Background(), aud, sub, stok)
+	tok, err := s.Token(context.Background(), alice)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,15 +172,15 @@ func TestShortLivedTokenIsNeverPreRefreshed(t *testing.T) {
 	// Under the minimum lifetime there is no useful room between lead and skew,
 	// so the token stays on the lazy path.
 	s, ex, ck := newFixture(90 * time.Second)
-	if _, err := s.Token(context.Background(), aud, sub, stok); err != nil {
+	if _, err := s.Token(context.Background(), alice); err != nil {
 		t.Fatal(err)
 	}
 	ck.advance(50 * time.Second)
-	if _, _ = s.Token(context.Background(), aud, sub, stok); ex.count() != 1 {
+	if _, _ = s.Token(context.Background(), alice); ex.count() != 1 {
 		t.Fatalf("pre-refreshed a short token: %d exchanges", ex.count())
 	}
 	ck.advance(15 * time.Second) // now inside the 30 s skew ⇒ unusable
-	if _, err := s.Token(context.Background(), aud, sub, stok); err != nil {
+	if _, err := s.Token(context.Background(), alice); err != nil {
 		t.Fatal(err)
 	}
 	if ex.count() != 2 {
@@ -177,14 +190,14 @@ func TestShortLivedTokenIsNeverPreRefreshed(t *testing.T) {
 
 func TestAFailedRefreshKeepsServingTheTokenInHand(t *testing.T) {
 	s, ex, ck := newFixture(300 * time.Second)
-	first, err := s.Token(context.Background(), aud, sub, stok)
+	first, err := s.Token(context.Background(), alice)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ck.advance(241 * time.Second) // stale, still usable
 	ex.err = ErrUnavailable
 
-	tok, err := s.Token(context.Background(), aud, sub, stok)
+	tok, err := s.Token(context.Background(), alice)
 	if err != nil {
 		t.Fatalf("a failed refresh must be invisible while the token is usable: %v", err)
 	}
@@ -195,27 +208,27 @@ func TestAFailedRefreshKeepsServingTheTokenInHand(t *testing.T) {
 
 func TestTheRetryLadderBacksOff(t *testing.T) {
 	s, ex, ck := newFixture(3600 * time.Second) // lead 300 s
-	if _, err := s.Token(context.Background(), aud, sub, stok); err != nil {
+	if _, err := s.Token(context.Background(), alice); err != nil {
 		t.Fatal(err)
 	}
 	ck.advance(3400 * time.Second) // stale (300 s lead), usable (30 s skew)
 	ex.err = ErrUnavailable
 
-	if _, _ = s.Token(context.Background(), aud, sub, stok); ex.count() != 2 {
+	if _, _ = s.Token(context.Background(), alice); ex.count() != 2 {
 		t.Fatalf("expected one refresh attempt, got %d", ex.count())
 	}
 	// Inside the first 5 s rung: no further attempt.
 	ck.advance(3 * time.Second)
-	if _, _ = s.Token(context.Background(), aud, sub, stok); ex.count() != 2 {
+	if _, _ = s.Token(context.Background(), alice); ex.count() != 2 {
 		t.Fatalf("attempted inside the backoff rung: %d", ex.count())
 	}
 	// Past it: one more attempt, and the ladder lengthens.
 	ck.advance(3 * time.Second)
-	if _, _ = s.Token(context.Background(), aud, sub, stok); ex.count() != 3 {
+	if _, _ = s.Token(context.Background(), alice); ex.count() != 3 {
 		t.Fatalf("expected a second attempt past the rung, got %d", ex.count())
 	}
 	ck.advance(6 * time.Second) // inside the 10 s rung
-	if _, _ = s.Token(context.Background(), aud, sub, stok); ex.count() != 3 {
+	if _, _ = s.Token(context.Background(), alice); ex.count() != 3 {
 		t.Fatalf("the ladder did not lengthen: %d", ex.count())
 	}
 }
@@ -227,7 +240,7 @@ func TestARefusalIsRememberedBriefly(t *testing.T) {
 	ex.err = fmt.Errorf("%w: access_denied", ErrRefused)
 
 	for i := 0; i < 10; i++ {
-		_, err := s.Token(context.Background(), aud, sub, stok)
+		_, err := s.Token(context.Background(), alice)
 		if !errors.Is(err, ErrRefused) {
 			t.Fatalf("call %d: expected a refusal, got %v", i, err)
 		}
@@ -236,7 +249,7 @@ func TestARefusalIsRememberedBriefly(t *testing.T) {
 		t.Fatalf("expected the refusal to be remembered, got %d exchanges", ex.count())
 	}
 	ck.advance(refusalMemory + time.Second)
-	if _, err := s.Token(context.Background(), aud, sub, stok); !errors.Is(err, ErrRefused) {
+	if _, err := s.Token(context.Background(), alice); !errors.Is(err, ErrRefused) {
 		t.Fatalf("expected a refusal after the memory lapsed, got %v", err)
 	}
 	if ex.count() != 2 {
@@ -248,7 +261,7 @@ func TestARefusalDropsAUsableToken(t *testing.T) {
 	// A refusal is the removal path taking effect; continuing to serve would
 	// defeat the gate chain that produced it.
 	s, ex, ck := newFixture(300 * time.Second)
-	if _, err := s.Token(context.Background(), aud, sub, stok); err != nil {
+	if _, err := s.Token(context.Background(), alice); err != nil {
 		t.Fatal(err)
 	}
 	ck.advance(241 * time.Second) // stale but usable
@@ -258,11 +271,11 @@ func TestARefusalDropsAUsableToken(t *testing.T) {
 	// call began, and a transient failure would serve it, but a refusal is the
 	// console's answer about this person: the refreshing call is refused too,
 	// not served from the token the refusal just withdrew...
-	if _, err := s.Token(context.Background(), aud, sub, stok); !errors.Is(err, ErrRefused) {
+	if _, err := s.Token(context.Background(), alice); !errors.Is(err, ErrRefused) {
 		t.Fatalf("expected the refreshing call to be refused, got %v", err)
 	}
 	// ...and so is the next one: the token is gone.
-	if _, err := s.Token(context.Background(), aud, sub, stok); !errors.Is(err, ErrRefused) {
+	if _, err := s.Token(context.Background(), alice); !errors.Is(err, ErrRefused) {
 		t.Fatalf("expected the next call to be refused, got %v", err)
 	}
 }
@@ -271,13 +284,13 @@ func TestATransientRefreshFailureStillServesTheTokenInHand(t *testing.T) {
 	// The counterpart: the console being unreachable says nothing about this
 	// person, so a usable token keeps serving while the refresh backs off.
 	s, ex, ck := newFixture(300 * time.Second)
-	first, err := s.Token(context.Background(), aud, sub, stok)
+	first, err := s.Token(context.Background(), alice)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ck.advance(241 * time.Second) // stale but usable
 	ex.err = fmt.Errorf("%w: dial", ErrUnavailable)
-	got, err := s.Token(context.Background(), aud, sub, stok)
+	got, err := s.Token(context.Background(), alice)
 	if err != nil || got != first {
 		t.Fatalf("expected the token in hand, got %q, %v", got, err)
 	}
@@ -285,11 +298,11 @@ func TestATransientRefreshFailureStillServesTheTokenInHand(t *testing.T) {
 
 func TestInvalidateForcesAFreshExchange(t *testing.T) {
 	s, ex, _ := newFixture(300 * time.Second)
-	if _, err := s.Token(context.Background(), aud, sub, stok); err != nil {
+	if _, err := s.Token(context.Background(), alice); err != nil {
 		t.Fatal(err)
 	}
-	s.Invalidate(aud, sub)
-	tok, err := s.Token(context.Background(), aud, sub, stok)
+	s.Invalidate(alice.Slot)
+	tok, err := s.Token(context.Background(), alice)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,14 +320,14 @@ func TestAnExchangeInFlightCannotOutliveAnInvalidation(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = s.Token(context.Background(), aud, sub, stok)
+		_, _ = s.Token(context.Background(), alice)
 	}()
 	waitForExchange(t, ex)
-	s.Invalidate(aud, sub) // while the exchange is in flight
+	s.Invalidate(alice.Slot) // while the exchange is in flight
 	close(ex.block)
 	<-done
 
-	if s.cachedToken(aud, sub) != "" {
+	if s.cachedToken(alice.Slot) != "" {
 		t.Fatal("an exchange that started before the invalidation populated the cache")
 	}
 }
@@ -326,7 +339,7 @@ func TestEntriesNobodyUsesAreDropped(t *testing.T) {
 	// usable is kept whatever its age.
 	s, ex, ck := newFixture(300 * time.Second)
 	for i := 0; i < 50; i++ {
-		if _, err := s.Token(context.Background(), aud, fmt.Sprintf("sub-%d", i), stok); err != nil {
+		if _, err := s.Token(context.Background(), someone(fmt.Sprintf("sub-%d", i))); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -335,11 +348,11 @@ func TestEntriesNobodyUsesAreDropped(t *testing.T) {
 	ex.mu.Lock()
 	ex.err = ErrRefused
 	ex.mu.Unlock()
-	_, _ = s.Token(context.Background(), aud, "sub-refused", stok)
+	_, _ = s.Token(context.Background(), someone("sub-refused"))
 	ex.mu.Lock()
 	ex.err = nil
 	ex.mu.Unlock()
-	s.Invalidate(aud, "sub-invalidated")
+	s.Invalidate(Slot{Audience: aud, Subject: "sub-invalidated"})
 	if n := s.entryCount(); n != 52 {
 		t.Fatalf("expected 52 entries before any pruning, got %d", n)
 	}
@@ -352,7 +365,7 @@ func TestEntriesNobodyUsesAreDropped(t *testing.T) {
 	}
 
 	// Not idle yet: a write at this point keeps every entry.
-	if _, err := s.Token(context.Background(), aud, "sub-late", stok); err != nil {
+	if _, err := s.Token(context.Background(), someone("sub-late")); err != nil {
 		t.Fatal(err)
 	}
 	if n := s.entryCount(); n != 53 {
@@ -363,23 +376,23 @@ func TestEntriesNobodyUsesAreDropped(t *testing.T) {
 	// drops them. The late subject's entry is younger than entryIdle, so it
 	// stays even though its token has expired too.
 	ck.advance(entryIdle - 299*time.Second)
-	if _, err := s.Token(context.Background(), aud, "sub-latest", stok); err != nil {
+	if _, err := s.Token(context.Background(), someone("sub-latest")); err != nil {
 		t.Fatal(err)
 	}
 	if n := s.entryCount(); n != 2 {
 		t.Fatalf("expected only the two recent subjects to survive, got %d entries", n)
 	}
-	if s.cachedToken(aud, "sub-late") == "" {
+	if s.cachedToken(Slot{Audience: aud, Subject: "sub-late"}) == "" {
 		t.Fatal("an entry touched within entryIdle was pruned")
 	}
 
 	// A token that is still usable is kept however long ago it was written.
 	long, _, lck := newFixture(3 * time.Hour)
-	if _, err := long.Token(context.Background(), aud, "sub-long", stok); err != nil {
+	if _, err := long.Token(context.Background(), someone("sub-long")); err != nil {
 		t.Fatal(err)
 	}
 	lck.advance(2 * time.Hour)
-	if _, err := long.Token(context.Background(), aud, "sub-other", stok); err != nil {
+	if _, err := long.Token(context.Background(), someone("sub-other")); err != nil {
 		t.Fatal(err)
 	}
 	if n := long.entryCount(); n != 2 {
@@ -393,10 +406,10 @@ func TestAnInvalidationOutlivesItsTokenUntilPruned(t *testing.T) {
 	// invalidation itself, and an exchange that captured the old generation
 	// must still be refused after the token is gone.
 	s, ex, _ := newFixture(300 * time.Second)
-	if _, err := s.Token(context.Background(), aud, sub, stok); err != nil {
+	if _, err := s.Token(context.Background(), alice); err != nil {
 		t.Fatal(err)
 	}
-	s.Invalidate(aud, sub)
+	s.Invalidate(alice.Slot)
 	if s.entryCount() != 1 {
 		t.Fatal("an invalidated entry must stay so its generation is remembered")
 	}
@@ -405,7 +418,7 @@ func TestAnInvalidationOutlivesItsTokenUntilPruned(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = s.Token(context.Background(), aud, sub, stok)
+		_, _ = s.Token(context.Background(), alice)
 	}()
 	// waitForExchange waits for the first call; this is the second.
 	for deadline := time.Now().Add(2 * time.Second); ex.count() < 2; {
@@ -414,22 +427,22 @@ func TestAnInvalidationOutlivesItsTokenUntilPruned(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	s.Invalidate(aud, sub) // a second invalidation, with the generation now non-zero
+	s.Invalidate(alice.Slot) // a second invalidation, with the generation now non-zero
 	close(ex.block)
 	<-done
 
-	if s.cachedToken(aud, sub) != "" {
+	if s.cachedToken(alice.Slot) != "" {
 		t.Fatal("an exchange that started before the second invalidation populated the cache")
 	}
 }
 
 func TestTwoSubjectsDoNotShareAToken(t *testing.T) {
 	s, ex, _ := newFixture(300 * time.Second)
-	a, err := s.Token(context.Background(), aud, "sub-a", stok)
+	a, err := s.Token(context.Background(), someone("sub-a"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := s.Token(context.Background(), aud, "sub-b", stok)
+	b, err := s.Token(context.Background(), someone("sub-b"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,10 +457,10 @@ func TestTwoSubjectsDoNotShareAToken(t *testing.T) {
 func TestOneSubjectAtTwoClustersGetsTwoTokens(t *testing.T) {
 	// A shared Grafana serves many clusters, so the key is (audience, subject).
 	s, ex, _ := newFixture(300 * time.Second)
-	if _, err := s.Token(context.Background(), "cluster-one", sub, stok); err != nil {
+	if _, err := s.Token(context.Background(), Principal{Slot: Slot{Audience: "cluster-one", Subject: sub}, SubjectToken: stok}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Token(context.Background(), "cluster-two", sub, stok); err != nil {
+	if _, err := s.Token(context.Background(), Principal{Slot: Slot{Audience: "cluster-two", Subject: sub}, SubjectToken: stok}); err != nil {
 		t.Fatal(err)
 	}
 	if ex.count() != 2 {
@@ -466,7 +479,7 @@ func TestDeadlineIsStampedFromTheRequestStart(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = s.Token(context.Background(), aud, sub, stok)
+		_, _ = s.Token(context.Background(), alice)
 	}()
 	waitForExchange(t, ex)
 	ck.advance(10 * time.Second) // the exchange took ten seconds
@@ -474,7 +487,7 @@ func TestDeadlineIsStampedFromTheRequestStart(t *testing.T) {
 	<-done
 
 	// Deadline = start + 300 s, not completion + 300 s.
-	if got, want := s.deadlineFor(aud, sub), ck.now().Add(290*time.Second); !got.Equal(want) {
+	if got, want := s.deadlineFor(alice.Slot), ck.now().Add(290*time.Second); !got.Equal(want) {
 		t.Fatalf("deadline %v, want %v (stamped from the request start)", got, want)
 	}
 }
@@ -503,16 +516,16 @@ func TestNoTokenOrSubjectTokenReachesALogLine(t *testing.T) {
 	log := &recordingLogger{}
 	s := NewSource(ex, ck.now, log)
 
-	if _, err := s.Token(context.Background(), aud, sub, stok); err != nil {
+	if _, err := s.Token(context.Background(), alice); err != nil {
 		t.Fatal(err)
 	}
 	ck.advance(241 * time.Second)
 	ex.err = ErrUnavailable
-	_, _ = s.Token(context.Background(), aud, sub, stok)
+	_, _ = s.Token(context.Background(), alice)
 	ex.err = fmt.Errorf("%w: access_denied", ErrRefused)
-	s.Invalidate(aud, sub)
-	_, _ = s.Token(context.Background(), aud, sub, stok)
-	_, _ = s.Token(context.Background(), aud, sub, stok)
+	s.Invalidate(alice.Slot)
+	_, _ = s.Token(context.Background(), alice)
+	_, _ = s.Token(context.Background(), alice)
 
 	rendered := log.all()
 	for _, forbidden := range []string{stok, "cluster-token-1", "cluster-token-2", sub} {
@@ -564,7 +577,7 @@ func TestOneCallerLeavingDoesNotCancelTheOthers(t *testing.T) {
 	leaderCtx, cancelLeader := context.WithCancel(context.Background())
 	leaderDone := make(chan error, 1)
 	go func() {
-		_, err := s.Token(leaderCtx, aud, sub, stok)
+		_, err := s.Token(leaderCtx, alice)
 		leaderDone <- err
 	}()
 
@@ -575,7 +588,7 @@ func TestOneCallerLeavingDoesNotCancelTheOthers(t *testing.T) {
 		err error
 	}, 1)
 	go func() {
-		tok, err := s.Token(context.Background(), aud, sub, stok)
+		tok, err := s.Token(context.Background(), alice)
 		waiterDone <- struct {
 			tok string
 			err error
@@ -606,7 +619,7 @@ func TestOneCallerLeavingDoesNotCancelTheOthers(t *testing.T) {
 	// And the walk-away must not be recorded as the console failing: that would
 	// put the key on a backoff ladder, so ordinary Grafana navigation would
 	// degrade every later request for this person and cluster.
-	attempts, nextTry := s.retryStateFor(aud, sub)
+	attempts, nextTry := s.retryStateFor(alice.Slot)
 	if attempts != 0 || !nextTry.IsZero() {
 		t.Fatalf("a cancellation was recorded as a failure: attempts=%d nextTry=%v", attempts, nextTry)
 	}
@@ -618,13 +631,13 @@ func TestOneCallerLeavingDoesNotCancelTheOthers(t *testing.T) {
 
 func TestARefreshedSubjectTokenIsExchangedAfresh(t *testing.T) {
 	s, ex, ck := newFixture(3600 * time.Second)
-	first, err := s.Token(context.Background(), aud, sub, stok)
+	first, err := s.Token(context.Background(), alice)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ck.advance(10 * time.Second) // fresh by every clock
 	const refreshed = "the.refreshed.token"
-	got, err := s.Token(context.Background(), aud, sub, refreshed)
+	got, err := s.Token(context.Background(), presenting(refreshed))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -632,11 +645,11 @@ func TestARefreshedSubjectTokenIsExchangedAfresh(t *testing.T) {
 		t.Fatalf("a token the console never saw must be exchanged: calls=%d token=%q", ex.count(), got)
 	}
 	// The refreshed token now owns the slot and is served from it.
-	if again, _ := s.Token(context.Background(), aud, sub, refreshed); again != got || ex.count() != 2 {
+	if again, _ := s.Token(context.Background(), presenting(refreshed)); again != got || ex.count() != 2 {
 		t.Fatalf("expected the cache to serve the refreshed token: calls=%d token=%q", ex.count(), again)
 	}
 	// The superseded token is no longer the one the entry was minted from.
-	if _, err := s.Token(context.Background(), aud, sub, stok); err != nil || ex.count() != 3 {
+	if _, err := s.Token(context.Background(), alice); err != nil || ex.count() != 3 {
 		t.Fatalf("expected the old token to be exchanged again: calls=%d err=%v", ex.count(), err)
 	}
 }
@@ -646,12 +659,12 @@ func TestAnUnverifiedSubjectTokenIsNeverServedTheTokenInHand(t *testing.T) {
 	// minted for another string: for this one, nothing has been verified, so
 	// the failure is the answer.
 	s, ex, ck := newFixture(300 * time.Second)
-	if _, err := s.Token(context.Background(), aud, sub, stok); err != nil {
+	if _, err := s.Token(context.Background(), alice); err != nil {
 		t.Fatal(err)
 	}
 	ck.advance(241 * time.Second) // stale but usable for stok
 	ex.err = fmt.Errorf("%w: dial", ErrUnavailable)
-	got, err := s.Token(context.Background(), aud, sub, "the.refreshed.token")
+	got, err := s.Token(context.Background(), presenting("the.refreshed.token"))
 	if !errors.Is(err, ErrUnavailable) || got != "" {
 		t.Fatalf("expected a closed failure for an unverified token, got %q, %v", got, err)
 	}
@@ -673,7 +686,7 @@ func TestTwoSubjectTokensInFlightMakeTwoExchanges(t *testing.T) {
 			if i%2 == 1 {
 				subjectToken = "the.refreshed.token"
 			}
-			tokens[i], _ = s.Token(context.Background(), aud, sub, subjectToken)
+			tokens[i], _ = s.Token(context.Background(), presenting(subjectToken))
 		}(i)
 	}
 	deadline := time.Now().Add(2 * time.Second)

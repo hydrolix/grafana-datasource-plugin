@@ -283,6 +283,15 @@ deployed Grafana calls the console's real hostname, which is already allowed.
       caller changed. The driver finds the reason with one `errors.As`; the
       walk, its identity compare and its `nolint` are gone. Tests: a bare
       outcome and a detailed one both reach the panel as the message.
+- [x] 5b.7 **The slot is a type** (review, 2026-10-21). `(audience, subject)`
+      travelled as two strings through `key`, `Invalidate`, `Lookup` and
+      `Bind`, and `Source.Token` took all three of `Principal`'s fields as
+      positional strings that its one caller pulled out of a `Principal` it
+      already held. `Binding.Bound` was a `Principal` whose token was always
+      empty. `exchange.Slot{Audience, Subject}` is now what the cache, the
+      registry and a connection key on, `Principal` embeds it with the
+      token, and `Token` takes the `Principal`. The private `exchange` takes
+      the hash `Token` already computed instead of hashing the token again.
 
 ## 6. Landing
 

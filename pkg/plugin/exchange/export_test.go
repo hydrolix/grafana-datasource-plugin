@@ -4,19 +4,19 @@ import "time"
 
 // Seams the tests need and production does not. In the test build only.
 
-func (s *Source) cachedToken(audience, subject string) string {
+func (s *Source) cachedToken(slot Slot) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if e := s.entries[key(audience, subject)]; e != nil {
+	if e := s.entries[key(slot)]; e != nil {
 		return e.token
 	}
 	return ""
 }
 
-func (s *Source) deadlineFor(audience, subject string) time.Time {
+func (s *Source) deadlineFor(slot Slot) time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if e := s.entries[key(audience, subject)]; e != nil {
+	if e := s.entries[key(slot)]; e != nil {
 		return e.deadline
 	}
 	return time.Time{}
@@ -31,10 +31,10 @@ func (s *Source) entryCount() int {
 
 // retryStateFor exposes the backoff ladder so a test can prove that a caller
 // walking away is not recorded as the console having failed.
-func (s *Source) retryStateFor(audience, subject string) (attempts int, nextTry time.Time) {
+func (s *Source) retryStateFor(slot Slot) (attempts int, nextTry time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if e := s.entries[key(audience, subject)]; e != nil {
+	if e := s.entries[key(slot)]; e != nil {
 		return e.attempts, e.nextTry
 	}
 	return 0, time.Time{}

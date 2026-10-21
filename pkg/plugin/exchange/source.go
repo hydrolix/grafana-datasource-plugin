@@ -162,17 +162,18 @@ func NewSource(ex Exchanger, now func() time.Time, log Logger) *Source {
 // leaking a flight forever now that no caller's cancellation can end one.
 const exchangeCeiling = 30 * time.Second
 
-func key(audience, subject string) string { return audience + "\x00" + subject }
+func key(s Slot) string { return s.Audience + "\x00" + s.Subject }
 
-// Token answers a cluster token for this subject at this cluster.
+// Token answers a cluster token for this principal: the slot picks the entry,
+// the forwarded token decides whether the entry may be served.
 //
 // A usable cached token is answered without waiting on anything. A usable but
 // ageing one triggers a refresh whose failure is invisible — the old token is
 // still good. Only an unusable token makes the caller wait, and only then can
 // this return an error.
-func (s *Source) Token(ctx context.Context, audience, subject, subjectToken string) (string, error) {
-	k := key(audience, subject)
-	h := hashOf(subjectToken)
+func (s *Source) Token(ctx context.Context, p Principal) (string, error) {
+	k := key(p.Slot)
+	h := hashOf(p.SubjectToken)
 	now := s.now()
 
 	s.mu.Lock()
@@ -204,7 +205,7 @@ func (s *Source) Token(ctx context.Context, audience, subject, subjectToken stri
 			// Backing off from a failed refresh, and the token still works.
 			return cached, nil
 		}
-		token, err := s.exchange(ctx, k, audience, subject, subjectToken)
+		token, err := s.exchange(ctx, k, h, p)
 		if err != nil {
 			if errors.Is(err, ErrRefused) {
 				// The console has withdrawn this person's access, and the
@@ -215,7 +216,7 @@ func (s *Source) Token(ctx context.Context, audience, subject, subjectToken stri
 				return "", err
 			}
 			s.log.Warn("exchange refresh failed, serving the token in hand",
-				"audience", audience, "subject", truncate(subject), "outcome", outcome(err))
+				"audience", p.Audience, "subject", truncate(p.Subject), "outcome", outcome(err))
 			return cached, nil
 		}
 		return token, nil
@@ -225,10 +226,10 @@ func (s *Source) Token(ctx context.Context, audience, subject, subjectToken stri
 	if stillRefused {
 		// Answer from the refusal memory rather than asking again.
 		s.log.Debug("exchange refused recently, not asking again yet",
-			"audience", audience, "subject", truncate(subject))
+			"audience", p.Audience, "subject", truncate(p.Subject))
 		return "", ErrRefused
 	}
-	return s.exchange(ctx, k, audience, subject, subjectToken)
+	return s.exchange(ctx, k, h, p)
 }
 
 // exchange performs one exchange for the key, coalescing concurrent callers.
@@ -239,8 +240,7 @@ func (s *Source) Token(ctx context.Context, audience, subject, subjectToken stri
 // dashboard load that straddles a Grafana refresh makes two exchanges, one per
 // token, rather than handing the second token's panels a result the console
 // minted for the first.
-func (s *Source) exchange(ctx context.Context, k, audience, subject, subjectToken string) (string, error) {
-	h := hashOf(subjectToken)
+func (s *Source) exchange(ctx context.Context, k string, h [sha256.Size]byte, p Principal) (string, error) {
 	ch := s.flight.DoChan(k+"\x00"+string(h[:]), func() (any, error) {
 		// Detached from every caller, deliberately. The flight is SHARED: the
 		// thirty panels above are one exchange, and running it on whichever
@@ -273,13 +273,13 @@ func (s *Source) exchange(ctx context.Context, k, audience, subject, subjectToke
 		// local deadline sits at or before the console's true expiry by one
 		// round trip. A server timestamp is never compared to the local clock.
 		started := s.now()
-		token, lifetime, exErr := s.ex.Exchange(exCtx, audience, subjectToken)
+		token, lifetime, exErr := s.ex.Exchange(exCtx, p.Audience, p.SubjectToken)
 		if exErr != nil {
 			s.noteFailure(k, exErr)
 			return "", exErr
 		}
 		s.store(k, gen, token, h, started, lifetime)
-		s.log.Debug("exchanged", "audience", audience, "subject", truncate(subject),
+		s.log.Debug("exchanged", "audience", p.Audience, "subject", truncate(p.Subject),
 			"lifetime_s", int(lifetime.Seconds()))
 		return token, nil
 	})
@@ -386,8 +386,8 @@ func (s *Source) noteFailure(k string, err error) {
 //
 // The entry itself stays, emptied: its generation has to outlive the token
 // for as long as a flight can run, and the prune retires it after entryIdle.
-func (s *Source) Invalidate(audience, subject string) {
-	k := key(audience, subject)
+func (s *Source) Invalidate(slot Slot) {
+	k := key(slot)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e := s.entries[k]
