@@ -517,8 +517,8 @@ func TestMutateQueryData_InjectsConnectionArgs(t *testing.T) {
 			_, out := h.MutateQueryData(context.Background(), req)
 
 			var parsed struct {
-				RawSql         string            `json:"rawSql"`
-				ConnectionArgs map[string]string `json:"connectionArgs,omitempty"`
+				RawSql         string                `json:"rawSql"`
+				ConnectionArgs map[string]string     `json:"connectionArgs,omitempty"`
 				QuerySettings  []models.QuerySetting `json:"querySettings"`
 			}
 			assert.NoError(t, json.Unmarshal(out.Queries[0].JSON, &parsed))
@@ -637,7 +637,7 @@ func (*fakeKeyingDriver) Settings(_ context.Context, _ backend.DataSourceInstanc
 	return sqlds.DriverSettings{ForwardHeaders: false}
 }
 
-func (*fakeKeyingDriver) Macros() sqlutil.Macros         { return sqlutil.Macros{} }
+func (*fakeKeyingDriver) Macros() sqlutil.Macros          { return sqlutil.Macros{} }
 func (*fakeKeyingDriver) Converters() []sqlutil.Converter { return nil }
 
 func (d *fakeKeyingDriver) callCount() int {

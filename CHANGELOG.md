@@ -2,6 +2,21 @@
 
 ## 0.13.0 (unreleased)
 
+- **Feature**: New credentials type *Forward OAuth + Exchange* (`forwardOAuthExchange`). The signed-in user's token is
+  exchanged for a cluster token (RFC 8693) before querying, for a Grafana whose users sign in through an issuer the
+  cluster does not accept directly. The data source stores no credential; the exchange endpoint and its per-cluster
+  credentials come from a `[plugin.hydrolix-hydrolix-datasource]` section in Grafana's configuration file, which
+  reaches the plugin as `GF_PLUGIN_EXCHANGE_URL` / `GF_PLUGIN_EXCHANGE_CLIENT_SECRETS`. The audience is always the data
+  source's host. Requires verified TLS to the cluster, with *Skip TLS verify* refused, and an `https` exchange URL
+  whose redirects are not followed. Requires the HTTP protocol — native binds its credential to the connection and cannot carry a
+  refreshed token — and Grafana's `use_refresh_token`, since every exchange after the sign-in token expires is refused.
+  A cluster token is reused only by the exact sign-in token it was minted from, so a refresh costs one exchange.
+- **Fix**: A query's own `connectionArgs` no longer reach the connection cache in any credentials mode. sqlds reads
+  them from the query JSON the browser sends, so a caller could otherwise choose which cached connection a query ran
+  on
+- **Fix**: `Save & test` on either forwarding mode reported a working data source as degraded. The check ran on the
+  bootstrap connection, which has no signed-in user, so it tested something no query uses. Both modes now report what
+  can actually be established at configuration time
 - **Fix**: `$__adHocFilter(<table>)` with an explicit argument rejected a Hydrolix custom view or any quoted table name
   with `invalid $__adHocFilter argument` (HDX-12561): the argument allowed only bare `table` or `database.table`. It now
   also accepts backtick- and double-quoted names, so ``$__adHocFilter(akamai.`logs#redacted`)`` resolves the view's

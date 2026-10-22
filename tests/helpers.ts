@@ -581,6 +581,10 @@ interface ConfigPageLocator {
 
     protocolItem(name: string): Locator;
 
+    credentialsType(): Locator;
+
+    credentialsTypeItem(name: string): Locator;
+
     secureSwitch(): Locator;
 
     skipTlsVerifySwitch(): Locator;

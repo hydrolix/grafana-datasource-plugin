@@ -331,8 +331,8 @@ func getRegexValue(value string) (string, bool) {
 
 // getJoinedValues turns a Values slice into the comma-joined body of an
 // IN (...) list and a hasNull flag for any NULL sentinels in the slice.
-// Empty strings serialise as '' (the fork emitted `$$$$`; the new shape
-// produces the same parser-visible empty literal).
+// Empty strings serialise as an empty single-quoted SQL literal (the fork
+// emitted `$$$$`; the new shape produces the same parser-visible empty literal).
 func getJoinedValues(values []string) (string, bool) {
 	var buffer []string
 	hasNull := false

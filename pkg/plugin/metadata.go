@@ -3,7 +3,6 @@ package plugin
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -18,6 +17,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
 	"github.com/hydrolix/plugin/pkg/plugin/cte"
+	"github.com/hydrolix/plugin/pkg/plugin/exchange"
 	"github.com/jellydator/ttlcache/v3"
 )
 
@@ -91,8 +91,8 @@ func NewMetadataProvider(ds metadataDS) *MetadataProvider {
 // cluster never asked about them. That is a disclosure of schema shape — not of
 // rows, but not nothing either.
 //
-// The scope is the forwarded token's subject: stable for a person, so a token
-// refresh does not throw the cache away, and distinct between people. A mode
+// The scope is the forwarded token's issuer and subject: stable for a person, so
+// a token refresh does not throw the cache away, and distinct between people. A mode
 // that forwards no token has one credential and one legitimate view, and keeps
 // sharing an entry.
 func cacheScope(ctx context.Context, headers http.Header) string {
@@ -105,7 +105,9 @@ func cacheScope(ctx context.Context, headers http.Header) string {
 	if token == "" {
 		return ""
 	}
-	if subject := subjectOf(token); subject != "" {
+	// Issuer-qualified: `sub` is unique per issuer only, and Grafana can run
+	// several OAuth providers at once.
+	if subject := exchange.IdentityOf(token); subject != "" {
 		return subject
 	}
 	// A forwarded token whose subject cannot be read is still a distinct
@@ -115,31 +117,10 @@ func cacheScope(ctx context.Context, headers http.Header) string {
 	return "d:" + hex.EncodeToString(sum[:8])
 }
 
-// subjectOf reads the `sub` claim from a JWT without verifying its signature.
-// Unverified is correct here: the value only picks a cache slot, and the
-// cluster remains the authority on what this person may read.
-func subjectOf(jwt string) string {
-	parts := strings.Split(jwt, ".")
-	if len(parts) < 2 {
-		return ""
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return ""
-	}
-	var claims struct {
-		Sub string `json:"sub"`
-	}
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return ""
-	}
-	return claims.Sub
-}
-
 // scopedKey joins a scope to a cache key. An empty scope — a mode that forwards
 // no identity — yields the bare key the cache has always used, so those modes
-// keep sharing one entry, which is correct for one credential and one view. The
-// separator cannot appear in a subject or an identifier, so two different
+// keep sharing one entry, which is correct for one credential and one view.
+// The separator cannot appear in a subject or an identifier, so two different
 // (scope, key) pairs cannot collide.
 func scopedKey(scope, key string) string {
 	if scope == "" {

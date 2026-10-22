@@ -38,7 +38,7 @@ jobs:
     uses: ./.github/workflows/build-backend.yml
     with:
       # Match ci.yml and go.mod, or the toolchain re-downloads.
-      go_version: '1.26.8'
+      go_version: '1.27.3'
 
   package:
     name: Package Plugin

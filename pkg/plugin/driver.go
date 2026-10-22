@@ -7,11 +7,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/hydrolix/plugin/pkg/identity"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hydrolix/plugin/pkg/identity"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/proto"
@@ -23,6 +25,7 @@ import (
 	"github.com/grafana/sqlds/v5"
 	hdxbuild "github.com/hydrolix/plugin/pkg/build"
 	"github.com/hydrolix/plugin/pkg/converters"
+	"github.com/hydrolix/plugin/pkg/plugin/exchange"
 	"github.com/hydrolix/plugin/pkg/plugin/models"
 	"github.com/pkg/errors"
 )
@@ -30,6 +33,19 @@ import (
 // Hydrolix defines how to connect to a Hydrolix datasource
 type Hydrolix struct {
 	querySettingsContextHandler func(context.Context, map[string]any) context.Context
+
+	// exchangeSource mints cluster tokens for the exchanging credentials mode,
+	// or is nil where this instance is not configured for it. One per
+	// datasource instance: NewHydrolix runs in the instance factory, so each
+	// datasource exchanges and caches on its own.
+	exchangeSource *exchange.Source
+	// exchangeConfigErr says why exchangeSource is nil, so a datasource set to
+	// the mode can fail with the reason rather than with an auth error.
+	exchangeConfigErr error
+	// exchangePrincipals holds the last forwarded token per subject, for the
+	// requests whose context does not reach the JWT hook — the driver's own
+	// handshake when a connection is established.
+	exchangePrincipals *exchange.Principals
 }
 
 var (
@@ -43,7 +59,39 @@ var (
 
 // NewHydrolix creates plugin instance with default parameters
 func NewHydrolix() *Hydrolix {
-	return &Hydrolix{querySettingsContextHandler: clickhouseContextHandler}
+	h := &Hydrolix{querySettingsContextHandler: clickhouseContextHandler}
+	// Read from the environment, which is how Grafana exposes its
+	// `[plugin.<id>]` configuration to a plugin process. Absent configuration is
+	// not an error: it only means this instance cannot serve the exchanging
+	// mode, which nothing else depends on.
+	if cfg, err := exchange.ConfigFromEnv(os.LookupEnv); err == nil {
+		h.exchangeSource = exchange.NewSource(exchange.NewHTTPExchanger(cfg), nil, log.DefaultLogger)
+		h.exchangePrincipals = exchange.NewPrincipals(0, nil)
+	} else {
+		h.exchangeConfigErr = err
+	}
+	return h
+}
+
+// forwardsUserIdentity reports whether a credentials mode carries the signed-in
+// user's identity rather than a credential stored on the datasource.
+//
+// It exists because this is the second place that had to know, and the first was
+// a literal string comparison: a mode added later matched none of them and every
+// connection failed its handshake before a query could run.
+func forwardsUserIdentity(credentialsType string) bool {
+	return credentialsType == "forwardOAuth" || credentialsType == exchange.CredentialsType
+}
+
+// exchangeAudienceOf answers the audience a datasource exchanges for: its host,
+// which is the audience on every cluster the console registers.
+//
+// It is never a separate setting. An audience that could differ from the host
+// would let anyone who can edit the datasource point the host at a server they
+// control and the audience at a real cluster, and every viewer's real-cluster
+// token would then be sent to that server.
+func exchangeAudienceOf(settings models.PluginSettings) string {
+	return settings.Host
 }
 
 // getClientInfoProducts reads build information of grafana and plugin
@@ -158,7 +206,12 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 			} else {
 				return nil, backend.DownstreamError(fmt.Errorf("forwardOAuth: missing OAuth token in connection args"))
 			}
-		} else {
+		} else if settings.CredentialsType != exchange.CredentialsType {
+			// The exchanging mode stores no credential, and must not pick one
+			// up by accident: a token left over from an earlier mode would
+			// become an Authorization header below, and the fork applies
+			// HttpHeaders after the JWT hook, so it would win over the
+			// exchanged token.
 			token = settings.Token
 		}
 
@@ -193,6 +246,63 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		}
 	}
 
+	if settings.CredentialsType == exchange.CredentialsType {
+		if protocol != clickhouse.HTTP {
+			// Over HTTP the fork asks the JWT hook on every request. Over
+			// native it asks once, at the handshake, and only when the
+			// username is its JWT marker — a handshake no Turbine has been
+			// seen to accept. Refusing is better than a second, unverified
+			// code path: the console's own datasources are all HTTP.
+			return nil, backend.DownstreamError(fmt.Errorf(
+				"%s credentials need the http protocol: the native protocol binds its credential to the connection", exchange.CredentialsType))
+		}
+		if tlsConfig == nil {
+			// The fork attaches a JWT only on a TLS connection
+			// (applyOptionsToRequest, conn_http.go): over plain http the hook
+			// is never consulted and the request would go out with no
+			// credential at all. A bearer in the clear is not worth supporting.
+			return nil, backend.DownstreamError(fmt.Errorf(
+				"%s credentials need TLS: the cluster token is a bearer and is attached only over https", exchange.CredentialsType))
+		}
+		if settings.SkipTlsVerify {
+			// TLS that checks nobody is a bearer handed to whoever answers at
+			// the host. A cluster's certificate chains to a public root, so
+			// there is nothing for skipping to work around.
+			return nil, backend.DownstreamError(fmt.Errorf(
+				"%s credentials need a verified TLS certificate: turn off Skip TLS verify, or the cluster token goes to whoever answers at the host", exchange.CredentialsType))
+		}
+		if h.exchangeSource == nil {
+			// Not a connect failure. sqlds connects once when the instance is
+			// created, before CheckHealth can run, so failing here would turn
+			// Save & test into a raw connect error and hide the message that
+			// names what is missing. The instance exists; every request on it
+			// is answered by the hook with the operator's problem instead.
+			opts.GetJWT = h.unconfiguredJWT
+		} else {
+			// The credential is supplied per request through the fork's
+			// GetJWT hook, from the token source, rather than frozen into
+			// this connection's headers. The hook puts the header on the
+			// initial request, so http.Client's own rule for Authorization
+			// on redirects applies to it.
+			//
+			// The connection is bound to the subject that keys it, so a
+			// request whose context does not reach here — the driver's
+			// handshake, issued when database/sql establishes the connection
+			// — is still identified.
+			subject, _ := readConnArg(args, "sub")
+			binding := exchange.Bind(h.exchangeSource, h.exchangePrincipals,
+				exchange.Slot{Audience: exchangeAudienceOf(settings), Subject: subject})
+			opts.GetJWT = binding.JWT
+			// The watch only observes: a cluster's 401 drops the refused
+			// token, and sqlds retries the query once (see Settings) with a
+			// fresh mint.
+			opts.TransportFunc = func(t *http.Transport) (http.RoundTripper, error) {
+				t.DisableCompression = false
+				return binding.Watch(t), nil
+			}
+		}
+	}
+
 	db := clickhouse.OpenDB(opts)
 
 	// TODO: add config UI for connection pool
@@ -208,7 +318,12 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		}
 		return nil, fmt.Errorf("connect to database was cancelled: %w", ctx.Err())
 	default:
-		if settings.CredentialsType != "forwardOAuth" {
+		// A connection whose credential belongs to the signed-in user cannot be
+		// verified here: this runs when the connection is established, with no
+		// user in hand, so the handshake would have nobody to be. Both
+		// forwarding modes therefore skip it, and the first real query is what
+		// proves the connection.
+		if !forwardsUserIdentity(settings.CredentialsType) {
 			err := db.PingContext(ctx)
 			if err != nil {
 				var ex *clickhouse.Exception
@@ -253,13 +368,28 @@ func (h *Hydrolix) Settings(ctx context.Context, config backend.DataSourceInstan
 
 	timeoutSec, _ := strconv.Atoi(settings.QueryTimeout)
 
-	return sqlds.DriverSettings{
+	ds := sqlds.DriverSettings{
 		Timeout: time.Second * time.Duration(timeoutSec),
 		FillMode: &data.FillMissing{
 			Mode: data.FillModeNull,
 		},
 		ForwardHeaders: false,
 	}
+	if settings.CredentialsType == exchange.CredentialsType {
+		// A cluster's 401 means the token in hand is no longer accepted,
+		// whatever the source believes. The binding's watch has dropped it by
+		// the time the error reaches sqlds, so one retry — sqlds reconnects
+		// and runs the query again — goes out with a fresh mint. A second 401
+		// is the answer.
+		//
+		// A non-zero Retries also sends sqlds's own health check through its
+		// reconnect-and-ping path. That path never runs in this mode:
+		// HdxSqlDatasource.CheckHealth answers the forwarding modes itself,
+		// because the bootstrap connection carries no signed-in user.
+		ds.RetryOn = []string{exchange.UnauthorizedMarker}
+		ds.Retries = 1
+	}
+	return ds
 }
 
 // MutateQueryData merges datasource's query options with the target query's
@@ -287,6 +417,28 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 	if pluginSettings.CredentialsType == "forwardOAuth" {
 		if token := strings.TrimPrefix(headers.Get(backend.OAuthIdentityTokenHeaderName), "Bearer "); token != "" {
 			connArgs["oauthToken"] = token
+		}
+	}
+	if pluginSettings.CredentialsType == exchange.CredentialsType {
+		// The SUBJECT keys the connection cache, not the token: Grafana
+		// refreshes the token every few minutes while the person stays the
+		// same, so keying on the token would rebuild the pool each time. The
+		// token itself rides the context, where it is not part of any key.
+		//
+		// The subject is issuer-qualified (exchange.IdentityOf): `sub` is
+		// unique per issuer only, and Grafana can run several OAuth providers.
+		if token := strings.TrimPrefix(headers.Get(backend.OAuthIdentityTokenHeaderName), "Bearer "); token != "" {
+			if subject := exchange.IdentityOf(token); subject != "" {
+				connArgs["sub"] = subject
+				principal := exchange.Principal{
+					Slot:         exchange.Slot{Audience: exchangeAudienceOf(pluginSettings), Subject: subject},
+					SubjectToken: token,
+				}
+				ctx = exchange.WithPrincipal(ctx, principal)
+				if h.exchangePrincipals != nil {
+					h.exchangePrincipals.Remember(principal)
+				}
+			}
 		}
 	}
 	if org := headers.Get(OrgIdHeaderKey); org != "" {
@@ -320,16 +472,30 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 			n++
 		}
 
-		patches := map[string]any{"querySettings": mergedSettingsArray}
+		// connectionArgs are the connection cache's key, and the identity a
+		// connection is built for. They are always the ones built above, never
+		// the query's own: sqlds reads them from the query JSON the browser
+		// sent, so a client-supplied value would otherwise choose whose cached
+		// connection — and whose cluster token — the query runs on. With none
+		// built, the key is removed rather than left to the client.
+		patches := map[string]any{"querySettings": mergedSettingsArray, "connectionArgs": nil}
 		if len(connArgs) > 0 {
 			patches["connectionArgs"] = connArgs
 		}
-		if jmsg, err := jsonSet(q.JSON, patches); err == nil {
-			req.Queries[i].JSON = jmsg
-		} else {
+		jmsg, err := jsonSet(q.JSON, patches)
+		if err != nil {
+			// Fail CLOSED. Leaving the query as the browser sent it would hand
+			// sqlds whatever connectionArgs it carried, which is exactly the
+			// choice this block exists to take away. The query keeps only the
+			// patches: our key, and no SQL, so sqlds refuses it rather than
+			// running it on somebody else's connection.
 			log.DefaultLogger.Error("failed to serialize query JSON", "err", err, "refId", q.RefID)
-			continue
+			jmsg = json.RawMessage("{}")
+			if fallback, err := json.Marshal(withoutNil(patches)); err == nil {
+				jmsg = fallback
+			}
 		}
+		req.Queries[i].JSON = jmsg
 	}
 
 	return ctx, req
@@ -404,17 +570,76 @@ func readConnArg(args json.RawMessage, key string) (string, bool) {
 	return v, true
 }
 
-// jsonSet update raw message's root object by applying a value to a key property
+// unconfiguredJWT answers every request on an exchanging datasource whose
+// Grafana has no usable exchange configuration. It is the operator's problem,
+// so it reads as a misconfiguration rather than as this person being refused.
+func (h *Hydrolix) unconfiguredJWT(context.Context) (string, error) {
+	why := h.exchangeConfigErr
+	if why == nil {
+		why = exchange.ErrNotConfigured
+	}
+	return "", &exchange.Error{
+		Outcome: exchange.Misconfigured,
+		Detail:  fmt.Sprintf("this Grafana is not configured for %s credentials: %v", exchange.CredentialsType, why),
+		Cause:   why,
+	}
+}
+
+// exchangeQueryError presents a token source failure to a panel: its message
+// is the exchange's reason alone, and it unwraps to the full chain so nothing
+// that tests the chain (sqlds's ErrorQuery, the exchange outcomes) changes.
+type exchangeQueryError struct {
+	reason *exchange.Error
+	cause  error
+}
+
+func (e *exchangeQueryError) Error() string { return e.reason.Error() }
+func (e *exchangeQueryError) Unwrap() error { return e.cause }
+
+// jsonSet update raw message's root object by applying a value to a key property.
+// A nil value removes the key.
 func jsonSet(jmsg json.RawMessage, val map[string]any) (json.RawMessage, error) {
 	var objmap map[string]interface{}
 	err := json.Unmarshal(jmsg, &objmap)
 	if err != nil {
 		return nil, err
 	}
+	if objmap == nil {
+		// A JSON `null` decodes into a nil map without an error, and the
+		// first assignment below would panic rather than fail.
+		return nil, errors.New("query JSON is null, not an object")
+	}
 	for k, v := range val {
+		// Drop every key that folds to this one, not just the exact spelling.
+		// sqlds decodes the query with encoding/json, which matches field
+		// names case-insensitively, so a surviving `ConnectionArgs` sent by
+		// the browser would be read as connectionArgs and choose the
+		// connection a query runs on.
+		for km := range objmap {
+			if strings.EqualFold(km, k) {
+				delete(objmap, km)
+			}
+		}
+		if v == nil {
+			delete(objmap, k)
+			continue
+		}
 		objmap[k] = v
 	}
 	return json.Marshal(objmap)
+}
+
+// withoutNil copies a patch set without the keys whose value means "remove".
+// Marshalled directly, those would become JSON nulls, and sqlds reads a null
+// connectionArgs as a nil map it then writes into.
+func withoutNil(val map[string]any) map[string]any {
+	out := make(map[string]any, len(val))
+	for k, v := range val {
+		if v != nil {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // clickhouseContextHandler applies query options to context
@@ -484,6 +709,21 @@ func convertFieldToString(field *data.Field) (*data.Field, error) {
 }
 
 func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
+	var reason *exchange.Error
+	if errors.As(err, &reason) {
+		// The driver wraps the hook's answer in its own plumbing ("failed to
+		// query server hello info: sendQuery: failed to get JWT: …"). The
+		// panel gets the exchange's reason as the message; the chain stays
+		// underneath for errors.Is, sqlds's retry test included.
+		wrapped := backend.DownstreamError(&exchangeQueryError{reason: reason, cause: err})
+		source := backend.ErrorSourceDownstream
+		if reason.Outcome == exchange.Misconfigured {
+			wrapped = backend.PluginError(&exchangeQueryError{reason: reason, cause: err})
+			source = backend.ErrorSourcePlugin
+		}
+		return backend.NewErrorWithSource(wrapped, source)
+	}
+
 	if uw, ok := err.(interface{ Unwrap() []error }); ok {
 		for _, e := range uw.Unwrap() {
 			if ex, ok := e.(*proto.Exception); ok {
