@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -162,10 +161,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		BlockBufferSize: 2,
 	}
 
-	opts.TransportFunc = func(t *http.Transport) (http.RoundTripper, error) {
-		t.DisableCompression = false
-		return t, nil
-	}
+	opts.TransportFunc = transportFor(nil)
 
 	if settings.CredentialsType == "userAccount" || settings.CredentialsType == "" {
 		opts.Auth = clickhouse.Auth{
@@ -296,10 +292,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 			// The watch only observes: a cluster's 401 drops the refused
 			// token, and sqlds retries the query once (see Settings) with a
 			// fresh mint.
-			opts.TransportFunc = func(t *http.Transport) (http.RoundTripper, error) {
-				t.DisableCompression = false
-				return binding.Watch(t), nil
-			}
+			opts.TransportFunc = transportFor(binding.Watch)
 		}
 	}
 
@@ -722,6 +715,13 @@ func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
 			source = backend.ErrorSourcePlugin
 		}
 		return backend.NewErrorWithSource(wrapped, source)
+	}
+
+	// A redirect is refused at the transport (refuseRedirects); the fork wraps
+	// that in its request plumbing, and the panel gets the reason alone.
+	var redirect *RedirectError
+	if errors.As(err, &redirect) {
+		return backend.NewErrorWithSource(backend.DownstreamError(redirect), backend.ErrorSourceDownstream)
 	}
 
 	if uw, ok := err.(interface{ Unwrap() []error }); ok {

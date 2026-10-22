@@ -2,6 +2,10 @@
 
 ## 0.13.0 (unreleased)
 
+- **Fix**: No redirect from the cluster is followed, in any credentials mode. Go's HTTP client keeps `Authorization` on a
+  redirect to a subdomain of the host and on an https-to-http downgrade, and copies every other header, the
+  `X-ClickHouse-Key` password among them, to any host; a proxy in front of the cluster or a mis-pointed datasource
+  could send the credential somewhere nobody configured. A 3xx now fails the query naming where it pointed.
 - **Feature**: New credentials type *Forward OAuth + Exchange* (`forwardOAuthExchange`). The signed-in user's token is
   exchanged for a cluster token (RFC 8693) before querying, for a Grafana whose users sign in through an issuer the
   cluster does not accept directly. The data source stores no credential; the exchange endpoint and its per-cluster
