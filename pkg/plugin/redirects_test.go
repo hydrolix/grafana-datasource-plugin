@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -169,19 +170,93 @@ func TestConnectRefusesARedirectInThePasswordMode(t *testing.T) {
 	jsonData, err := json.Marshal(settings)
 	require.NoError(t, err)
 
-	_, err = NewHydrolix().Connect(context.Background(), backend.DataSourceInstanceSettings{
+	// The instance factory is the production path for this mode: Connect
+	// pings, the redirect fails the ping, and sqlds returns that error as
+	// the instance error, never through MutateQueryError. Save & test and
+	// every panel show its text, so it is the reason alone, not the fork's
+	// request plumbing, that is asserted.
+	_, err = NewDatasource(context.Background(), backend.DataSourceInstanceSettings{
+		UID:                     "redirecting",
 		JSONData:                jsonData,
 		DecryptedSecureJSONData: map[string]string{"password": "s3cret"},
-	}, nil)
+	})
 
 	require.Error(t, err)
 	var redirect *RedirectError
 	require.True(t, errors.As(err, &redirect), "got %v", err)
 	assert.Equal(t, http.StatusPermanentRedirect, redirect.Status)
 	assert.Empty(t, elsewhereSaw.requests(), "a request reached the redirect target")
+	assert.True(t, backend.IsDownstreamError(err))
+	assert.True(t, strings.HasPrefix(err.Error(), "the cluster answered HTTP 308 redirecting to"), err.Error())
+}
 
-	// The panel gets the reason alone, not the fork's request plumbing.
-	mutated := NewHydrolix().MutateQueryError(fmt.Errorf("sendQuery: %w", err))
-	assert.True(t, backend.IsDownstreamError(mutated))
-	assert.True(t, strings.HasPrefix(mutated.Error(), "the cluster answered HTTP 308 redirecting to"), mutated.Error())
+// socketCloses is a server that counts the connections its clients closed.
+type socketCloses struct {
+	*httptest.Server
+	mu     sync.Mutex
+	closed int
+}
+
+func newSocketCloses(t *testing.T) *socketCloses {
+	t.Helper()
+	c := &socketCloses{}
+	c.Server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintln(w, "1")
+	}))
+	c.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateClosed {
+			c.mu.Lock()
+			c.closed++
+			c.mu.Unlock()
+		}
+	}
+	c.Start()
+	t.Cleanup(c.Close)
+	return c
+}
+
+func (c *socketCloses) closedConns() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
+}
+
+// openKeepAlive makes one request through the client and drains it, so the
+// connection goes back to the transport's idle pool rather than being torn
+// down with the response.
+func openKeepAlive(t *testing.T, client *http.Client, url string) {
+	t.Helper()
+	resp, err := client.Get(url)
+	require.NoError(t, err)
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+}
+
+func TestRefuseRedirectsReleasesTheConnectionOnClose(t *testing.T) {
+	// The fork's httpConnect.close() is h.client.CloseIdleConnections(), and
+	// http.Client finds that method by a type assertion on its transport. A
+	// wrapper without the method turns the call into a no-op, and the
+	// retired connection's socket stays open until the transport's idle
+	// timeout, an hour by the fork's default. So the socket's release is
+	// pinned on the server side, where a close is a close whatever the
+	// client believes.
+	t.Run("witness: an opaque wrapper keeps the socket open", func(t *testing.T) {
+		server := newSocketCloses(t)
+		client := &http.Client{Transport: struct{ http.RoundTripper }{&http.Transport{}}}
+		openKeepAlive(t, client, server.URL)
+
+		client.CloseIdleConnections()
+		assert.Never(t, func() bool { return server.closedConns() > 0 }, 300*time.Millisecond, 10*time.Millisecond,
+			"the socket closed through a wrapper without CloseIdleConnections: the witness no longer witnesses")
+	})
+
+	t.Run("through refuseRedirects the socket is closed", func(t *testing.T) {
+		server := newSocketCloses(t)
+		client := &http.Client{Transport: refuseRedirects(&http.Transport{})}
+		openKeepAlive(t, client, server.URL)
+
+		client.CloseIdleConnections()
+		assert.Eventually(t, func() bool { return server.closedConns() == 1 }, 5*time.Second, 10*time.Millisecond,
+			"the idle connection was not released")
+	})
 }

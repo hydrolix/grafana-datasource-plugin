@@ -277,9 +277,9 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		} else {
 			// The credential is supplied per request through the fork's
 			// GetJWT hook, from the token source, rather than frozen into
-			// this connection's headers. The hook puts the header on the
-			// initial request, so http.Client's own rule for Authorization
-			// on redirects applies to it.
+			// this connection's headers. No redirect is followed, in this
+			// or any mode (transportFor), so the header never leaves the
+			// configured host.
 			//
 			// The connection is bound to the subject that keys it, so a
 			// request whose context does not reach here — the driver's
@@ -319,6 +319,22 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		if !forwardsUserIdentity(settings.CredentialsType) {
 			err := db.PingContext(ctx)
 			if err != nil {
+				if db != nil {
+					_ = db.Close()
+				}
+				// A refused redirect fails the instance here, and sqlds
+				// returns that error as-is: MutateQueryError never sees a
+				// connect error. So the reason is unwrapped from the fork's
+				// request plumbing on this path too, and logged once.
+				var redirect *RedirectError
+				if errors.As(err, &redirect) {
+					log.DefaultLogger.Warn(
+						"cluster redirected; not following",
+						"status", redirect.Status,
+						"location", redirect.Location,
+					)
+					return nil, redirect
+				}
 				var ex *clickhouse.Exception
 				if errors.As(err, &ex) {
 					log.DefaultLogger.Error(
@@ -327,9 +343,6 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 						"message", ex.Message,
 						"stack", ex.StackTrace,
 					)
-				}
-				if db != nil {
-					_ = db.Close()
 				}
 				return nil, err
 			}

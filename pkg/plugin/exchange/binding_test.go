@@ -6,6 +6,8 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -188,14 +190,16 @@ func TestTheWatchNeitherAttachesNorRemovesACredential(t *testing.T) {
 }
 
 func TestARedirectToAnotherHostDoesNotCarryTheToken(t *testing.T) {
-	// Through clickhouse-go's own HTTP client, wired as the driver wires it:
-	// the GetJWT hook puts the header on the initial request, http.Client
-	// drops Authorization when a redirect leaves the host, and nothing below
-	// it puts the header back. This is the property a token-attaching
-	// RoundTripper broke, so it is pinned on the real request path rather
-	// than on a bare client with the header set by hand. The cluster is
-	// recorded too, so a run where the hook never attached anything cannot
-	// pass by accident.
+	// Through clickhouse-go's own HTTP client, with the hook and Watch but
+	// without the driver's redirect guard, which lives in package plugin and
+	// cannot be imported here. The driver never follows a redirect, so this
+	// pins a property of Watch alone, as defence in depth: it attaches
+	// nothing, so when http.Client does follow a hop off the host and drops
+	// Authorization, nothing below it puts the header back. A token-attaching
+	// RoundTripper broke exactly that, which is why it is pinned on the real
+	// request path rather than on a bare client with the header set by hand.
+	// The cluster is recorded too, so a run where the hook never attached
+	// anything cannot pass by accident.
 	var mu sync.Mutex
 	var clusterSaw, elsewhereSaw []string
 	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -426,4 +430,50 @@ func base64url(s string) string {
 		}
 	}
 	return string(out)
+}
+
+func TestWatchReleasesTheConnectionOnClose(t *testing.T) {
+	// The fork's httpConnect.close() is h.client.CloseIdleConnections(), and
+	// http.Client finds that method by a type assertion on its transport, so
+	// a wrapper without it keeps every retired connection's socket open
+	// until the transport's idle timeout. The release is pinned on the
+	// server side: its ConnState hook counts the closes it saw.
+	var mu sync.Mutex
+	closed := 0
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintln(w, "1")
+	}))
+	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateClosed {
+			mu.Lock()
+			closed++
+			mu.Unlock()
+		}
+	}
+	server.Start()
+	defer server.Close()
+
+	s, _, _ := newFixture(300 * time.Second)
+	client := &http.Client{Transport: unbound(s).Watch(&http.Transport{})}
+	resp, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+
+	client.CloseIdleConnections()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		n := closed
+		mu.Unlock()
+		if n == 1 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the idle connection was not released: %d closes seen", n)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }

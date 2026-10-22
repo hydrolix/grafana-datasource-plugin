@@ -23,12 +23,9 @@ const UnauthorizedMarker = "[HTTP 401]"
 // invisible to pooling — and mirrors the console's browser client, which
 // attaches a token from its session manager to each request.
 //
-// Going through the fork's hook rather than a RoundTripper of our own matters
-// for redirects. The hook puts the header on the initial request, which is
-// where `http.Client` decides whether an Authorization header may follow a
-// redirect to another host. A RoundTripper that attaches the token itself sees
-// every hop, the redirected ones included, after that decision was made, and
-// would send the token wherever the Location header pointed.
+// Redirects are no part of that choice: the driver refuses every hop at the
+// transport (refuseRedirects in package plugin), below anything that attaches
+// a header, so no RoundTripper of ours ever sees a redirected request.
 type Binding struct {
 	Source *Source
 	// Bound is the connection's own slot, known because the subject keys the
@@ -98,6 +95,19 @@ func (b *Binding) Watch(base http.RoundTripper) http.RoundTripper {
 type unauthorizedWatch struct {
 	base    http.RoundTripper
 	binding *Binding
+}
+
+// http.Client finds CloseIdleConnections by a type assertion on its
+// transport; without this forward the fork's httpConnect.close() would
+// release nothing, and every retired connection would keep its keep-alive
+// socket until the transport's idle timeout. The assertion keeps the method
+// from being dropped by the next edit.
+var _ interface{ CloseIdleConnections() } = (*unauthorizedWatch)(nil)
+
+func (w *unauthorizedWatch) CloseIdleConnections() {
+	if c, ok := w.base.(interface{ CloseIdleConnections() }); ok {
+		c.CloseIdleConnections()
+	}
 }
 
 func (w *unauthorizedWatch) RoundTrip(req *http.Request) (*http.Response, error) {

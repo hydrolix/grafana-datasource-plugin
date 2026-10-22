@@ -40,6 +40,24 @@ type noRedirects struct {
 	base http.RoundTripper
 }
 
+// http.Client finds CloseIdleConnections by a type assertion on its
+// transport, so a wrapper without the method silently loses it, and the
+// fork's httpConnect.close() has nothing else with which to release the
+// socket. The assertion keeps the method from being dropped by the next edit.
+var _ interface{ CloseIdleConnections() } = (*noRedirects)(nil)
+
+func (n *noRedirects) CloseIdleConnections() {
+	if c, ok := n.base.(interface{ CloseIdleConnections() }); ok {
+		c.CloseIdleConnections()
+	}
+}
+
+// RoundTrip breaks the http.RoundTripper contract on purpose: a response it
+// obtained is returned as an error. The contract reserves errors for failing
+// to obtain a response and leaves redirects to http.Client, but the client
+// here is built inside clickhouse-go with no CheckRedirect, so the transport
+// is the only place a hop can be refused before the client copies headers
+// onto it. Do not "fix" this by passing the response through.
 func (n *noRedirects) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, err := n.base.RoundTrip(req)
 	if err != nil || resp == nil {
