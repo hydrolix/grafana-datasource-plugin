@@ -304,6 +304,12 @@ func (s *Source) exchange(ctx context.Context, k string, h [sha256.Size]byte, p 
 // store caches a fresh token unless the session was invalidated while it was in
 // flight. Without the generation check, an exchange that began before an
 // invalidation would quietly restore the session it was meant to end.
+//
+// The deadline comes from the expires_in in the console's exchange response
+// alone (what Exchange returns as lifetime), never from the cluster token's
+// own exp: the console reports the re-exchange schedule (300 s by default)
+// that lets a removal reach the plugin within minutes, while the JWT it mints
+// can stay valid for hours. Reading exp would turn that schedule off.
 func (s *Source) store(k string, gen uint64, token string, subjectHash [sha256.Size]byte, started time.Time, lifetime time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
