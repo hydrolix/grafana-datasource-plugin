@@ -157,8 +157,8 @@ func TestConfigFromEnv(t *testing.T) {
 		// Grafana's plugin validator rejects any other environment read, and
 		// Grafana 13 does not pass them to a plugin process anyway.
 		_, err := ConfigFromEnv(env(map[string]string{
-			"HDX_EXCHANGE_URL":         "https://console/api/v1/auth/token-exchange",
-			"HDX_EXCHANGE_CREDENTIALS": `{"c1":{"client_id":"grafana-c1","client_secret":"s1"}}`,
+			"HDX_EXCHANGE_URL":            "https://console/api/v1/auth/token-exchange",
+			"HDX_EXCHANGE_CLIENT_SECRETS": `{"c1":{"client_id":"grafana-c1","client_secret":"s1"}}`,
 		}))
 		if !errors.Is(err, ErrNotConfigured) {
 			t.Fatalf("got %v, want ErrNotConfigured", err)

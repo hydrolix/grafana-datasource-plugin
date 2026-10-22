@@ -115,13 +115,13 @@ values, per Grafana instance, and are set in **Grafana's configuration file**:
 ```ini
 [plugin.hydrolix-hydrolix-datasource]
 exchange_url = https://<console host>/api/v1/auth/token-exchange
-exchange_credentials = $__env{SOME_VAR_HOLDING_THE_JSON}
+exchange_client_secrets = $__env{SOME_VAR_HOLDING_THE_JSON}
 ```
 
 | Key | Meaning |
 | --- | --- |
 | `exchange_url` | The token-exchange endpoint. Must be `https`. |
-| `exchange_credentials` | A JSON object mapping each cluster's audience to its credential. |
+| `exchange_client_secrets` | A JSON object mapping each cluster's audience to its credential. |
 
 Grafana renders a key in that section into the plugin's environment with a `GF_PLUGIN_` prefix, so `exchange_url`
 arrives as `GF_PLUGIN_EXCHANGE_URL`. Writing the credential as `$__env{…}` keeps the JSON out of the rendered file.

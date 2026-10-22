@@ -63,9 +63,13 @@ type Config struct {
 // It is not datasource settings by design: the credentials are per cluster and
 // per Grafana instance, and a secret stored on a datasource travels with the
 // datasource when its organization is re-bound to another company.
+//
+// The credentials key must keep SECRET in its name: Grafana masks a setting in
+// /api/admin/settings and in its startup log only when the key matches one of
+// setting.RedactedValue's patterns, and `exchange_credentials` matched none.
 const (
 	EnvURL         = "GF_PLUGIN_EXCHANGE_URL"
-	EnvCredentials = "GF_PLUGIN_EXCHANGE_CREDENTIALS"
+	EnvCredentials = "GF_PLUGIN_EXCHANGE_CLIENT_SECRETS"
 )
 
 // ErrNotConfigured means this instance has no exchange configuration at all, so

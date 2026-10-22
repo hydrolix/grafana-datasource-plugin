@@ -92,7 +92,7 @@ field name.
 - [x] 3.2 Read the endpoint and the delegate credential from server config,
       never from `jsonData`. **Built as a map, not four scalars.** Four names
       can express one credential; a Grafana serving several clusters needs one
-      per cluster, so `GF_PLUGIN_EXCHANGE_CREDENTIALS` is a JSON object keyed by
+      per cluster, so `GF_PLUGIN_EXCHANGE_CLIENT_SECRETS` is a JSON object keyed by
       audience and `GF_PLUGIN_EXCHANGE_URL` is the endpoint
       (`HDX_`-prefixed names accepted too, for deployments that set the
       environment on the process rather than through Grafana's config). A
@@ -364,3 +364,13 @@ deployed Grafana calls the console's real hostname, which is already allowed.
       the compose file had been mounting `grafana-realm.json` as an EMPTY
       DIRECTORY (Docker creates one when the file is missing), so the
       stack's Keycloak had never had a realm; it does now.
+- [x] 6.8 e2e, the operator's view: `tests/exchangeSettingsRedaction.spec.ts`
+      reads `/api/admin/settings` as the server admin and asserts the
+      `[plugin.<id>]` credentials key is shown masked while `exchange_url`
+      is shown as written. Grafana masks a setting only when its key matches
+      one of `setting.RedactedValue`'s patterns, which is why the key is
+      `exchange_client_secrets` (reviewer's ask on #234; the earlier
+      `exchange_credentials` matched none and showed the delegate secrets to
+      every server admin). The pattern list carries `SECRET` on every Grafana
+      in the regression matrix (11.6.16 through 13.2.1 and main). Runs in
+      both stacks, no stub needed. **Run 2026-10-22: passed** on 13.2.1.

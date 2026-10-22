@@ -31,12 +31,16 @@ forwards a sign-in token only when the data source asks it to.
 ### Requirement: The delegate credential is operator configuration, keyed by audience
 
 The exchange endpoint and its credentials SHALL be read from the process
-environment as `GF_PLUGIN_EXCHANGE_URL` and `GF_PLUGIN_EXCHANGE_CREDENTIALS`,
+environment as `GF_PLUGIN_EXCHANGE_URL` and `GF_PLUGIN_EXCHANGE_CLIENT_SECRETS`,
 and from no other name, and SHALL NOT be read from `jsonData` or
 `secureJsonData`. Credentials SHALL be a map keyed by
 cluster audience, so that one Grafana serving several clusters holds a
 separate credential per cluster and each credential is scoped to the one
-cluster it can obtain a token for.
+cluster it can obtain a token for. The credentials key SHALL be named so
+that Grafana masks its value wherever it shows its own configuration
+(`/api/admin/settings`, the startup log of environment overrides): Grafana
+masks a setting only when the key matches one of `setting.RedactedValue`'s
+patterns, and `exchange_client_secrets` matches `SECRET`.
 
 Those environment variables SHALL be supplied through a
 `[plugin.hydrolix-hydrolix-datasource]` section in Grafana's configuration

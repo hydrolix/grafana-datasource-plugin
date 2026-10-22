@@ -91,7 +91,7 @@ services:
       # datasource HOST, so it must be the stub's service name. https, on the
       # stub's TLS listener: the plugin refuses any other URL.
       - GF_PLUGIN_EXCHANGE_URL=https://exchange-stub:9443/token
-      - GF_PLUGIN_EXCHANGE_CREDENTIALS={"exchange-stub":{"client_id":"grafana-e2e","client_secret":"e2e-delegate-secret"}}
+      - GF_PLUGIN_EXCHANGE_CLIENT_SECRETS={"exchange-stub":{"client_id":"grafana-e2e","client_secret":"e2e-delegate-secret"}}
     networks:
       - grafana
 
