@@ -1,32 +1,14 @@
-# Registering Hydrolix with Grafana Assistant
+# Registering Hydrolix MCP with Grafana Assistant
 
 How to give Grafana Assistant the ability to query a Hydrolix cluster, and what
 you are agreeing to when you do.
 
-Grafana Assistant cannot reach Hydrolix through its built-in SQL tools: those
-match datasources against a hard-coded allowlist that does not include this
-plugin. Assistant support comes instead from two independent pieces —
-the [Hydrolix MCP server](https://github.com/hydrolix/mcp-hydrolix) registered
-as a custom MCP server, and the Hydrolix skill installed into Assistant.
+Grafana Assistant can query Hydrolix through its built-in SQL tools but it is
+currently not fully featured. For example, it cannot query Hydrolix summary
+tables.
 
-## What works with and without the MCP server
-
-The plugin half needs no registration. Install or upgrade the plugin and the
-query editor publishes context to Assistant — datasource, cluster host, SQL,
-time range, and the resolved table's columns and primary time column — plus an
-Assistant button and an "Explain error" action on failed queries.
-
-| | Plugin only | Plugin + MCP server + skill |
-| --- | --- | --- |
-| Write and explain Hydrolix SQL | Yes | Yes |
-| Sees your current query, schema, time range | Yes | Yes |
-| Knows the Hydrolix dialect rules | Only with the skill installed | Yes |
-| Discover databases and tables | No | Yes |
-| **Execute a query and return rows** | **No** | **Yes** |
-
-Without the MCP server, Assistant is a query-authoring helper, not an agent. It
-will draft SQL you can paste into the editor; it cannot run anything. That is a
-legitimate place to stop, and it involves none of the trade-offs below.
+An alternative is to set up the [Hydrolix MCP server](https://github.com/hydrolix/mcp-hydrolix)
+as a custom MCP server, alongwith a Hydrolix skill.
 
 ## Before you register: read this first
 
