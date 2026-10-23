@@ -192,7 +192,7 @@ func findStatsFrameIndex(data []byte) int {
 			continue
 		}
 		compSize := binary.LittleEndian.Uint32(data[p+1 : p+5])
-		if compSize != uint32(len(data)-p) {
+		if int64(compSize) != int64(len(data)-p) {
 			continue
 		}
 		if !verifyStatsFrame(data[p:]) {
@@ -220,7 +220,7 @@ func verifyStatsFrame(frame []byte) bool {
 		return false
 	}
 	decompSize := binary.LittleEndian.Uint32(frame[5:9])
-	if decompSize < uint32(len(statsPrefix)) || decompSize > chMaxDecompressLen {
+	if int64(decompSize) < int64(len(statsPrefix)) || decompSize > chMaxDecompressLen {
 		return false
 	}
 	dst := make([]byte, decompSize)
