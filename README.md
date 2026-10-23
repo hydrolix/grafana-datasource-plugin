@@ -539,9 +539,14 @@ Ad hoc filters set on the dashboard apply to your panel queries; they do not aff
 
 ## Grafana Assistant
 
-Grafana Assistant cannot query Hydrolix through its built-in SQL tools — they match datasources against a hard-coded allowlist that does not include this plugin. Assistant support is provided instead by registering the [Hydrolix MCP server](https://github.com/hydrolix/mcp-hydrolix) as a custom MCP server and installing the Hydrolix skill.
+Grafana Assistant can query Hydrolix natively through its built-in SQL tools.
 
-The plugin contributes query context — the datasource, cluster, SQL, time range, and the table's schema and primary time column — plus an Assistant button in the query editor. Without the MCP server, Assistant can write and explain Hydrolix SQL but cannot execute it.
+The built-in tools know nothing about Hydrolix summary tables, whose aggregate columns hold partial aggregation states rather than values. Assistant handles this on its own: it notices from the first attempt that the table is a summary table and switches to the `-Merge` functions, at the cost of a couple of extra steps.
+
+Two ways to skip those steps, either of which is optional:
+
+- **Install the Hydrolix skill.** It teaches Assistant the Hydrolix dialect, including the summary-table rule, so it writes the `-Merge` form first time. No MCP server needed.
+- **Register the [Hydrolix MCP server](https://github.com/hydrolix/mcp-hydrolix)** as a custom MCP server alongside the skill. Its `get_table_info` tool reports whether a table is a summary table and which `-Merge` function each aggregate column needs, so Assistant does not have to infer it from the schema at all.
 
 The skill document to install is [docs/assistant-skill.md](https://github.com/hydrolix/grafana-datasource-plugin/blob/main/docs/assistant-skill.md). Before registering the MCP server, note two things: queries through it bypass Grafana datasource permissions and per-user OAuth forwarding (the server authenticates with its own Hydrolix credential), and the server must be network-reachable from your Grafana instance — check that first by curling its `/mcp` endpoint, where an authentication failure is the expected reachable-server response.
 
