@@ -413,11 +413,16 @@ func certificate(dir string, hosts []string) (tls.Certificate, error) {
 	if err != nil {
 		return tls.Certificate{}, err
 	}
-	// The key first: a cert.pem on disk means the pair is complete.
-	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
 		return tls.Certificate{}, err
 	}
-	if err := os.WriteFile(certPath, certPEM, 0o644); err != nil {
+	defer root.Close()
+	// The key first: a cert.pem on disk means the pair is complete.
+	if err := root.WriteFile("key.pem", keyPEM, 0o600); err != nil {
+		return tls.Certificate{}, err
+	}
+	if err := root.WriteFile("cert.pem", certPEM, 0o644); err != nil {
 		return tls.Certificate{}, err
 	}
 	log.Printf("certificate: made %s", certPath)
