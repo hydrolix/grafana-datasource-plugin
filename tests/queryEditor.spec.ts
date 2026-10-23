@@ -70,9 +70,14 @@ test("should show beautified Hydrolix error in query row on syntax error", async
 
   // Grafana renders the beautified per-query error inside the QueryEditorRow,
   // not in the panel's "No data" status element (which fires when the backend
-  // returns an empty frame alongside the error).
+  // returns an empty frame alongside the error). Exclude the validation bar,
+  // which repeats the error.
   const queryRow = panelEditPage.getQueryEditorRow("A");
-  const errorText = queryRow.getByText(/Syntax error/i);
+  const errorText = queryRow
+    .getByText(/Syntax error/i)
+    .and(
+      queryRow.locator(':not([data-testid="query-validation-bar"] *)')
+    );
   await expect(errorText).toBeVisible({ timeout: 30000 });
 
   // Beautified content from ErrorMessageBeautifier — the message extracted
@@ -487,7 +492,7 @@ test("runs a SELECT and renders fixture rows in the table panel", async ({
  *
  * The dashboard (a Custom variable `tbl` + a panel that selects from
  * `e2e.$tbl`) is created through Grafana's HTTP API rather than the
- * Settings → Variables UI: that UI has moved across Grafana 10/11/12/13
+ * Settings → Variables UI: that UI has moved across Grafana 11/12/13
  * (button names, tab labels, input labels) and was the source of the
  * previous flake. The JSON model is stable.
  *
@@ -535,11 +540,9 @@ test("template variable is substituted into the outgoing SQL", async ({
     })
     .toBe(true);
 
-  // Switch the variable via the on-page picker. VariablePicker handles the
-  // Grafana 10 (button + checkbox list) vs 11+ (react-select + option list)
-  // split internally.
+  // Switch the variable via the on-page picker (the dashboard's only one).
   capturedSqls.length = 0;
-  await new VariablePicker("tbl", page).select("no_such_table");
+  await new VariablePicker(page).select("no_such_table");
 
   await dashboardPage.refreshDashboard();
 

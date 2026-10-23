@@ -2,9 +2,12 @@ package plugin
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/hydrolix/plugin/pkg/identity"
 	"net/http"
 	"strings"
 	"time"
@@ -14,6 +17,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
 	"github.com/hydrolix/plugin/pkg/plugin/cte"
+	"github.com/hydrolix/plugin/pkg/plugin/exchange"
 	"github.com/jellydator/ttlcache/v3"
 )
 
@@ -23,8 +27,17 @@ const PrimaryKeyQuery = "SELECT primary_key FROM system.tables WHERE database='%
 
 var (
 	// ErrPrimaryKeyNotFound is returned by QueryPK when the schema query
-	// yields no rows for the requested (database, table).
-	ErrPrimaryKeyNotFound = backend.PluginError(errors.New("primary key not found"))
+	// yields no rows for the requested (database, table). Like
+	// ErrPrimaryKeyEmpty it carries no error source, so errors.Is is an
+	// identity check; QueryPK adds the plugin classification on the wrapper.
+	ErrPrimaryKeyNotFound = errors.New("primary key not found")
+	// ErrPrimaryKeyEmpty is raised by getPK when the table exists but its
+	// primary_key is the empty string, so a PK-lookup macro has no column to
+	// expand against. Deliberately carries no error source: the SDK's
+	// ErrorWithSource.Is compares only the source, so a source-wrapped
+	// sentinel would make errors.Is match every error of that source. The
+	// downstream classification is added on the wrapper at the return site.
+	ErrPrimaryKeyEmpty = errors.New("table has no primary key")
 	// ErrAdHocKeysNotFound is returned by QueryKeys when DESCRIBE yields
 	// fewer than two columns (name + type) — the ad-hoc filter macro
 	// needs both to operate.
@@ -40,8 +53,8 @@ type metadataDS interface {
 	DefaultDatabase() string
 }
 
-// MetadataProvider caches per-(database, table) primary-key lookups and
-// per-CTE column-type maps. Both caches use ttlcache with a 1-hour TTL —
+// MetadataProvider caches primary-key lookups and column-type maps, per
+// (forwarded identity, database, table) and (forwarded identity, CTE). Both caches use ttlcache with a 1-hour TTL —
 // matches the connection cache (C3) and the fork's hardcoded choice.
 //
 // Schema queries are issued through ds.QueryData(...), so they participate
@@ -67,6 +80,55 @@ func NewMetadataProvider(ds metadataDS) *MetadataProvider {
 	return &MetadataProvider{ds: ds, pkCache: pkCache, keyCache: keyCache}
 }
 
+// cacheScope answers the part of a metadata cache key that keeps one person's
+// schema reads out of another's.
+//
+// These caches hold what a schema query answered, and a schema query is
+// authorized like any other: in a forwarding credentials mode the user's token
+// reaches the cluster on a cache MISS only. Keyed on (database, table) alone,
+// the first user to look a table up serves its primary key and column types to
+// every other user of the same datasource for the cache's lifetime, with the
+// cluster never asked about them. That is a disclosure of schema shape — not of
+// rows, but not nothing either.
+//
+// The scope is the forwarded token's issuer and subject: stable for a person, so
+// a token refresh does not throw the cache away, and distinct between people. A mode
+// that forwards no token has one credential and one legitimate view, and keeps
+// sharing an entry.
+func cacheScope(ctx context.Context, headers http.Header) string {
+	// The context first: it is where the forwarded identity arrives
+	// (`pkg/identity`). Headers are the fallback, for direct callers.
+	token, _ := identity.ForwardedTokenFrom(ctx)
+	if token == "" {
+		token = identity.TokenOf(headers)
+	}
+	if token == "" {
+		return ""
+	}
+	// Issuer-qualified: `sub` is unique per issuer only, and Grafana can run
+	// several OAuth providers at once.
+	if subject := exchange.IdentityOf(token); subject != "" {
+		return subject
+	}
+	// A forwarded token whose subject cannot be read is still a distinct
+	// identity. Key on a digest of it rather than let it share an entry: this
+	// re-caches on every refresh, which is the right way to be wrong.
+	sum := sha256.Sum256([]byte(token))
+	return "d:" + hex.EncodeToString(sum[:8])
+}
+
+// scopedKey joins a scope to a cache key. An empty scope — a mode that forwards
+// no identity — yields the bare key the cache has always used, so those modes
+// keep sharing one entry, which is correct for one credential and one view.
+// The separator cannot appear in a subject or an identifier, so two different
+// (scope, key) pairs cannot collide.
+func scopedKey(scope, key string) string {
+	if scope == "" {
+		return key
+	}
+	return scope + "\x00" + key
+}
+
 // GetPK returns the primary-key column name for (database, table). If
 // database is empty, the wrapper's configured default database is used.
 // Cache miss issues a schema query; subsequent calls within the TTL hit
@@ -79,14 +141,14 @@ func (p *MetadataProvider) GetPK(ctx context.Context, headers http.Header, datab
 		}
 		database = defaultDB
 	}
-	cacheKey := database + "_" + table
+	cacheKey := scopedKey(cacheScope(ctx, headers), database+"_"+table)
 
 	if entry := p.pkCache.Get(cacheKey); entry != nil {
-		log.DefaultLogger.Debug("MetadataProvider: PK cache hit", "key", cacheKey)
+		log.DefaultLogger.Debug("MetadataProvider: PK cache hit", "table", database+"_"+table)
 		return entry.Value(), nil
 	}
 
-	log.DefaultLogger.Debug("MetadataProvider: PK cache miss", "key", cacheKey)
+	log.DefaultLogger.Debug("MetadataProvider: PK cache miss", "table", database+"_"+table)
 	pk, err := p.QueryPK(ctx, headers, database, table)
 	if err != nil {
 		return "", err
@@ -99,22 +161,27 @@ func (p *MetadataProvider) GetPK(ctx context.Context, headers http.Header, datab
 // table reference. Cache miss issues a DESCRIBE; subsequent calls within
 // the TTL hit the cache.
 func (p *MetadataProvider) GetKeys(ctx context.Context, headers http.Header, cte string) (map[string]string, error) {
-	if entry := p.keyCache.Get(cte); entry != nil {
-		log.DefaultLogger.Debug("MetadataProvider: keys cache hit", "key", cte)
+	cacheKey := scopedKey(cacheScope(ctx, headers), cte)
+
+	if entry := p.keyCache.Get(cacheKey); entry != nil {
+		log.DefaultLogger.Debug("MetadataProvider: keys cache hit", "cte", cte)
 		return entry.Value(), nil
 	}
 
-	log.DefaultLogger.Debug("MetadataProvider: keys cache miss", "key", cte)
+	log.DefaultLogger.Debug("MetadataProvider: keys cache miss", "cte", cte)
 	keys, err := p.QueryKeys(ctx, headers, cte)
 	if err != nil {
 		return nil, err
 	}
-	p.keyCache.Set(cte, keys, ttlcache.DefaultTTL)
+	p.keyCache.Set(cacheKey, keys, ttlcache.DefaultTTL)
 	return keys, nil
 }
 
 // QueryPK issues the primary-key lookup SQL and returns the first cell of
-// the first column. Empty result → ErrPrimaryKeyNotFound.
+// the first column. Empty result → ErrPrimaryKeyNotFound. A row whose cell
+// is the empty string is a table that declares no primary key; that is a
+// value, returned as ("", nil) and stored like any other, so a keyless table
+// is looked up once per TTL and a failed lookup is never mistaken for one.
 func (p *MetadataProvider) QueryPK(ctx context.Context, headers http.Header, database, table string) (string, error) {
 	// database and table are string literals in PrimaryKeyQuery, so escape
 	// them — a quote in an identifier name would otherwise break out of the
@@ -125,7 +192,7 @@ func (p *MetadataProvider) QueryPK(ctx context.Context, headers http.Header, dat
 		return "", err
 	}
 	if len(frame.Fields) == 0 || frame.Fields[0].Len() == 0 {
-		return "", ErrPrimaryKeyNotFound
+		return "", backend.PluginError(ErrPrimaryKeyNotFound)
 	}
 	return GetStringSafe(frame.Fields[0].At(0))
 }
@@ -267,15 +334,19 @@ func describeSubquery(sq *parser.SelectQuery) (string, error) {
 	}
 }
 
-// executeQuery synthesises a *backend.QueryDataRequest carrying the schema
-// SQL and routes it through ds.QueryData. Headers are propagated via
-// SetHTTPHeader so non-special headers (notably X-Grafana-Org-Id) survive
-// the SDK's getHTTPHeadersFromStringMap round-trip.
+// executeQuery runs schema SQL through executeQueryJSON.
 func (p *MetadataProvider) executeQuery(ctx context.Context, headers http.Header, sql, queryID string) (*data.Frame, error) {
-	queryJSON, err := json.Marshal(map[string]any{
+	return p.executeQueryJSON(ctx, headers, map[string]any{
 		"rawSql": sql,
 		"format": 1,
-	})
+	}, queryID)
+}
+
+// executeQueryJSON routes payload through ds.QueryData as the query JSON.
+// Headers are propagated via SetHTTPHeader so non-special headers (notably
+// X-Grafana-Org-Id) survive the SDK's getHTTPHeadersFromStringMap round-trip.
+func (p *MetadataProvider) executeQueryJSON(ctx context.Context, headers http.Header, payload map[string]any, queryID string) (*data.Frame, error) {
+	queryJSON, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
@@ -290,6 +361,20 @@ func (p *MetadataProvider) executeQuery(ctx context.Context, headers http.Header
 	for k, vs := range headers {
 		for _, v := range vs {
 			req.SetHTTPHeader(k, v)
+		}
+	}
+	// A macro's lookup arrives with no headers of its own: sqlds hands the
+	// interpolator no header set, so `headers` here is nil and this inner
+	// request would reach the cluster carrying no credential at all. On a
+	// cache MISS that is a lookup carrying nobody: with no connection args on
+	// it, the connector takes the default connection and `Connect` builds it
+	// with no credential at all, so the request reaches the cluster
+	// unauthenticated rather than as the person who triggered it. The context
+	// carries the identity the outer request arrived with, which is the right
+	// one to send.
+	if req.GetHTTPHeader(backend.OAuthIdentityTokenHeaderName) == "" {
+		if token, ok := identity.ForwardedTokenFrom(ctx); ok {
+			req.SetHTTPHeader(backend.OAuthIdentityTokenHeaderName, "Bearer "+token)
 		}
 	}
 
@@ -338,6 +423,12 @@ func GetStringSafe(v any) (string, error) {
 // at pos, and delegates to MetadataProvider.GetPK. Used by C6's PK-lookup
 // macros (`TimeFilter`, `TimeFilterMs`, `TimeInterval`, `TimeIntervalMs`)
 // when their column argument is omitted.
+//
+// This is the one place that turns an empty primary key into an error: the
+// lookup treats "" as a legitimate result, but a macro cannot expand against
+// an empty column name — the cluster would reject the SQL with a parse error
+// naming neither the table nor the cause. A keyless table is a fact about
+// the user's schema, hence downstream.
 func getPK(ctx context.Context, rawSQL string, pos parser.Pos, mdProvider *MetadataProvider, headers http.Header) (string, error) {
 	exprs, err := parser.NewParser(rawSQL).ParseStmts()
 	if err != nil {
@@ -349,7 +440,24 @@ func getPK(ctx context.Context, rawSQL string, pos parser.Pos, mdProvider *Metad
 	}
 	for _, c := range macroCTEs {
 		if c.MacroPos == pos {
-			return mdProvider.GetPK(ctx, headers, c.Database, c.Table)
+			pk, err := mdProvider.GetPK(ctx, headers, c.Database, c.Table)
+			if err != nil {
+				return "", err
+			}
+			if pk == "" {
+				// An unqualified FROM resolved against the default database
+				// inside GetPK; name that database so the message points at
+				// the table the lookup actually hit.
+				db := c.Database
+				if db == "" {
+					db = mdProvider.ds.DefaultDatabase()
+				}
+				return "", backend.DownstreamError(fmt.Errorf(
+					"%w: %s.%s; pass the time column as the macro argument, e.g. $__timeFilter(<column>)",
+					ErrPrimaryKeyEmpty, db, c.Table,
+				))
+			}
+			return pk, nil
 		}
 	}
 	return rawSQL, fmt.Errorf("no CTE found for macro at pos %d", pos)

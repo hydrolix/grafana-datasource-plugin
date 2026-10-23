@@ -10,7 +10,7 @@
  *     surface their props as data attributes. Their own behavior is
  *     covered by their dedicated test files.
  *   - props.datasource → a minimal shape with `templateSrv.getVariables()`
- *     returning [] and a jest.fn() for interpolateQuery.
+ *     returning [] and jest.fn()s for interpolateQuery and validateQuery.
  *
  * Stateful harness:
  *   Grafana's Input is fully controlled by props.query, so a static jest.fn()
@@ -37,6 +37,8 @@
  *   - Showing the interpolated query calls interpolateQuery with context built
  *     from props (range, derived interval, panel-request filters) and issues no
  *     preparatory panel run.
+ *   - Validation (fake timers): debounce, result mapping, failures,
+ *     cancellation, stale responses, and what triggers re-validation.
  *
  * Not covered here:
  *   - The Query Type Select dropdown change (react-select portal — better
@@ -47,7 +49,13 @@
  *     the stubbed formatQuery has nothing to verify).
  */
 import React, { useState } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
 import { dateTime, makeTimeRange } from "@grafana/data";
@@ -92,8 +100,20 @@ jest.mock("./InterpolatedQuery", () => ({
   ),
 }));
 
+jest.mock("@grafana/runtime", () => ({
+  ...jest.requireActual("@grafana/runtime"),
+  logError: jest.fn(),
+}));
+
 jest.mock("./ValidationBar", () => ({
-  ValidationBar: () => <div data-testid="validation-bar-stub" />,
+  ...jest.requireActual("./ValidationBar"),
+  ValidationBar: ({ state }: any) => (
+    <div
+      data-testid="validation-bar-stub"
+      data-status={state.status}
+      data-message={state.message ?? ""}
+    />
+  ),
 }));
 
 // Availability is the gate for page-context registration and the explain
@@ -120,9 +140,11 @@ jest.mock("@grafana/assistant", () => {
 
 // Imports must come after jest.mock calls so the mocks are applied.
 import { useAssistant, useProvidePageContext } from "@grafana/assistant";
+import { logError } from "@grafana/runtime";
 import { QueryEditor, Props } from "./QueryEditor";
 import { HdxQuery, QueryType } from "../types";
 import { deriveInterpolationInterval } from "../editor/timeRangeUtils";
+import { VALIDATION_DEBOUNCE_MS } from "../constants";
 
 function makeProps(
   overrides: Partial<HdxQuery> = {},
@@ -150,12 +172,12 @@ function makeProps(
       primaryKey: jest.fn().mockResolvedValue("timestamp"),
     },
     templateSrv: { getVariables: () => [] },
+    validateQuery: jest.fn().mockResolvedValue({}),
     interpolateQuery: jest.fn().mockResolvedValue({
       originalSql: query.rawSql,
       interpolationId: "1",
       interpolatedSql: query.rawSql,
       hasError: false,
-      hasWarning: false,
     }),
   };
 
@@ -396,6 +418,216 @@ describe("QueryEditor", () => {
       "data-show-sql",
       "false"
     );
+  });
+});
+
+describe("QueryEditor validation", () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(logError).mockClear();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const bar = () => screen.getByTestId("validation-bar-stub");
+
+  async function flushDebounce() {
+    await act(async () => {
+      jest.advanceTimersByTime(VALIDATION_DEBOUNCE_MS);
+    });
+  }
+
+  it("validates after the debounce and shows a valid result", async () => {
+    const props = makeProps({ format: QueryType.Table });
+    render(<QueryEditor {...props} />);
+    const validateQuery = (props.datasource as any).validateQuery;
+
+    expect(bar()).toHaveAttribute("data-status", "validating");
+    expect(validateQuery).not.toHaveBeenCalled();
+
+    await flushDebounce();
+
+    expect(validateQuery).toHaveBeenCalledTimes(1);
+    const [query, context, requestId] = validateQuery.mock.calls[0];
+    expect(query.rawSql).toBe("SELECT 1");
+    expect(context.interval).toBe("0ms");
+    expect(typeof requestId).toBe("string");
+    expect(bar()).toHaveAttribute("data-status", "valid");
+  });
+
+  it.each([
+    [{ error: "Missing columns" }, "error", "Missing columns"],
+    [
+      { warning: "Primary key not filtered" },
+      "warning",
+      "Primary key not filtered",
+    ],
+    [{ skipped: true }, "idle", ""],
+  ])("maps %j to the %s state", async (result, status, message) => {
+    const props = makeProps({ format: QueryType.Table });
+    (props.datasource as any).validateQuery.mockResolvedValue(result);
+    render(<QueryEditor {...props} />);
+
+    await flushDebounce();
+
+    expect(bar()).toHaveAttribute("data-status", status);
+    expect(bar()).toHaveAttribute("data-message", message);
+  });
+
+  it("turns a failed validation call into a warning that names the reason", async () => {
+    const props = makeProps({ format: QueryType.Table });
+    const failure = new Error("An error occurred within the plugin");
+    (props.datasource as any).validateQuery.mockRejectedValue(failure);
+    render(<QueryEditor {...props} />);
+
+    await flushDebounce();
+
+    expect(bar()).toHaveAttribute("data-status", "warning");
+    expect(bar()).toHaveAttribute(
+      "data-message",
+      "Could not validate query: An error occurred within the plugin"
+    );
+    expect(logError).toHaveBeenCalledWith(
+      failure,
+      expect.objectContaining({ source: "query-validation" })
+    );
+  });
+
+  it("ignores a cancelled validation", async () => {
+    const props = makeProps({ format: QueryType.Table });
+    (props.datasource as any).validateQuery.mockResolvedValue(undefined);
+    render(<QueryEditor {...props} />);
+
+    await flushDebounce();
+
+    expect(bar()).toHaveAttribute("data-status", "validating");
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it("passes the panel's scoped variables to validation", async () => {
+    const scopedVars = { __interval_ms: { text: "60000", value: "60000" } };
+    const props = makeProps(
+      { format: QueryType.Table },
+      { data: { request: { scopedVars } } as any }
+    );
+    render(<QueryEditor {...props} />);
+
+    await flushDebounce();
+
+    const context = (props.datasource as any).validateQuery.mock.calls[0][1];
+    expect(context.scopedVars).toBe(scopedVars);
+  });
+
+  it("stays idle and does not validate empty SQL", async () => {
+    const props = makeProps({ format: QueryType.Table, rawSql: "  " });
+    render(<QueryEditor {...props} />);
+
+    await flushDebounce();
+
+    expect(bar()).toHaveAttribute("data-status", "idle");
+    expect((props.datasource as any).validateQuery).not.toHaveBeenCalled();
+  });
+
+  it("reuses the requestId and shows validating until the newer edit is checked", async () => {
+    const props = makeProps({ format: QueryType.Table });
+    const validateQuery = (props.datasource as any).validateQuery;
+    let resolveFirst: (v: object) => void = () => {};
+    validateQuery
+      .mockImplementationOnce(
+        () => new Promise((resolve) => (resolveFirst = resolve))
+      )
+      .mockResolvedValueOnce({});
+    const { rerender } = render(<QueryEditor {...props} />);
+    await flushDebounce();
+
+    rerender(
+      <QueryEditor {...props} query={{ ...props.query, rawSql: "SELECT 2" }} />
+    );
+    await act(async () => resolveFirst({ error: "stale" }));
+    expect(bar()).toHaveAttribute("data-status", "validating");
+
+    await flushDebounce();
+
+    expect(validateQuery).toHaveBeenCalledTimes(2);
+    expect(validateQuery.mock.calls[1][0].rawSql).toBe("SELECT 2");
+    expect(validateQuery.mock.calls[1][2]).toBe(validateQuery.mock.calls[0][2]);
+    expect(bar()).toHaveAttribute("data-status", "valid");
+  });
+
+  it("keeps the newer result when an older response arrives late", async () => {
+    const props = makeProps({ format: QueryType.Table });
+    const validateQuery = (props.datasource as any).validateQuery;
+    let resolveFirst: (v: object) => void = () => {};
+    validateQuery
+      .mockImplementationOnce(
+        () => new Promise((resolve) => (resolveFirst = resolve))
+      )
+      .mockResolvedValueOnce({});
+    const { rerender } = render(<QueryEditor {...props} />);
+    await flushDebounce();
+    rerender(
+      <QueryEditor {...props} query={{ ...props.query, rawSql: "SELECT 2" }} />
+    );
+    await flushDebounce();
+    expect(bar()).toHaveAttribute("data-status", "valid");
+
+    await act(async () => resolveFirst({ error: "stale" }));
+
+    expect(bar()).toHaveAttribute("data-status", "valid");
+  });
+
+  it("re-validates when the query settings change", async () => {
+    const props = makeProps({ format: QueryType.Table });
+    const { rerender } = render(<QueryEditor {...props} />);
+    await flushDebounce();
+
+    rerender(
+      <QueryEditor
+        {...props}
+        query={{
+          ...props.query,
+          querySettings: [{ setting: "max_threads", value: "4" }],
+        }}
+      />
+    );
+    await flushDebounce();
+
+    expect((props.datasource as any).validateQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-validates when a dashboard variable changes", async () => {
+    const props = makeProps({ format: QueryType.Table });
+    const variables = [{ current: { value: "a" } }];
+    (props.datasource as any).templateSrv.getVariables = () => variables;
+    const { rerender } = render(<QueryEditor {...props} />);
+    await flushDebounce();
+
+    variables[0].current.value = "b";
+    rerender(<QueryEditor {...props} />);
+    await flushDebounce();
+
+    expect((props.datasource as any).validateQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not re-validate when only the time range changes", async () => {
+    const to = 1_700_000_000_000;
+    const props = makeProps(
+      { format: QueryType.Table },
+      { range: makeTimeRange(dateTime(to - 3_600_000), dateTime(to)) }
+    );
+    const { rerender } = render(<QueryEditor {...props} />);
+    await flushDebounce();
+
+    rerender(
+      <QueryEditor
+        {...props}
+        range={makeTimeRange(dateTime(to), dateTime(to + 3_600_000))}
+      />
+    );
+    await flushDebounce();
+
+    expect((props.datasource as any).validateQuery).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -10,6 +10,7 @@ hydrolix-hydrolix-datasource/
 .bra.toml
 .DS_Store
 junit.xml
+junit_report.xml
 dist_*/
 .cache/
 playwright/.auth

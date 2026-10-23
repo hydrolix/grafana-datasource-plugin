@@ -20,9 +20,10 @@ type MacroId struct {
 	Index parser.Pos `json:"index"`
 }
 
-// CTE describes a single macro invocation's surrounding context: which
-// macro, where in the SQL, which CTE alias (the FROM expression of the
-// containing SELECT), and the resolved table / database.
+// CTE describes a single macro invocation's surrounding context. CTE is the
+// containing SELECT's FROM as SQL text, quotes kept (it goes to DESCRIBE), or
+// the parenthesized body when the FROM names a WITH alias. Table and Database
+// are bare names as system.tables stores them, for the primary-key lookup.
 type CTE struct {
 	Macro    string     `json:"macro"`
 	MacroPos parser.Pos `json:"macroPos"`
@@ -32,9 +33,10 @@ type CTE struct {
 	Pos      parser.Pos `json:"pos"`
 }
 
-// GetMacroCTEs walks the AST and returns the macro-to-CTE map used by
-// the /macroCTE HTTP route and by ad-hoc-filter resolution. Behaviour
-// is preserved from the fork (hydrolix/sqlds@v5.0.1, interpolator.go:255).
+// GetMacroCTEs walks the AST and returns the macro-to-CTE map used by the
+// /macroCTE HTTP route and by ad-hoc-filter resolution. Ported from the fork
+// (hydrolix/sqlds@v5.0.1), which neither resolved WITH
+// aliases nor unquoted Table / Database.
 func GetMacroCTEs(ast []parser.Expr) (map[MacroId]CTE, error) {
 	visitor := queryVisitor{macroIds: make(map[MacroId]CTE)}
 	for _, expr := range ast {
@@ -93,10 +95,10 @@ type tableVisitor struct {
 func (v *tableVisitor) VisitTableIdentifier(expr *parser.TableIdentifier) error {
 	if v.pos == expr.Pos() {
 		if expr.Table != nil {
-			v.table = parser.Format(expr.Table)
+			v.table = expr.Table.Name
 		}
 		if expr.Database != nil {
-			v.database = parser.Format(expr.Database)
+			v.database = expr.Database.Name
 		} else {
 			v.database = ""
 		}
@@ -135,7 +137,7 @@ func (v *queryVisitor) Enter(expr parser.Expr) {
 			if !ok {
 				continue
 			}
-			name, ok := identName(c.Expr)
+			name, ok := IdentName(c.Expr)
 			if !ok {
 				continue
 			}
@@ -168,8 +170,8 @@ func (v *queryVisitor) resolveWithAlias(fromExpr parser.Expr) (*parser.SelectQue
 	return nil, false
 }
 
-// identName returns the name of a plain identifier expression.
-func identName(e parser.Expr) (string, bool) {
+// IdentName returns the name of a plain identifier expression.
+func IdentName(e parser.Expr) (string, bool) {
 	if id, ok := e.(*parser.Ident); ok {
 		return id.Name, true
 	}

@@ -14,6 +14,7 @@ import {
   TableIdentifier,
 } from "@grafana/plugin-ui";
 import { DataSource } from "../datasource";
+import { fillSlots } from "../ast";
 import { AdHocFilterKeys, QuerySetting } from "../types";
 import {
   AD_HOC_KEY_QUERY,
@@ -100,7 +101,14 @@ export interface MetadataProvider {
   schemas: () => Promise<SchemaDefinition[]>;
   tables: (t: TableIdentifier) => Promise<TableDefinition[]>;
   columns: (t: TableIdentifier) => Promise<ColumnDefinition[]>;
-  primaryKey: (t: TableIdentifier) => Promise<string>;
+  /**
+   * The table's primary key; `""` when it declares none (a memoized value),
+   * `undefined` when `system.tables` has no row for it (memoized too — the
+   * pre-keyless behavior, so a half-typed table name costs one lookup, not
+   * one per Assistant debounce). Rejects, without memoizing, when the lookup
+   * itself fails.
+   */
+  primaryKey: (t: TableIdentifier) => Promise<string | undefined>;
   functions: () => Promise<
     Array<{ id: string; name: string; description: string }>
   >;
@@ -144,7 +152,7 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
   tableKeysFn = (table: string) =>
     !tableKeys[table]
       ? firstValueFrom(
-          queryRunner(AD_HOC_KEY_QUERY.replaceAll("${table}", table)).pipe(
+          queryRunner(fillSlots(AD_HOC_KEY_QUERY, { table })).pipe(
             map((r) => {
               try {
                 return getKeyMap(r);
@@ -205,9 +213,9 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
     primaryKey: (t: TableIdentifier) => {
       const key = `${t.schema}.${t.table}`;
       // Presence check, not truthiness: a table with no primary key resolves
-      // to "" or undefined, and a truthiness test would treat that as "not
-      // fetched yet" and re-query the cluster on every call. Assistant
-      // publishes context on a 300ms debounce, so that is once per keystroke.
+      // to "", and a truthiness test would treat that as "not fetched yet"
+      // and re-query the cluster on every call. Assistant publishes context
+      // on a 300ms debounce, so that is once per keystroke.
       return !(key in primaryKeys)
         ? firstValueFrom(
             queryRunner(
@@ -216,7 +224,25 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
                 t?.table!
               )
             ).pipe(
-              map((r) => transformResponse(r)[0]),
+              map((r) => {
+                // A failed lookup must reject, not resolve: "" is the value
+                // the ad-hoc preload reads as "no primary key", and a
+                // memoized failure would turn a transient cluster error
+                // into an unfiltered scan on every dropdown open.
+                const error = r.errors?.[0];
+                if (error) {
+                  throw new Error(
+                    error.message ||
+                      `Cannot resolve the primary key of "${key}"`
+                  );
+                }
+                // No row means system.tables does not know the table. That
+                // is not "declares no primary key", so it stays undefined
+                // rather than "" — but it is memoized like any other answer:
+                // the Assistant asks on a 300ms debounce while the user is
+                // still typing the table name.
+                return transformResponse(r)[0];
+              }),
               tap((v) => (primaryKeys[key] = v))
             )
           )

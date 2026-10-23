@@ -1,6 +1,7 @@
 import {
   AdHocVariableFilter,
   DataSourceJsonData,
+  ScopedVars,
   TimeRange,
   TypedVariableModel,
 } from "@grafana/data";
@@ -55,7 +56,7 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   skipTlsVerify?: boolean;
   defaultDatabase?: string;
   defaultRound?: string;
-  adHocDefaultTimeRange?: TimeRange;
+  adHocTimeRangeLookback?: string;
   adHocTableVariable?: string;
   adHocConditionVariable?: string;
   dialTimeout?: string;
@@ -94,6 +95,16 @@ export enum CredentialsType {
   UserAccount = "userAccount",
   ServiceAccount = "serviceAccount",
   ForwardOAuth = "forwardOAuth",
+  /**
+   * Forward the signed-in user's OAuth token, but exchange it for a cluster
+   * token before querying. For a Grafana whose users sign in through an issuer
+   * the cluster does not accept directly — a Hydrolix Console realm, say —
+   * where forwarding the token unchanged is refused on its audience.
+   *
+   * The exchange endpoint and its per-cluster credentials come from Grafana's
+   * server configuration, so this mode stores no secret on the datasource.
+   */
+  ForwardOAuthExchange = "forwardOAuthExchange",
 }
 
 export interface AdHocFilterKeys {
@@ -122,6 +133,7 @@ export interface InterpolationContext {
   range?: TimeRange;
   interval?: string;
   filters?: AdHocVariableFilter[];
+  scopedVars?: ScopedVars;
 }
 
 export interface InterpolationResult {
@@ -130,15 +142,22 @@ export interface InterpolationResult {
   interpolatedSql?: string;
   finalSql?: string;
   hasError: boolean;
-  hasWarning: boolean;
   error?: string;
-  warning?: string;
 }
 
+/** The `data` of a /validate resource response. */
 export interface ValidationResult {
   error?: string;
   warning?: string;
+  /** Not a single SELECT, so not dry-run. */
+  skipped?: boolean;
 }
+
+export type ValidationState =
+  | { status: "idle" }
+  | { status: "validating" }
+  | { status: "valid" }
+  | { status: "error" | "warning"; message: string };
 
 export interface SelectQuery {
   SelectItems: SelectItem[];

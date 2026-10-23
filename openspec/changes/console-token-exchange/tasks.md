@@ -1,0 +1,376 @@
+# Tasks
+
+## 1. The token source (`pkg/plugin/exchange`)
+
+- [x] 1.1 `TokenSource` with `Token(ctx, sub string) (string, error)`, a cache of
+      `{token, deadline}` in a slot keyed on the subject claim, and a
+      `singleflight.Group` (`golang.org/x/sync` is already an indirect
+      dependency). As first built the slot alone decided what was served, so a
+      Grafana refresh cost nothing; 5b.5 changed that, and an entry is now
+      answered only to the forwarded token it was minted from, with the
+      singleflight keyed on that token as well.
+- [x] 1.2 Deadlines stamped from the request start, never from a server clock.
+      Refresh lead = 20 % of lifetime clamped to [60 s, 300 s]; lazy skew 30 s;
+      no scheduling under a 120 s lifetime.
+- [x] 1.3 Retry ladder 5/10/20/40/60 s, each rung taken only if it lands before
+      the current token's real expiry.
+- [x] 1.4 `Invalidate(user)` with a generation counter, so an exchange that began
+      before the invalidation cannot populate the cache after it.
+- [x] 1.5 The exchange call itself: form-encoded RFC 8693
+      (`grant_type=urn:ietf:params:oauth:grant-type:token-exchange`,
+      `subject_token`, `subject_token_type=…:access_token`, `audience`), Basic
+      auth with the delegate credential, no `scope` (the console's facade refuses
+      one). Classify the response into refused / unavailable / misconfigured.
+- [x] 1.6 Tests: single-flight under concurrency, refresh-ahead boundaries,
+      ladder bounded by expiry, invalidate-mid-exchange, and a log-hygiene test
+      asserting no token, SQL or secret reaches any log line.
+
+**Section 1 is built** — `pkg/plugin/exchange` (config, client, source) with 20 tests,
+green under `-race`, and the repo's existing suites unaffected. Two notes on what
+was decided while building it:
+
+- **The refresh is synchronous, not a background goroutine.** A caller inside the
+  lead window performs the refresh itself while its current token is still
+  usable, so a failed refresh is invisible — the token in hand keeps serving. A
+  renewal timer would add process lifecycle for the same outcome; the browser
+  needs one because a tab has no request to attach the work to, and a plugin
+  does.
+- **A refusal drops the cached token and is remembered for ten seconds.** The
+  browser has no equivalent because a browser is one user. Server-side, a refused
+  person reloading a thirty-panel dashboard would otherwise ask the console
+  thirty times, and a converging role removal would become a load spike against
+  one delegate's quota. Dropping the token is deliberate: a refusal is the
+  removal path taking effect, and continuing to serve would defeat the gate chain
+  that produced it.
+
+## 2. Per-request credential (`pkg/plugin/driver.go`)
+
+- [x] 2.1 A `GetJWT` hook that answers `<exchanged token>` for each request, from
+      the token source, for the user the connection belongs to. The fork sets
+      `Authorization: Bearer` from it on the initial request.
+- [x] 2.2 Install it through `Options.GetJWT` for the HTTP protocol over TLS when
+      the mode is the exchanging one. `MutateQueryData` puts the subject in
+      `connectionArgs` instead of the token, so the pool key survives a refresh.
+- [x] 2.2a A test that the forwarded console token can never reach the cluster,
+      including when the exchange fails.
+- [x] 2.2b A test that a redirect off the cluster host does not carry the token.
+- [x] 2.3 On a cluster `401`: a watch on `TransportFunc` invalidates that user,
+      and sqlds retries the query once (`Settings` lists the 401 as retryable)
+      with a fresh mint.
+- [x] 2.4 Native protocol: the credential is the connection's password and cannot
+      be swapped per request. Either refuse the mode for native with a clear
+      message, or key the pool on the exchanged token for native only. **Decided:
+      refused**, with a message saying the mode needs the http protocol. Native
+      binds its credential to the connection as a password, so a refreshed token
+      could never reach an open connection; a second, worse code path is not
+      worth shipping for a protocol the console's own datasources never use
+      (they are http, port 443, path /query).
+
+**The credential seam is built** — `exchange.Binding` plus the context-carried
+`Principal`. The mechanism that makes it work: the driver calls `GetJWT` with
+the context it builds the outbound request from (`conn_http.go`), so the
+query's context reaches the hook, and the principal can ride it. That is why
+the subject token needs no side map and no place in `connectionArgs`.
+
+Section 2 is built, including the wiring in `driver.go`. Six tests cover the
+wiring itself (`driver_exchange_test.go`), and every existing suite in the repo
+still passes. The diff in `models/settings.go` is one field and its comment; the
+rest of that file's diff is gofmt realigning the struct tags around a longer
+field name.
+
+## 3. Settings and health
+
+- [x] 3.1 `CredentialsType` gains the exchanging mode; `src/types.ts` and the
+      config editor follow. `oauthPassThru` is set for **both** forwarding modes
+      — Grafana forwards a token only when asked to, and the exchanging mode
+      then swaps it before querying. The mode asks for no credential at all:
+      the delegate lives in server configuration. Its one optional field is the
+      cluster audience, in `jsonData`, where nothing secret belongs; empty means
+      the host, which is the audience on every cluster the console registers
+      today. Seven tests in `ConfigEditor.exchange.test.tsx`; the repo's 332
+      frontend tests still pass.
+- [x] 3.2 Read the endpoint and the delegate credential from server config,
+      never from `jsonData`. **Built as a map, not four scalars.** Four names
+      can express one credential; a Grafana serving several clusters needs one
+      per cluster, so `GF_PLUGIN_EXCHANGE_CLIENT_SECRETS` is a JSON object keyed by
+      audience and `GF_PLUGIN_EXCHANGE_URL` is the endpoint
+      (`HDX_`-prefixed names accepted too, for deployments that set the
+      environment on the process rather than through Grafana's config). A
+      half-configured instance is a named error, not a silent fallback.
+- [x] 3.3 **Done, and it also fixes plain `forwardOAuth`.** Upstream runs the
+      check on the bootstrap connection, which has no user, so a working
+      forward-mode datasource reported degraded health — and a green tick would
+      have read as "your access works" when nothing about anyone's access was
+      tested. Both forwarding modes now answer with what can actually be
+      established: for the exchanging mode, whether this Grafana has an
+      exchange configuration at all, and in every case that a person's access
+      is proven by opening a panel, not here. Four tests. (It first also said
+      whether the delegate **for this cluster** was present; 5b.2 took that
+      out.)
+
+## 4. The gaps this mode inherits, named not assumed
+
+- [x] 4.1 **Shared metadata caches — confirmed, and it affects shipped
+      `forwardOAuth`, not just this mode.** `MetadataProvider` keys `pkCache` on
+      `database + "_" + table` and `keyCache` on the CTE reference
+      (`pkg/plugin/metadata.go`), both with a one-hour TTL, per datasource
+      instance. The caller's `headers` — carrying the user's token — reach the
+      cluster only on a **miss**. So one user's lookup populates the cache, and
+      for the next hour every other user of that datasource is served that
+      table's primary key and column name→type map without the cluster
+      authorizing them. Disclosure is schema shape, not rows.
+      - [x] 4.1a **Done.** Both caches key on `(forwarded identity, …)` through
+            `cacheScope`/`scopedKey` in `metadata.go`. The scope is the
+            forwarded token's subject — stable across a refresh, distinct
+            between people. A mode that forwards no identity yields an empty
+            scope and the bare key the cache has always used, because one
+            credential is one legitimate view. A forwarded token whose subject
+            cannot be read falls back to a digest of the token: wasteful across
+            refreshes, and the right way to be wrong, since the alternative
+            shares one entry between different people. The cache log lines now
+            name the table or CTE rather than the key, which carries a subject.
+      - [x] 4.1b Test: two users, one table, second user must reach the cluster.
+- [x] 4.2 **Tested live, and they do not lose the token.** This was the gating
+      question for package dashboards, not a detail: across the bundle corpus
+      `$__adHocFilter` appears 228 times and `$__timeFilter` 183, and each runs a
+      schema lookup that is itself a query needing the signed-in user. A
+      dashboard of `$__timeFilter()` (primary-key lookup), `$__adHocFilter()`
+      (DESCRIBE) and `$__conditionalAll` against a 484M-row table returned
+      numbers on every panel, with no refusal and no extra exchange — the
+      lookups rode the cached token, and repeats were served by the metadata
+      cache.
+      - What this did **not** cover: ad-hoc filter *key population* in the
+        editor, which is a frontend resource call rather than this backend path.
+        Worth a look before anyone calls the mode finished.
+- [ ] 4.3 (not blocking) `hdx-query-attribution` already exists as a spec in this repo; the
+      exchanged token's subject is the obvious thing to attribute a query to, and
+      the cluster records nothing per user today. Worth connecting the two.
+
+## 5. Verification
+
+**Proven live, 2026-10-02, against console-playpen with no shim in the path.**
+A signed-in user's dashboard returned rows: Django logged one
+`token_exchange_minted … delegate=grafana-playpen … expires_in=300` and the
+plugin logged six `status=ok` queries off that single mint — the
+one-exchange-per-dashboard property, measured on the real thing.
+
+Two defects the live run found, which no unit test would have:
+
+1. **`Connect` pinged the cluster.** `db.PingContext` at connect time is the
+   "server hello", and it ran for every mode except `forwardOAuth` — a literal
+   string comparison that a mode added later could not match. A connection whose
+   credential belongs to the signed-in user cannot be verified there: Connect has
+   no user in hand. Every query failed before it began. Now both forwarding modes
+   skip it, behind a named predicate rather than a string.
+2. **The query context does not reach the driver's handshake.** It is issued when
+   `database/sql` establishes the connection, with a context that is not the
+   query's, so a principal carried only on the context left the handshake with
+   nobody to be. The connection now also knows the subject that keys it, and a
+   registry supplies that person's newest forwarded token.
+
+One thing that looked like a defect and was not: Django answered 400
+`DisallowedHost` because the plugin calls `host.docker.internal` in this rig. A
+deployed Grafana calls the console's real hostname, which is already allowed.
+
+
+- [x] 5.1 Unit tests above, green under `mage test` / `go test ./...`.
+- [x] 5.2 Against a real cluster: a dashboard renders as the signed-in user; one
+      dashboard load causes one exchange per user; a 401 re-mints once; stopping
+      the console leaves panels working until the cached token expires and then
+      says so.
+- [x] 5.3 The control: the same user's **unexchanged** token sent to the cluster
+      is refused. If it is ever accepted, the audience isolation is broken and
+      this change is not what makes queries work. **Run 2026-10-02 against
+      playpen: refused.** So the exchange is what makes the query work, rather
+      than the cluster having accepted the console token all along.
+
+## 5b. Found by running the rig again (2026-10-05)
+
+- [x] 5b.1 **A reply carrying no OAuth error was reported as a refusal of the
+      person.** Django answered the rig's exchange URL with a 400
+      `DisallowedHost`, and the panel said the console had refused this account
+      access to the cluster. The facade answers every failure with a code from
+      its own vocabulary, so a body without one did not come from the facade:
+      a wrong exchange URL, something in front of it, or a host the console
+      rejects. Those are the operator's problem, and calling one a refusal
+      sends somebody to look at permissions when the cause is the URL.
+      `classify`'s default is now `ErrMisconfigured`, whose sentinel widened
+      from "no delegate credential" to cover the whole family. Four cases
+      tested, plus the counterpart that a real OAuth error still reads as a
+      refusal.
+      - Worth noting *why* only a live run finds this: every unit test fed the
+        classifier a well-formed facade error, because that is what the facade
+        returns. Nothing was wrong with the tests; the case they missed was one
+        the facade cannot produce.
+- [x] 5b.2 **Save & test was a yes/no oracle on the credential map** (PR
+      review, 2026-10-21). The health check answered "no delegate for
+      `<host>`" or "configured for `<host>`", so on a shared Grafana an org
+      admin could name any cluster hostname and learn whether another
+      customer's cluster is served by the same instance. Health now checks
+      only that an exchange configuration exists at all, which is the same
+      answer for every host, and no longer names the host; a host with no
+      delegate passes Save & test and fails in its first panel. The
+      `ErrMisconfigured` sentinel and the no-credential error no longer say
+      "for this cluster" or carry the audience, for the same reason.
+      `ConfiguredFor` had no other caller and is gone. Two health cases
+      (delegate present, delegate absent) assert the identical result.
+      - Not closed here, and said so in the thread: a panel still distinguishes
+        a plugin-sourced misconfiguration from a downstream refusal, and the
+        no-delegate path returns without a round trip. Closing those means
+        either presenting a missing delegate as a refusal, which the failure
+        table in the design rejects, or an audience-to-org mapping in server
+        configuration, which the reviewer proposed and the console side has to
+        weigh.
+- [x] 5b.3 **The token cache never shrank** (PR review, 2026-10-21). Entries
+      are keyed on the person, so the map grew by one per (cluster, person)
+      pair ever seen and only a cluster 401 removed one; the generation map
+      beside it was never pruned at all. Slow, bounded by the population
+      rather than by time, and real. The generation now lives on the entry,
+      `Invalidate` empties the entry instead of deleting it, and every write
+      under the lock drops entries whose token is unusable and that nobody
+      has written to for an hour, as the principals registry already did.
+      An hour is far above the 30 s exchange ceiling, so no flight can
+      straddle a prune and lose the invalidation it captured. Two tests on
+      the hand-wound clock: fifty-two stale entries go on the first write
+      past the idle limit while a younger one and a still-usable one stay,
+      and an invalidation keeps its generation against a flight after its
+      token is gone.
+- [x] 5b.4 **The connectionArgs rewrite failed open** (PR review, 2026-10-21).
+      When `jsonSet` could not patch a query's JSON, `MutateQueryData` logged
+      and moved on, leaving the query as the browser sent it, so a
+      client-supplied `connectionArgs` would have reached sqlds and chosen
+      the connection, which in this mode is a person's cluster token. Both
+      sides decode with encoding/json, which made the gap look narrow, but
+      it was reachable: the generic map decode converts every number to a
+      float64 and fails on one out of range, while sqlds's struct decode
+      skips an unknown field without converting it and keeps
+      `connectionArgs` raw. `{"rawSql":"SELECT 1","connectionArgs":
+      {"sub":"<victim>"},"x":1e999}` failed `jsonSet`, took the `continue`,
+      and reached sqlds with the victim's subject intact (confirmed by
+      running the new test against the old branch: red). On a failed patch
+      the query now carries only the patches, our key and no SQL, so sqlds
+      refuses it. `jsonSet` also returns an error on a JSON `null`, which
+      decoded into a nil map and would have panicked on the first
+      assignment. Seven malformed shapes tested, the two number ones
+      included, each with and without a forwarded token.
+- [x] 5b.5 **A cache hit stood in for a verification the console never did**
+      (PR review, 2026-10-21). The subject claim is read without checking the
+      token's signature, and the source served a cached cluster token to any
+      forwarded token naming the right `iss|sub`. The boundary argument (the
+      header is set server-side by Grafana from its own session, so a forged
+      claim already means Grafana is forwarding attacker-chosen tokens) is
+      true and was not leaned on. Each entry now remembers a SHA-256 of the
+      forwarded token it was minted from and is answered only to that exact
+      string; the hash is folded into "usable", so a mismatched entry is
+      neither served nor served as the token in hand when a refresh fails
+      transiently, and the singleflight key carries it, so a dashboard load
+      straddling a refresh makes one exchange per token. Pool key,
+      `Invalidate` and `Principals` still key on the subject, which picks a
+      slot and decides nothing. Cost: one exchange per Grafana refresh per
+      person per cluster, coalesced across a dashboard. Spec and design
+      updated to say so. Three tests: a refreshed token is exchanged afresh,
+      an unverified token is never served the token in hand, two tokens in
+      flight make two exchanges.
+- [x] 5b.6 **One error shape for the exchange** (review, 2026-10-21). The
+      package reported failures by wrapping one of three sentinels with a
+      detail, and the driver walked the chain to "the error directly above
+      the sentinel" to find the detail for the panel. A bare sentinel, which
+      the no-delegate path and the refusal memory both returned, put the
+      fork's "failed to get JWT" wrapper at that level, and the panel showed
+      the driver's plumbing. `exchange.Error{Outcome, Detail, Cause}` is now
+      the only shape; `ErrRefused`, `ErrUnavailable` and `ErrMisconfigured`
+      are its bare values and still the targets for `errors.Is`, so no
+      caller changed. The driver finds the reason with one `errors.As`; the
+      walk, its identity compare and its `nolint` are gone. Tests: a bare
+      outcome and a detailed one both reach the panel as the message.
+- [x] 5b.7 **The slot is a type** (review, 2026-10-21). `(audience, subject)`
+      travelled as two strings through `key`, `Invalidate`, `Lookup` and
+      `Bind`, and `Source.Token` took all three of `Principal`'s fields as
+      positional strings that its one caller pulled out of a `Principal` it
+      already held. `Binding.Bound` was a `Principal` whose token was always
+      empty. `exchange.Slot{Audience, Subject}` is now what the cache, the
+      registry and a connection key on, `Principal` embeds it with the
+      token, and `Token` takes the `Principal`. The private `exchange` takes
+      the hash `Token` already computed instead of hashing the token again.
+
+## 6. Landing
+
+- [x] 6.1 Spec deltas under `specs/`: the new `console-token-exchange`
+      capability, and the `hdx-oauth-keyed-pooling` modification — the
+      exchanging mode keys the pool on the subject, while `forwardOAuth` keys
+      on the token as before.
+- [x] 6.2 `README` documents the mode and the two environment variables. Nobody
+      can deploy this by reading the source.
+- [x] 6.3 `CHANGELOG` entry for the feature and for the health-check fix, which
+      lands for plain `forwardOAuth` users too.
+- [x] 6.4 e2e: `tests/configEditorCredentials.spec.ts` — each credentials mode
+      asks for its own fields, and the exchanging mode asks for no credential
+      at all, which is the property that would be broken silently.
+- [x] 6.5 **Run: 61 passed, 0 failed** against Grafana 13.2.1, the new spec
+      included. One trap worth recording for the next person: run it as CI
+      does, `docker compose run --rm playwright`, not on the host. Two tests
+      reach ClickHouse directly at its container hostname, and
+      `CLICKHOUSE_HOSTNAME` is read both for that and for the datasource's own
+      host — which the plugin resolves from inside Grafana — so no host-side
+      value satisfies both. Run on the host, those two fail for reasons that
+      have nothing to do with the change.
+- [x] 6.6a The `Connect`, pooling and metadata-cache changes touch every mode,
+      so the question was whether the ordinary ones still work. The full e2e
+      suite drives them end to end — config save and test, queries, macros,
+      ad-hoc filters, annotations, template variables — and passes.
+- [x] 6.6b **Answered twice, and the first answer was wrong.** Ad-hoc filter
+      key population is not a resource call: the frontend's `getTagKeys` goes
+      through `metadataProvider`'s query runner, which calls `ds.query(...)`,
+      the ordinary `/api/ds/query` path. That part stands.
+
+      What did not stand was the claim that `/interpolate` carries the user
+      too. It did not. `Interpolate` set the identity on `HdxQuery.Headers`
+      and then marshalled the query, and that field is `json:"-"`, so it was
+      dropped before the interpolator ever saw it; nothing put it on a context
+      either. I traced `executeQuery` to `ds.QueryData` to `MutateQueryData`
+      and stopped there, without asking whether anything upstream had put
+      identity on that request. For a panel it had. For a resource call it had
+      not.
+
+      Two things followed from that one gap, and both are fixed by carrying
+      the identity on the context (`pkg/identity`): the metadata cache scope
+      was always empty, so every user shared one entry; and a macro's metadata
+      lookup reached the cluster with no credential, which on a cold cache is
+      a failed lookup rather than a slow one.
+
+      The tests now drive the entry points and were checked by making the fix
+      inert and watching them go red. The earlier ones passed by calling
+      `GetKeys` and `GetPK` directly, which is exactly the shape of test that
+      cannot catch an identity dropped on the way in.
+- [x] 6.7 e2e, the whole path: `tests/exchangeCredentials.spec.ts` drives a
+      person through the stack's Keycloak, a datasource in the exchanging
+      mode, and a dashboard, against `e2e/exchange-stub` standing in for the
+      console's facade and for a cluster that takes a bearer. Three things
+      the unit tests cannot hold: that Grafana renders the two
+      `[plugin.<id>]` keys (`e2e/grafana.ini`, valued from the compose
+      environment) into the plugin process; that Save & test and a panel
+      both work on that configuration; and that under success, a cluster
+      401 and a refusal alike, the sign-in token never reaches the cluster —
+      the stub remembers every subject_token it was shown and records a
+      cluster request carrying one as `auth: "sign-in"`. Runs only in the
+      compose stack; the CI compose file has neither Keycloak nor the stub.
+      **Run 2026-10-16: 3 passed** against the dev image (Grafana 13.3.0).
+      Two things the first runs taught, both now in the files: Grafana merges
+      a custom ini onto its defaults key by key and SKIPS an empty value
+      (`loadSpecifiedConfigFile`), so the two declared keys carry
+      placeholders rather than nothing; and the dev image's anonymous auth
+      sends a fresh browser from `/login` to the home page, so the spec
+      starts the OAuth flow at `/login/generic_oauth` directly. Also found:
+      the compose file had been mounting `grafana-realm.json` as an EMPTY
+      DIRECTORY (Docker creates one when the file is missing), so the
+      stack's Keycloak had never had a realm; it does now.
+- [x] 6.8 e2e, the operator's view: `tests/exchangeSettingsRedaction.spec.ts`
+      reads `/api/admin/settings` as the server admin and asserts the
+      `[plugin.<id>]` credentials key is shown masked while `exchange_url`
+      is shown as written. Grafana masks a setting only when its key matches
+      one of `setting.RedactedValue`'s patterns, which is why the key is
+      `exchange_client_secrets` (reviewer's ask on #234; the earlier
+      `exchange_credentials` matched none and showed the delegate secrets to
+      every server admin). The pattern list carries `SECRET` on every Grafana
+      in the regression matrix (11.6.16 through 13.2.1 and main). Runs in
+      both stacks, no stub needed. **Run 2026-10-22: passed** on 13.2.1.

@@ -11,8 +11,15 @@ import {
 } from "__mocks__/datasource";
 import { adHocTableVariable, fooVariable } from "./__mocks__/variable";
 import { AdHocFilterKeys, HdxQuery } from "./types";
-import { DataSource } from "./datasource";
-import { AD_HOC_PRELOAD_LOOKBACK_SECONDS } from "./constants";
+import {
+  DataSource,
+  qualifiedTableName,
+  splitTableName,
+} from "./datasource";
+import {
+  AD_HOC_PRELOAD_LOOKBACK_SECONDS,
+  AD_HOC_PRELOAD_ROUND_INTERVAL,
+} from "./constants";
 
 describe("HdxDataSource", () => {
   beforeEach(() => {
@@ -108,6 +115,13 @@ describe("HdxDataSource", () => {
       variables: [adHocTableVariable],
     });
     const getKeysMock = jest.spyOn(datasource.metadataProvider, "tableKeys");
+    // These cases exercise value and synthetic-entry handling on a keyed
+    // table. Without a stub the first `queryMock` answer would be consumed by
+    // the primary-key lookup and memoized on this shared datasource, changing
+    // the branch every later case takes.
+    jest
+      .spyOn(datasource.metadataProvider, "primaryKey")
+      .mockResolvedValue("ts");
 
     it("should return keys", async () => {
       let response = ["key1", "key2", "key3"].map(
@@ -564,6 +578,112 @@ describe("HdxDataSource", () => {
     });
   });
 
+  describe("splitTableName", () => {
+    test.each([
+      { name: "logs", parts: ["logs"] },
+      { name: "akamai.logs", parts: ["akamai", "logs"] },
+      { name: "akamai.`logs#redacted`", parts: ["akamai", "logs#redacted"] },
+      { name: "`akamai`.`logs`", parts: ["akamai", "logs"] },
+      { name: '"akamai"."logs"', parts: ["akamai", "logs"] },
+      { name: "akamai.`my.logs`", parts: ["akamai", "my.logs"] },
+      { name: "`my.logs`", parts: ["my.logs"] },
+      { name: "`a.b`.c", parts: ["a.b", "c"] },
+      { name: "akamai . `logs`", parts: ["akamai", "logs"] },
+      { name: "a.b.c", parts: ["a", "b.c"] },
+    ])("$name", ({ name, parts }) => {
+      expect(splitTableName(name)).toEqual(parts);
+    });
+  });
+
+  describe("qualifiedTableName", () => {
+    test.each([
+      { name: "logs", qualified: "sample.logs" },
+      { name: "akamai.logs", qualified: "akamai.logs" },
+      { name: "akamai.logs#redacted", qualified: "akamai.`logs#redacted`" },
+      { name: "akamai.`logs#redacted`", qualified: "akamai.`logs#redacted`" },
+      { name: "`my.logs`", qualified: "sample.`my.logs`" },
+      { name: "my-db.logs", qualified: "`my-db`.logs" },
+      { name: '"a`b".logs', qualified: undefined },
+    ])("$name", ({ name, qualified }) => {
+      expect(qualifiedTableName(name, "sample")).toBe(qualified);
+    });
+  });
+
+  describe("ad hoc values for a quoted table name or custom view", () => {
+    const SYSTEM_TABLES: Record<string, string> = {
+      "akamai.logs": "_timestamp",
+      "akamai.logs#redacted": "_timestamp",
+      "akamai.my.logs": "_timestamp",
+      "sample.logs#redacted": "_timestamp",
+      "sample.my.logs": "_timestamp",
+    };
+    const PK_LOOKUP = /database='([^']*)' AND table ='([^']*)'/;
+
+    function setup(table: string) {
+      const variable = {
+        ...adHocTableVariable,
+        current: { value: table, text: table, selected: true },
+        options: [{ value: table, text: table, selected: true }],
+      };
+      const mock = setupDataSourceMock({ variables: [variable] });
+      jest
+        .spyOn(mock.datasource.metadataProvider, "tableKeys")
+        .mockResolvedValue([
+          { text: "reqHost", value: "reqHost", type: "String" },
+        ] as AdHocFilterKeys[]);
+      mock.queryMock.mockImplementation((request) => {
+        const lookup = request.targets[0].rawSql.match(PK_LOOKUP);
+        const values = lookup
+          ? [SYSTEM_TABLES[`${lookup[1]}.${lookup[2]}`]].filter(Boolean)
+          : ["a.example.com"];
+        return of({ data: [toDataFrame({ fields: [{ values }] })] });
+      });
+      queryMock = mock.queryMock;
+      return mock;
+    }
+
+    // queryMock is shared by every DataSource in this file; put back the
+    // default answer so the fake cluster does not leak into later cases.
+    let queryMock: jest.Mock | undefined;
+    afterEach(() => queryMock?.mockReturnValue(of({ data: [] })));
+
+    const cases = [
+      { table: "akamai.logs", from: "akamai.logs" },
+      { table: "akamai.`logs#redacted`", from: "akamai.`logs#redacted`" },
+      { table: "akamai.logs#redacted", from: "akamai.`logs#redacted`" },
+      { table: "akamai.`logs`", from: "akamai.logs" },
+      { table: "`akamai`.`logs`", from: "akamai.logs" },
+      { table: '"akamai"."logs"', from: "akamai.logs" },
+      { table: "akamai.`my.logs`", from: "akamai.`my.logs`" },
+      { table: "akamai . `logs`", from: "akamai.logs" },
+      { table: "`logs#redacted`", from: "sample.`logs#redacted`" },
+      { table: "logs#redacted", from: "sample.`logs#redacted`" },
+      { table: "`my.logs`", from: "sample.`my.logs`" },
+    ];
+
+    test.each(cases)(
+      "$table resolves its key and sends the value query",
+      async ({ table, from }) => {
+        const { datasource, queryMock } = setup(table);
+
+        const values = await datasource.getTagValues({
+          key: "reqHost",
+          filters: [],
+        });
+
+        expect(values).toEqual([
+          { text: "a.example.com", value: "a.example.com" },
+        ]);
+        const valueQuery = queryMock.mock.calls
+          .map(([request]) => request.targets[0].rawSql)
+          .find((sql: string) => !PK_LOOKUP.test(sql));
+        expect(valueQuery).toContain(
+          `FROM ${from} WHERE $__timeFilter(_timestamp) AND`
+        );
+      }
+    );
+  });
+
   it("should process error", async () => {
     const { datasource, queryMock } = setupDataSourceMock({});
     queryMock.mockReturnValue(
@@ -920,30 +1040,62 @@ describe("HdxDataSource", () => {
     });
   });
 
+  const STRING_KEY = {
+    text: "key1",
+    value: "key1",
+    type: "String",
+  } as AdHocFilterKeys;
+  const MAP_KEY = {
+    text: "labels",
+    value: "labels",
+    type: "Map(String, String)",
+  } as AdHocFilterKeys;
+
+  /**
+   * One builder for every preload test. `primaryKey` is what the memoized
+   * lookup resolves to ("ts" for a keyed table, "" for a keyless one) or a
+   * rejection when the lookup itself fails; `keys` is the DESCRIBE result;
+   * `values` is the single-column response every preload query returns.
+   */
+  function setupPreloadMock({
+    primaryKey = "ts",
+    keys = [STRING_KEY],
+    values = [],
+  }: {
+    primaryKey?: string | Error;
+    keys?: AdHocFilterKeys[];
+    values?: unknown[];
+  } = {}) {
+    const mock = setupDataSourceMock({ variables: [adHocTableVariable] });
+    jest
+      .spyOn(mock.datasource.metadataProvider, "tableKeys")
+      .mockReturnValue(Promise.resolve(keys));
+    const primaryKeyMock = jest
+      .spyOn(mock.datasource.metadataProvider, "primaryKey")
+      .mockImplementation(() =>
+        primaryKey instanceof Error
+          ? Promise.reject(primaryKey)
+          : Promise.resolve(primaryKey)
+      );
+    mock.queryMock.mockReturnValue(
+      of({ data: [toDataFrame({ fields: [{ values }] })] })
+    );
+    return { ...mock, primaryKeyMock };
+  }
+
+  function makeRange(fromMs: number, toMs: number) {
+    const from = dateTime(fromMs);
+    const to = dateTime(toMs);
+    return { from, to, raw: { from, to } };
+  }
+
   describe("preload time range capping", () => {
     beforeEach(() => {
       jest.clearAllMocks();
     });
 
-    function makeRange(fromMs: number, toMs: number) {
-      const from = dateTime(fromMs);
-      const to = dateTime(toMs);
-      return { from, to, raw: { from, to } };
-    }
-
     it("caps a 90-day range to the trailing 24h for getTagValues", async () => {
-      const { datasource, queryMock } = setupDataSourceMock({
-        variables: [adHocTableVariable],
-      });
-      jest.spyOn(datasource.metadataProvider, "tableKeys").mockReturnValue(
-        Promise.resolve([
-          { text: "key1", value: "key1", type: "String" },
-        ] as AdHocFilterKeys[])
-      );
-      jest
-        .spyOn(datasource.metadataProvider, "primaryKey")
-        .mockReturnValue(Promise.resolve("ts"));
-      queryMock.mockReturnValue(of({ data: [] }));
+      const { datasource, queryMock } = setupPreloadMock();
 
       const to = 1_700_000_000_000;
       const from = to - 90 * 24 * 60 * 60 * 1000;
@@ -961,18 +1113,7 @@ describe("HdxDataSource", () => {
     });
 
     it("leaves a 6-hour range untouched for getTagValues", async () => {
-      const { datasource, queryMock } = setupDataSourceMock({
-        variables: [adHocTableVariable],
-      });
-      jest.spyOn(datasource.metadataProvider, "tableKeys").mockReturnValue(
-        Promise.resolve([
-          { text: "key1", value: "key1", type: "String" },
-        ] as AdHocFilterKeys[])
-      );
-      jest
-        .spyOn(datasource.metadataProvider, "primaryKey")
-        .mockReturnValue(Promise.resolve("ts"));
-      queryMock.mockReturnValue(of({ data: [] }));
+      const { datasource, queryMock } = setupPreloadMock();
 
       const to = 1_700_000_000_000;
       const from = to - 6 * 60 * 60 * 1000;
@@ -989,22 +1130,8 @@ describe("HdxDataSource", () => {
 
     // makeRange builds an absolute `raw`, so these two use relative
     // expressions: the cap must only rewrite `raw` on ranges it actually caps.
-    function setupValuesMock() {
-      const mock = setupDataSourceMock({ variables: [adHocTableVariable] });
-      jest.spyOn(mock.datasource.metadataProvider, "tableKeys").mockReturnValue(
-        Promise.resolve([
-          { text: "key1", value: "key1", type: "String" },
-        ] as AdHocFilterKeys[])
-      );
-      jest
-        .spyOn(mock.datasource.metadataProvider, "primaryKey")
-        .mockReturnValue(Promise.resolve("ts"));
-      mock.queryMock.mockReturnValue(of({ data: [] }));
-      return mock;
-    }
-
     it("preserves a relative raw range when nothing is capped", async () => {
-      const { datasource, queryMock } = setupValuesMock();
+      const { datasource, queryMock } = setupPreloadMock();
 
       const to = 1_700_000_000_000;
       const from = to - 6 * 60 * 60 * 1000;
@@ -1023,7 +1150,7 @@ describe("HdxDataSource", () => {
     });
 
     it("rewrites raw.from to the capped instant on a capped range", async () => {
-      const { datasource, queryMock } = setupValuesMock();
+      const { datasource, queryMock } = setupPreloadMock();
 
       const to = 1_700_000_000_000;
       const from = to - 90 * 24 * 60 * 60 * 1000;
@@ -1046,16 +1173,14 @@ describe("HdxDataSource", () => {
     });
 
     it("caps the supplied range for getTagKeysForMap on a long dashboard range", async () => {
-      const { datasource, queryMock } = setupDataSourceMock({
-        variables: [adHocTableVariable],
-      });
-      queryMock.mockReturnValue(of({ data: [] }));
+      const { datasource, queryMock } = setupPreloadMock({ keys: [MAP_KEY] });
 
       const to = 1_700_000_000_000;
       const from = to - 90 * 24 * 60 * 60 * 1000;
       await datasource.getTagKeysForMap(
         "labels",
         "sample.table",
+        "ts",
         makeRange(from, to) as any
       );
 
@@ -1067,18 +1192,7 @@ describe("HdxDataSource", () => {
     });
 
     it("caps range.raw.from alongside range.from for getTagValues", async () => {
-      const { datasource, queryMock } = setupDataSourceMock({
-        variables: [adHocTableVariable],
-      });
-      jest.spyOn(datasource.metadataProvider, "tableKeys").mockReturnValue(
-        Promise.resolve([
-          { text: "key1", value: "key1", type: "String" },
-        ] as AdHocFilterKeys[])
-      );
-      jest
-        .spyOn(datasource.metadataProvider, "primaryKey")
-        .mockReturnValue(Promise.resolve("ts"));
-      queryMock.mockReturnValue(of({ data: [] }));
+      const { datasource, queryMock } = setupPreloadMock();
 
       const to = 1_700_000_000_000;
       const from = to - 90 * 24 * 60 * 60 * 1000;
@@ -1098,15 +1212,7 @@ describe("HdxDataSource", () => {
     });
 
     it("caps the tag-keys range supplied by Grafana for map-key discovery", async () => {
-      const { datasource, queryMock } = setupDataSourceMock({
-        variables: [adHocTableVariable],
-      });
-      jest.spyOn(datasource.metadataProvider, "tableKeys").mockReturnValue(
-        Promise.resolve([
-          { text: "labels", value: "labels", type: "Map(String, String)" },
-        ] as AdHocFilterKeys[])
-      );
-      queryMock.mockReturnValue(of({ data: [] }));
+      const { datasource, queryMock } = setupPreloadMock({ keys: [MAP_KEY] });
 
       const to = 1_700_000_000_000;
       const from = to - 90 * 24 * 60 * 60 * 1000;
@@ -1122,23 +1228,15 @@ describe("HdxDataSource", () => {
       expect(sentRange.to.valueOf()).toBe(to);
     });
 
-    function setupMapKeysMock() {
-      const mock = setupDataSourceMock({ variables: [adHocTableVariable] });
-      jest.spyOn(mock.datasource.metadataProvider, "tableKeys").mockReturnValue(
-        Promise.resolve([
-          { text: "labels", value: "labels", type: "Map(String, String)" },
-        ] as AdHocFilterKeys[])
-      );
-      mock.queryMock.mockReturnValue(of({ data: [] }));
-      return mock;
-    }
-
-    // Grafana 10.4 (the declared floor) does not populate `timeRange` on the
-    // tag-keys options, so the template service is the only route to the
-    // dashboard window there. Covered end-to-end by adHocMapKeys.spec.ts,
-    // which fails on 10.4.18 without this fallback.
+    // Defensive fallback, pinned here because its failure mode is silent:
+    // every Grafana at or above the >=11.0.0 floor populates `timeRange` on
+    // the tag-keys options, but an unresolved range yields a relative window,
+    // no rows, and a column that vanishes from the dropdown without an error.
+    // Covered end-to-end by adHocMapKeys.spec.ts.
     it("falls back to the template service range for tag-keys preload", async () => {
-      const { datasource, queryMock, templateService } = setupMapKeysMock();
+      const { datasource, queryMock, templateService } = setupPreloadMock({
+        keys: [MAP_KEY],
+      });
 
       const to = 1_700_000_000_000;
       const from = to - 90 * 24 * 60 * 60 * 1000;
@@ -1175,7 +1273,9 @@ describe("HdxDataSource", () => {
     it.each(malformedRanges)(
       "ignores a malformed template service range (%s)",
       async (_label, malformed) => {
-        const { datasource, queryMock, templateService } = setupMapKeysMock();
+        const { datasource, queryMock, templateService } = setupPreloadMock({
+          keys: [MAP_KEY],
+        });
 
         (templateService as any).timeRange = malformed;
 
@@ -1192,27 +1292,12 @@ describe("HdxDataSource", () => {
       }
     );
 
-    // ZERO_TIME_RANGE means "this metadata query has no time macro". Both
-    // preload statements carry $__timeFilter(), so the sentinel would resolve
-    // to a 1970 window, return no rows, and silently erase the Map column from
-    // the dropdown. Neither preload path may reach it.
-    function setupNoRangeMock() {
-      const mock = setupDataSourceMock({ variables: [adHocTableVariable] });
-      // One setup serves both entry points: a Map column for key expansion and
-      // a scalar column (plus a primary key) for value lookup.
-      jest.spyOn(mock.datasource.metadataProvider, "tableKeys").mockReturnValue(
-        Promise.resolve([
-          { text: "labels", value: "labels", type: "Map(String, String)" },
-          { text: "key1", value: "key1", type: "String" },
-        ] as AdHocFilterKeys[])
-      );
-      jest
-        .spyOn(mock.datasource.metadataProvider, "primaryKey")
-        .mockReturnValue(Promise.resolve("ts"));
-      mock.queryMock.mockReturnValue(of({ data: [] }));
-      return mock;
-    }
-
+    // ZERO_TIME_RANGE means "this metadata query has no time macro". The
+    // time-filtered statements carry $__timeFilter(), so the sentinel would
+    // resolve to a 1970 window, return no rows, and silently erase the Map
+    // column from the dropdown. Neither preload path may reach it while the
+    // target table resolves a primary key.
+    //
     // Both entry points must keep the *fallback*, not just the cap: the capping
     // tests above still pass when a call site bypasses adHocPreloadRange, so
     // each entry point needs its own no-range case. Losing the fallback on one
@@ -1230,7 +1315,11 @@ describe("HdxDataSource", () => {
     it.each(noRangeEntryPoints)(
       "falls back to a trailing 24h window for %s with no range",
       async (_label, call) => {
-        const { datasource, queryMock, templateService } = setupNoRangeMock();
+        // One setup serves both entry points: a Map column for key expansion
+        // and a scalar column (plus a primary key) for value lookup.
+        const { datasource, queryMock, templateService } = setupPreloadMock({
+          keys: [MAP_KEY, STRING_KEY],
+        });
         // Neither source offers a range: options carries none and the template
         // service has none either.
         expect((templateService as any).timeRange).toBeUndefined();
@@ -1245,6 +1334,586 @@ describe("HdxDataSource", () => {
         );
       }
     );
+  });
+
+  describe("configurable ad hoc lookback", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    const HOUR_MS = 60 * 60 * 1000;
+    const DAY_MS = 24 * HOUR_MS;
+    const TO = 1_700_000_000_000;
+
+    function makeRange(fromMs: number, toMs: number) {
+      const from = dateTime(fromMs);
+      const to = dateTime(toMs);
+      return { from, to, raw: { from, to } };
+    }
+
+    function setupLookbackMock(jsonDataOverrides: Record<string, unknown>) {
+      const mock = setupDataSourceMock({
+        variables: [adHocTableVariable],
+        customInstanceSettings: {
+          ...MockDataSourceInstanceSettings,
+          jsonData: {
+            ...MockDataSourceInstanceSettings.jsonData,
+            ...jsonDataOverrides,
+          },
+        },
+      });
+      jest.spyOn(mock.datasource.metadataProvider, "tableKeys").mockReturnValue(
+        Promise.resolve([
+          { text: "labels", value: "labels", type: "Map(String, String)" },
+          { text: "key1", value: "key1", type: "String" },
+        ] as AdHocFilterKeys[])
+      );
+      jest
+        .spyOn(mock.datasource.metadataProvider, "primaryKey")
+        .mockReturnValue(Promise.resolve("ts"));
+      mock.queryMock.mockReturnValue(of({ data: [] }));
+      return mock;
+    }
+
+    async function valuesRange(
+      jsonDataOverrides: Record<string, unknown>,
+      timeRange?: ReturnType<typeof makeRange>
+    ) {
+      const { datasource, queryMock } = setupLookbackMock(jsonDataOverrides);
+      await datasource.getTagValues({
+        key: "key1",
+        filters: [],
+        timeRange,
+      } as any);
+      return queryMock.mock.calls[0][0];
+    }
+
+    it("caps a 6h range to a configured 1h lookback", async () => {
+      const req = await valuesRange(
+        { adHocTimeRangeLookback: "1h" },
+        makeRange(TO - 6 * HOUR_MS, TO)
+      );
+      expect(req.range.from.valueOf()).toBe(TO - HOUR_MS);
+      expect(req.range.to.valueOf()).toBe(TO);
+    });
+
+    it("falls back to a 1h window with no range and a 1h lookback", async () => {
+      const req = await valuesRange({ adHocTimeRangeLookback: "1h" });
+      expect(req.range.to.valueOf() - req.range.from.valueOf()).toBe(HOUR_MS);
+    });
+
+    // 7d: not advertised, but accepted for existing and provisioned values.
+    it("leaves a 3-day range untouched with a 7d lookback", async () => {
+      const req = await valuesRange(
+        { adHocTimeRangeLookback: "7d" },
+        makeRange(TO - 3 * DAY_MS, TO)
+      );
+      expect(req.range.from.valueOf()).toBe(TO - 3 * DAY_MS);
+    });
+
+    it("caps a 90-day range to a configured 7d lookback", async () => {
+      const req = await valuesRange(
+        { adHocTimeRangeLookback: "7d" },
+        makeRange(TO - 90 * DAY_MS, TO)
+      );
+      expect(req.range.from.valueOf()).toBe(TO - 7 * DAY_MS);
+      expect(req.targets[0].rawSql).toContain(
+        `hdx_query_max_timerange_sec = ${7 * 86400 + 600}`
+      );
+    });
+
+    // Provisioned values never pass through the config editor, so the runtime
+    // fallback is the only guard: `24` must not become a 24-second window, and
+    // a YAML number must not throw.
+    it.each<[string, unknown]>([
+      ["a bare number string", "24"],
+      ["a provisioned number", 86400],
+    ])("treats %s as the 24h default", async (_label, value) => {
+      const req = await valuesRange(
+        { adHocTimeRangeLookback: value },
+        makeRange(TO - 90 * DAY_MS, TO)
+      );
+      expect(req.range.from.valueOf()).toBe(
+        TO - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+      expect(req.targets[0].rawSql).toContain(
+        "hdx_query_max_timerange_sec = 87000"
+      );
+    });
+
+    it("treats an invalid lookback as the 24h default", async () => {
+      const req = await valuesRange(
+        { adHocTimeRangeLookback: "abc" },
+        makeRange(TO - 90 * DAY_MS, TO)
+      );
+      expect(req.range.from.valueOf()).toBe(
+        TO - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+      expect(req.targets[0].rawSql).toContain(
+        "hdx_query_max_timerange_sec = 87000"
+      );
+    });
+
+    it("sizes the getTagValues guardrail from the lookback", async () => {
+      const req = await valuesRange({ adHocTimeRangeLookback: "1h" });
+      expect(req.targets[0].rawSql).toContain(
+        "hdx_query_max_timerange_sec = 4200"
+      );
+    });
+
+    it("sizes the map-key guardrail and window from the lookback", async () => {
+      const { datasource, queryMock } = setupLookbackMock({
+        adHocTimeRangeLookback: "1h",
+      });
+      await datasource.getTagKeys({
+        filters: [],
+        timeRange: makeRange(TO - 6 * HOUR_MS, TO) as any,
+      });
+      const req = queryMock.mock.calls[0][0];
+      expect(req.targets[0].rawSql).toContain("mapKeys(labels)");
+      expect(req.targets[0].rawSql).toContain(
+        "hdx_query_max_timerange_sec = 4200"
+      );
+      expect(req.range.from.valueOf()).toBe(TO - HOUR_MS);
+    });
+
+    it("ignores a stale adHocDefaultTimeRange left in jsonData", async () => {
+      // What an old `now-5m` backfill looks like after Grafana stores it.
+      const stale = JSON.parse(
+        JSON.stringify({
+          adHocDefaultTimeRange: {
+            from: dateTime(TO - 5 * 60 * 1000),
+            to: dateTime(TO),
+            raw: { from: "now-5m", to: "now" },
+          },
+        })
+      );
+      const req = await valuesRange(stale);
+      expect(req.range.to.valueOf() - req.range.from.valueOf()).toBe(
+        AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+      expect(req.targets[0].rawSql).toContain(
+        "hdx_query_max_timerange_sec = 87000"
+      );
+    });
+  });
+
+  describe("preload on a table with no primary key", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    const NINETY_DAYS = {
+      from: dateTime(1_700_000_000_000 - 90 * 24 * 3600 * 1000),
+      to: dateTime(1_700_000_000_000),
+      raw: { from: "now-90d", to: "now" },
+    };
+    const SETTINGS_SUFFIX =
+      "SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000";
+
+    // No range passed means executeQuery substitutes ZERO_TIME_RANGE, a
+    // zero-width 1970 window - correct only because the keyless statement
+    // carries no time macro to expand against it.
+    function expectZeroRange(request: DataQueryRequest<HdxQuery>) {
+      expect(request.range.from.valueOf()).toBe(0);
+      expect(request.range.to.valueOf()).toBe(0);
+    }
+
+    it("getTagValues returns the response values without a time filter", async () => {
+      const { datasource, queryMock } = setupPreloadMock({
+        primaryKey: "",
+        values: ["ok", "error"],
+      });
+
+      const values = await datasource.getTagValues({
+        key: "key1",
+        filters: [],
+        timeRange: NINETY_DAYS,
+      } as any);
+
+      expect(values).toEqual([
+        { text: "ok", value: "ok" },
+        { text: "error", value: "error" },
+      ]);
+
+      expect(queryMock).toHaveBeenCalledTimes(1);
+      const request = queryMock.mock.calls[0][0];
+      expect(request.targets[0].rawSql).not.toContain("$__timeFilter");
+      expect(request.targets[0].rawSql).toContain("topK(100)(key1)");
+      expect(request.targets[0].rawSql).toContain("$__adHocFilter()");
+      expect(request.targets[0].rawSql.endsWith(SETTINGS_SUFFIX)).toBe(true);
+      expectZeroRange(request);
+    });
+
+    it("getTagValues still gates the synthetic values", async () => {
+      const { datasource } = setupPreloadMock({
+        primaryKey: "",
+        keys: [{ ...STRING_KEY, type: "Nullable(String)" } as AdHocFilterKeys],
+        values: ["ok", ""],
+      });
+
+      const values = await datasource.getTagValues({
+        key: "key1",
+        filters: [],
+      } as any);
+
+      expect(values).toEqual([
+        { text: "ok", value: "ok" },
+        { text: "__empty__", value: "__empty__" },
+        { text: "__null__", value: "__null__" },
+      ]);
+    });
+
+    it("getTagKeysForMap builds the keyless statement and passes no range", async () => {
+      const { datasource, queryMock } = setupPreloadMock({
+        primaryKey: "",
+        keys: [MAP_KEY],
+        values: ["env"],
+      });
+
+      const result = await datasource.getTagKeysForMap(
+        "labels",
+        "sample.table",
+        "",
+        NINETY_DAYS as any
+      );
+
+      expect(result).toEqual({ key: "labels", val: ["labels['env']"] });
+
+      const request = queryMock.mock.calls[0][0];
+      expect(request.targets[0].rawSql).not.toContain("$__timeFilter");
+      expect(request.targets[0].rawSql).toContain("mapKeys(labels)");
+      expect(request.targets[0].rawSql.endsWith(SETTINGS_SUFFIX)).toBe(true);
+      expectZeroRange(request);
+    });
+
+    // Only "" selects the keyless form. A failed lookup is a failure, not a
+    // fact about the schema; turning it into an unfiltered scan would make
+    // every transient cluster error scan the whole keyed table.
+    it("getTagValues issues no preload when the primary-key lookup rejects", async () => {
+      const { datasource, queryMock } = setupPreloadMock({
+        primaryKey: new Error("Not enough privileges"),
+        values: ["ok"],
+      });
+
+      const values = await datasource.getTagValues({
+        key: "key1",
+        filters: [],
+        timeRange: NINETY_DAYS,
+      } as any);
+
+      expect(values).toEqual([]);
+      expect(queryMock).not.toHaveBeenCalled();
+    });
+
+    // Map-key discovery never needed the frontend primary key before the
+    // keyless form existed - its `$__timeFilter()` is resolved by the backend.
+    // A failed frontend lookup therefore keeps exactly that path: keyed
+    // statement, capped range, backend resolution. Only a positive "" may
+    // drop the conjunct.
+    it("getTagKeys falls back to the backend-resolved keyed statement when the primary-key lookup rejects", async () => {
+      const { datasource, queryMock } = setupPreloadMock({
+        primaryKey: new Error("Not enough privileges"),
+        keys: [MAP_KEY, STRING_KEY],
+        values: ["env"],
+      });
+
+      const keys = await datasource.getTagKeys({
+        filters: [],
+        timeRange: NINETY_DAYS,
+      } as any);
+
+      expect(keys.map((k) => k.value)).toEqual([
+        `${MAP_KEY.value}['env']`,
+        STRING_KEY.value,
+      ]);
+      expect(queryMock).toHaveBeenCalledTimes(1);
+      const request = queryMock.mock.calls[0][0];
+      expect(request.targets[0].rawSql).toContain("$__timeFilter() AND");
+      expect(request.range.from.valueOf()).toBe(
+        NINETY_DAYS.to.valueOf() - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+    });
+
+    const threeMaps = ["labels", "attrs", "tags"].map(
+      (name) =>
+        ({ text: name, value: name, type: "Map(String, String)" }) as AdHocFilterKeys
+    );
+
+    it("getTagKeys resolves the primary key once for three keyless Map columns", async () => {
+      const { datasource, queryMock, primaryKeyMock } = setupPreloadMock({
+        primaryKey: "",
+        keys: threeMaps,
+        values: ["env"],
+      });
+
+      const keys = await datasource.getTagKeys({
+        filters: [],
+        timeRange: NINETY_DAYS,
+      } as any);
+
+      expect(primaryKeyMock).toHaveBeenCalledTimes(1);
+      expect(queryMock).toHaveBeenCalledTimes(3);
+      queryMock.mock.calls.forEach(([request]) => {
+        expect(request.targets[0].rawSql).not.toContain("$__timeFilter");
+        expectZeroRange(request);
+      });
+      expect(keys.map((k) => k.value)).toEqual([
+        "labels['env']",
+        "attrs['env']",
+        "tags['env']",
+      ]);
+    });
+
+    it("getTagKeys resolves the primary key once for three keyed Map columns", async () => {
+      const { datasource, queryMock, primaryKeyMock } = setupPreloadMock({
+        primaryKey: "ts",
+        keys: threeMaps,
+        values: ["env"],
+      });
+
+      const to = NINETY_DAYS.to.valueOf();
+      await datasource.getTagKeys({
+        filters: [],
+        timeRange: NINETY_DAYS,
+      } as any);
+
+      expect(primaryKeyMock).toHaveBeenCalledTimes(1);
+      expect(queryMock).toHaveBeenCalledTimes(3);
+      queryMock.mock.calls.forEach(([request]) => {
+        expect(request.targets[0].rawSql).toContain("$__timeFilter() AND");
+        expect(request.range.from.valueOf()).toBe(
+          to - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+        );
+        expect(request.range.to.valueOf()).toBe(to);
+      });
+    });
+
+    it("a keyed table still gets the capped range and 5m rounding", async () => {
+      const { datasource, queryMock } = setupPreloadMock({
+        primaryKey: "ts",
+        values: ["ok"],
+      });
+
+      const to = NINETY_DAYS.to.valueOf();
+      await datasource.getTagValues({
+        key: "key1",
+        filters: [],
+        timeRange: NINETY_DAYS,
+      } as any);
+
+      const request = queryMock.mock.calls[0][0];
+      expect(request.targets[0].rawSql).toContain("$__timeFilter(ts) AND");
+      expect(request.range.from.valueOf()).toBe(
+        to - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
+      );
+      expect(request.range.to.valueOf()).toBe(to);
+      expect(request.targets[0].round).toBe(AD_HOC_PRELOAD_ROUND_INTERVAL);
+    });
+  });
+
+  describe("validateQuery", () => {
+    const context = {
+      range: undefined,
+      interval: "30s",
+      filters: [{ key: "status", operator: "=", value: "ok" }],
+    };
+
+    it("posts the prepared query with resolved settings and the requestId", async () => {
+      const { datasource } = setupDataSourceMock({
+        customInstanceSettings: {
+          ...MockDataSourceInstanceSettings,
+          jsonData: {
+            ...MockDataSourceInstanceSettings.jsonData,
+            querySettings: [
+              {
+                setting: "hdx_query_admin_comment",
+                value: "src=${__hydrolix.app}",
+              },
+            ],
+          },
+        },
+      });
+      const postResource = jest
+        .spyOn(datasource, "postResource")
+        .mockResolvedValue({ error: false, data: {} });
+
+      await expect(
+        datasource.validateQuery(
+          {
+            refId: "A",
+            rawSql: "SELECT 1",
+            round: "1m",
+            querySettings: [{ setting: "max_threads", value: "4" }],
+          } as HdxQuery,
+          context,
+          "req-1"
+        )
+      ).resolves.toEqual({});
+
+      expect(postResource).toHaveBeenCalledWith(
+        "validate",
+        {
+          data: {
+            rawSql: "SELECT 1",
+            range: undefined,
+            interval: "30s",
+            filters: context.filters,
+            round: "1m",
+            querySettings: [
+              {
+                setting: "hdx_query_admin_comment",
+                value: "src=query-validation",
+              },
+              { setting: "max_threads", value: "4" },
+            ],
+          },
+        },
+        { requestId: "req-1", showErrorAlert: false }
+      );
+    });
+
+    it("expands template variables and the panel's scoped variables before posting", async () => {
+      const { datasource, templateService } = setupDataSourceMock({
+        variables: [fooVariable],
+      });
+      const postResource = jest
+        .spyOn(datasource, "postResource")
+        .mockResolvedValue({ error: false, data: {} });
+      const scopedVars = {
+        __interval_ms: { text: "60000", value: "60000" },
+      };
+
+      await datasource.validateQuery(
+        { refId: "A", rawSql: "SELECT * FROM $foo" } as HdxQuery,
+        { ...context, scopedVars },
+        "req-1"
+      );
+
+      expect(postResource.mock.calls[0][1]).toMatchObject({
+        data: { rawSql: "SELECT * FROM templatedFoo" },
+      });
+      expect(templateService.replace).toHaveBeenCalledWith(
+        "SELECT * FROM $foo",
+        scopedVars
+      );
+    });
+
+    it("resolves to undefined when a newer validation cancels the request", async () => {
+      const { datasource } = setupDataSourceMock({});
+      jest.spyOn(datasource, "postResource").mockRejectedValue({
+        type: "cancelled",
+        cancelled: true,
+        data: null,
+        status: -1,
+        statusText: "Request was aborted",
+      });
+
+      await expect(
+        datasource.validateQuery(
+          { refId: "A", rawSql: "SELECT 1" } as HdxQuery,
+          context,
+          "req-1"
+        )
+      ).resolves.toBeUndefined();
+    });
+
+    it("rejects with the server's message when the request fails", async () => {
+      const { datasource } = setupDataSourceMock({});
+      jest.spyOn(datasource, "postResource").mockRejectedValue({
+        status: 500,
+        statusText: "Internal Server Error",
+        data: { message: "An error occurred within the plugin" },
+      });
+
+      await expect(
+        datasource.validateQuery(
+          { refId: "A", rawSql: "SELECT 1" } as HdxQuery,
+          context,
+          "req-1"
+        )
+      ).rejects.toThrow("An error occurred within the plugin");
+    });
+
+    it("beautifies a reported query error", async () => {
+      const { datasource } = setupDataSourceMock({});
+      jest.spyOn(datasource, "postResource").mockResolvedValue({
+        error: false,
+        data: {
+          error:
+            'prefix {"error": "Code: 47. DB::Exception: Missing columns: \'nope\'. (UNKNOWN_IDENTIFIER)", "query": "SELECT nope"}',
+        },
+      });
+
+      const result = await datasource.validateQuery(
+        { refId: "A", rawSql: "SELECT nope" } as HdxQuery,
+        context,
+        "req-1"
+      );
+
+      expect(result).toEqual({ error: "Missing columns: 'nope'" });
+    });
+
+    it("keeps an error the beautifier does not recognise", async () => {
+      const { datasource } = setupDataSourceMock({});
+      const native =
+        "Code: 47. DB::Exception: Unknown expression identifier `nope` in scope SELECT nope FROM e2e.macros";
+      jest
+        .spyOn(datasource, "postResource")
+        .mockResolvedValue({ error: false, data: { error: native } });
+
+      const result = await datasource.validateQuery(
+        { refId: "A", rawSql: "SELECT nope FROM e2e.macros" } as HdxQuery,
+        context,
+        "req-1"
+      );
+
+      expect(result).toEqual({ error: native });
+    });
+
+    it("passes warnings and skipped results through unchanged", async () => {
+      const { datasource } = setupDataSourceMock({});
+      const postResource = jest.spyOn(datasource, "postResource");
+
+      postResource.mockResolvedValueOnce({
+        error: false,
+        data: { warning: "Primary key not filtered" },
+      });
+      await expect(
+        datasource.validateQuery(
+          { refId: "A", rawSql: "SELECT 1" } as HdxQuery,
+          context,
+          "r"
+        )
+      ).resolves.toEqual({ warning: "Primary key not filtered" });
+
+      postResource.mockResolvedValueOnce({
+        error: false,
+        data: { skipped: true },
+      });
+      await expect(
+        datasource.validateQuery(
+          { refId: "A", rawSql: "SHOW TABLES" } as HdxQuery,
+          context,
+          "r"
+        )
+      ).resolves.toEqual({ skipped: true });
+    });
+
+    it("rejects when the resource itself fails", async () => {
+      const { datasource } = setupDataSourceMock({});
+      jest
+        .spyOn(datasource, "postResource")
+        .mockResolvedValue({ error: true, errorMessage: "bad interval" });
+
+      await expect(
+        datasource.validateQuery(
+          { refId: "A", rawSql: "SELECT 1" } as HdxQuery,
+          context,
+          "r"
+        )
+      ).rejects.toThrow("bad interval");
+    });
   });
 
   describe("assistant support surface", () => {

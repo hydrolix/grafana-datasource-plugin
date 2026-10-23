@@ -1,5 +1,9 @@
-export const SHOW_VALIDATION_BAR = false;
 export const SHOW_INTERPOLATED_QUERY_ERRORS = false;
+
+// ${__hydrolix.app} on validation dry-runs, to tell them apart in query logs.
+export const VALIDATION_QUERY_SOURCE = "query-validation";
+
+export const VALIDATION_DEBOUNCE_MS = 1000;
 
 export const SYNTHETIC_NULL = "__null__";
 export const SYNTHETIC_EMPTY = "__empty__";
@@ -16,11 +20,21 @@ export const FUNCTIONS_SQL = "SELECT name FROM  system.functions";
 
 export const AD_HOC_VALUE_TOP_K = 100;
 
+// Default ad-hoc preload lookback, used when the datasource's
+// `adHocTimeRangeLookback` is unset or invalid.
 export const AD_HOC_PRELOAD_LOOKBACK_SECONDS = 86400;
 export const AD_HOC_PRELOAD_ROUND_INTERVAL = "5m";
 export const AD_HOC_PRELOAD_ROUND_INTERVAL_SECONDS = 300;
-export const AD_HOC_PRELOAD_MAX_TIMERANGE_SECONDS =
-  AD_HOC_PRELOAD_LOOKBACK_SECONDS + 2 * AD_HOC_PRELOAD_ROUND_INTERVAL_SECONDS;
+
+// The timerange guardrail follows the datasource's lookback, padded by one
+// round interval on each side so a `round`-snapped window still fits.
+const adHocGuardrailSeconds = (lookbackSeconds: number): number =>
+  lookbackSeconds + 2 * AD_HOC_PRELOAD_ROUND_INTERVAL_SECONDS;
+
+// The guardrail for the default lookback.
+export const AD_HOC_PRELOAD_MAX_TIMERANGE_SECONDS = adHocGuardrailSeconds(
+  AD_HOC_PRELOAD_LOOKBACK_SECONDS
+);
 
 // Stand-in for the panel's maxDataPoints when the editor has no panel request
 // to read it from. The interpolation preview only needs a representative bucket
@@ -31,11 +45,26 @@ export const METADATA_QUERY_TIMEOUT_SETTING = "hdx_query_max_execution_time";
 export const METADATA_QUERY_TIMEOUT_SETTING_ALIAS = "max_execution_time";
 export const METADATA_QUERY_TIMEOUT_VALUE = "10";
 
-const AD_HOC_QUERY_GUARDRAIL_SETTINGS = `SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = ${AD_HOC_PRELOAD_MAX_TIMERANGE_SECONDS}`;
+// One suffix for both the time-filtered and the keyless form.
+// `timeout_overflow_mode` has no Hydrolix mirror, so it cannot travel on the
+// driver settings channel and has to ride in the statement text.
+// `hdx_query_max_timerange_sec` derives the covered range from the WHERE
+// filter on the primary column and is inert on a statement without one, so
+// the keyless form keeps it rather than growing a second suffix to sync.
+// That reading is from the Hydrolix query-circuit-breaker docs only: the dev
+// stack is stock ClickHouse and cannot enforce any `hdx_*` setting, so the
+// first keyless preload against a real Hydrolix query head is the proof.
+export const adHocGuardrailSettings = (lookbackSeconds: number): string =>
+  `SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = ${adHocGuardrailSeconds(
+    lookbackSeconds
+  )}`;
 
+// `${timeFilter}` is either `$__timeFilter(<pk>) AND ` (value) /
+// `$__timeFilter() AND ` (map keys) or empty for a table with no primary key,
+// so the keyed statement is byte-identical to the pre-slot template.
 export const AD_HOC_KEY_QUERY = "DESCRIBE ${table}";
-export const AD_HOC_MAP_KEY_QUERY = `SELECT distinct(arrayJoin(mapKeys(\${column}))) FROM \${table} WHERE $__timeFilter() AND $__adHocFilter() ${AD_HOC_QUERY_GUARDRAIL_SETTINGS}`;
-export const AD_HOC_VALUE_QUERY = `SELECT arrayJoin(topK(${AD_HOC_VALUE_TOP_K})(\${column})) AS value FROM \${table} WHERE $__timeFilter(\${timeColumn}) AND $__adHocFilter() \${condition} ${AD_HOC_QUERY_GUARDRAIL_SETTINGS}`;
+export const AD_HOC_MAP_KEY_QUERY = `SELECT distinct(arrayJoin(mapKeys(\${column}))) FROM \${table} WHERE \${timeFilter}$__adHocFilter() \${settings}`;
+export const AD_HOC_VALUE_QUERY = `SELECT arrayJoin(topK(${AD_HOC_VALUE_TOP_K})(\${column})) AS value FROM \${table} WHERE \${timeFilter}$__adHocFilter() \${condition} \${settings}`;
 
 export const SUPPORTED_TYPES = [
   "DateTime",

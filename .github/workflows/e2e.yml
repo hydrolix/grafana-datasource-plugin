@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         grafana_name: ["grafana-enterprise"]
-        grafana_version: ["10.4.19-security-01", "11.6.16", "12.4.10", "13.0.8", "13.1.5", "13.2.1", "nightly"]
+        grafana_version: ["11.6.16", "12.4.10", "13.0.8", "13.1.5", "13.2.1", "nightly"]
     # The nightly image tracks Grafana main, so a failure there is an early
     # warning about an unreleased Grafana, not a plugin regression — it must
     # not block the release pipeline this workflow gates.
@@ -49,7 +49,7 @@ jobs:
           chmod +x hydrolix-hydrolix-datasource/gpx*
 
       - name: Install and run Docker Compose
-        uses: hoverkraft-tech/compose-action@ee6af68587292d72db67743171809c19787df4c9
+        uses: hoverkraft-tech/compose-action@b659c744ee9bed25aea2307c017ad849bd104433
         with:
           compose-file: '.github/e2e-docker-compose.yml'
 
@@ -61,6 +61,16 @@ jobs:
       - name: Wait for Grafana
         run: |
           timeout 60s bash -c 'until curl -s http://localhost:3000/api/health; do sleep 2; done'
+
+      - name: Wait for Keycloak
+        # tests/exchangeCredentials.spec.ts signs in through it; the realm
+        # answers only once `--import-realm` has finished.
+        run: |
+          timeout 120s bash -c 'until curl -sf http://localhost:8080/realms/grafana >/dev/null; do sleep 2; done' || {
+            echo "::error::Keycloak never served the grafana realm within 120s."
+            docker logs keycloak 2>&1 | tail -50
+            exit 1
+          }
 
       - name: Run E2E tests
         run: npx playwright test --reporter=junit
@@ -89,6 +99,14 @@ jobs:
           # from CLICKHOUSE_HOSTNAME, which is the address Grafana uses from
           # inside its container and must stay the service name.
           E2E_CLICKHOUSE_HTTP_HOST: localhost
+          # tests/exchangeCredentials.spec.ts runs only when the stub is
+          # named, over its published control port. The cluster host is what
+          # the datasource under test is pointed at: the stub's TLS listener,
+          # by the service name the credential map in the compose file is
+          # keyed on. Keycloak's browser URL is localhost:8080 both for
+          # Grafana and for the runner, so the spec's port forward is a no-op.
+          E2E_EXCHANGE_STUB_URL: http://localhost:9080
+          E2E_EXCHANGE_CLUSTER_HOST: exchange-stub
 
       - name: Upload test results
         uses: actions/upload-artifact@v7

@@ -581,6 +581,10 @@ interface ConfigPageLocator {
 
     protocolItem(name: string): Locator;
 
+    credentialsType(): Locator;
+
+    credentialsTypeItem(name: string): Locator;
+
     secureSwitch(): Locator;
 
     skipTlsVerifySwitch(): Locator;
@@ -593,7 +597,7 @@ interface ConfigPageLocator {
 
     adHocConditionVariable(): Locator;
 
-    adHocDefaultTimeRangeTimeselect(): Locator;
+    adHocTimeRangeLookback(): Locator;
 
     dialTimeout(): Locator;
 

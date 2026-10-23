@@ -16,10 +16,13 @@ export const applyHotKey = (m: Monaco, props: Props) => {
   };
   const editor = m.editor as any;
   if (editor._standaloneKeybindingService) {
-    // grafana 11.x
+    // Monaco hangs the keybinding service off the editor namespace itself.
     applyBinding(editor._standaloneKeybindingService);
   } else {
-    // grafana 10.x
+    // Older shape: reach it through each live editor instance. This is a
+    // capability probe, not a version check — `_standaloneKeybindingService`
+    // is Monaco-private and has relocated before — so the arm is kept even
+    // though no Grafana at the current `>=11.0.0` floor is known to need it.
     editor
       .getEditors()
       .map((e: any) => e._standaloneKeybindingService)
@@ -34,10 +37,11 @@ export const updateOptions = (m: Monaco) => {
   };
   const editor = m.editor as any;
   if (editor.updateOptions) {
-    // grafana 11.x
+    // Monaco applies options namespace-wide.
     editor.updateOptions(options);
   } else {
-    // grafana 10.x
+    // Older shape: apply per live editor instance. Capability probe, not a
+    // version check — see `applyHotKey` above.
     m.editor
       .getEditors()
       .filter((e) => e.updateOptions)

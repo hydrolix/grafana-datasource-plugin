@@ -44,7 +44,8 @@ Following is the list of Hydrolix configuration options.
 
 **Credentials section:**
 
-- **Credentials Type** - Credentials type for connecting to your Hydrolix instance: User Account or Service Account.
+- **Credentials Type** - Credentials type for connecting to your Hydrolix instance: User Account, Service Account,
+  Forward OAuth Identity, or Forward OAuth + Exchange.
 - **Token** - Service account token.
 - **Username**, **Password** - Service account credentials.
 
@@ -55,8 +56,9 @@ Following is the list of Hydrolix configuration options.
   nearest multiple of this value. For more details, see [Round timestamps](#round-timestamps).
 - **Ad hoc filter table variable name** (optional) - Variable defines which table to use for retrieving ad hoc filter
   columns and values.
-- **Ad hoc filter default time range** (optional) - Default time range for time filtering when dashboard time range is
-  not available
+- **Ad hoc filter suggestion lookback** (optional) - Trailing window for ad hoc filter key and value suggestions (for
+  example `30m`, `6h`, `24h`; supported units: `s`, `m`, `h`). Use at least `5m` — see
+  [Value suggestion guardrails](#value-suggestion-guardrails). Defaults to `24h`.
 - **Ad hoc filter values query condition variable name** (optional) - Name of a dashboard variable that defines query condition to filter ad hoc filter values
 - **Dial timeout** (optional) - Connection timeout in seconds.
 - **Query timeout** (optional) - Read timeout in seconds.
@@ -95,6 +97,85 @@ monitoring, and custom error handling within your dashboards.
 When enabled, query errors are automatically captured and stored in the specified dashboard variable, allowing you to 
 display error messages in error panel.
 
+
+### Forward OAuth with a token exchange
+
+**Forward OAuth Identity** sends the signed-in user's token to the cluster unchanged. That works only where the cluster
+accepts the issuer Grafana signed the user in with.
+
+**Forward OAuth + Exchange** is for where it does not. A Grafana whose users sign in through an issuer the cluster will
+not accept directly — a Hydrolix Console Keycloak realm, for instance — holds tokens the cluster refuses on their
+audience. In this mode the plugin exchanges that token for a cluster token (RFC 8693) before querying, so the query
+still runs as the signed-in user. The exchange happens per user, the result is cached until shortly before it expires,
+and the user's original token is never sent to the cluster.
+
+The data source stores **no credential at all** in this mode. The exchange endpoint and its credentials are operator
+values, per Grafana instance, and are set in **Grafana's configuration file**:
+
+```ini
+[plugin.hydrolix-hydrolix-datasource]
+exchange_url = https://<console host>/api/v1/auth/token-exchange
+exchange_client_secrets = $__env{SOME_VAR_HOLDING_THE_JSON}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `exchange_url` | The token-exchange endpoint. Must be `https`. |
+| `exchange_client_secrets` | A JSON object mapping each cluster's audience to its credential. |
+
+Grafana renders a key in that section into the plugin's environment with a `GF_PLUGIN_` prefix, so `exchange_url`
+arrives as `GF_PLUGIN_EXCHANGE_URL`. Writing the credential as `$__env{…}` keeps the JSON out of the rendered file.
+
+> **Setting these as environment variables on the Grafana process does not work.** Grafana builds a minimal
+> environment for backend plugin processes rather than passing its own, so `GF_PLUGIN_EXCHANGE_URL` and the
+> `GF_PLUGIN_<PLUGIN_ID>_…` override form both fail to reach the plugin, and every panel
+> fails with `exchange: not configured`. Measured on Grafana 13.0.3 Enterprise by reading the plugin process's own
+> `/proc/<pid>/environ`, where the plugin sees only `GF_EDITION`, `GF_VERSION`, `GF_ENTERPRISE_*`, `PLUGIN_*` and
+> `grafana_plugin_type`. Older Grafana did pass its environment through — 11.6.0 OSS does — so a deployment that
+> worked on an older or OSS build is not evidence that the environment route works.
+
+Credentials are a **map keyed by audience**, not a single pair, because one Grafana can serve several clusters and each
+cluster issues its own. Keying by audience keeps each credential scoped to the one cluster it can obtain a token for.
+
+```json
+{
+  "cluster-a.example.hydrolix.net": { "client_id": "grafana-a", "client_secret": "..." },
+  "cluster-b.example.hydrolix.net": { "client_id": "grafana-b", "client_secret": "..." }
+}
+```
+
+A data source's audience is always its server address. It is not a separate setting: an audience that could differ
+from the host would let whoever edits the data source have every viewer's cluster token sent to a server of their
+choosing.
+
+**Grafana must refresh the sign-in token.** The forwarded token is short-lived, and the exchange needs a live one, so
+the OAuth provider users sign in through must issue refresh tokens and Grafana must use them:
+
+```ini
+[auth.generic_oauth]
+use_refresh_token = true
+```
+
+The provider's client must issue a refresh token for the scopes Grafana requests (Keycloak issues a session-bound
+one to a confidential client without `offline_access`). Without it, panels start failing a few minutes after
+sign-in, because every exchange after the token expires is refused.
+
+Notes:
+
+- The mode requires the **HTTP** protocol. Native binds its credential to the connection as a password, which cannot be
+  replaced when the token is refreshed, so the plugin refuses the combination and says so.
+- The mode requires **verified TLS**: *Secure Connection* on and *Skip TLS verify* off. The cluster token is a bearer,
+  so the plugin refuses plain http and an unchecked certificate rather than send it to whoever answers. For the same
+  reason `exchange_url` must be `https`, and a redirect from it is reported as a configuration error, not followed.
+- **Save & test** reports whether this Grafana has an exchange configuration at all. It does not say whether that
+  configuration holds a credential for this data source's host (a host with no credential passes Save & test and
+  fails in its first panel), and it does not prove any individual's access, which is established when a panel runs
+  as that person.
+- An instance with no exchange configuration reports the mode as unavailable rather than failing panels with an
+  authentication error.
+- The exchange is keyed per person on the token's issuer and subject together, so users of two OAuth providers who
+  happen to share a `sub` never share a cluster token. A cluster token is reused only by the exact sign-in token it
+  was minted from, so each Grafana refresh of the sign-in token costs one exchange per person per cluster.
 
 ### Provision the data source
 
@@ -277,7 +358,7 @@ To enable ad hoc filters, both the data source and the dashboard must be configu
 
    - **Ad hoc filter table variable name**: the name of a dashboard variable that defines the table used to retrieve column
      names and their values for ad hoc filters.
-   - **Ad hoc filter default time range**: a default time range to use when the dashboard time range is unavailable.
+   - **Ad hoc filter suggestion lookback**: the trailing window used for key and value suggestions (default `24h`).
 
 2. In the target dashboard, create a variables using the exact name defined in the data source settings  **A variable for the table name**
 
@@ -331,11 +412,15 @@ filters.
 To keep the ad hoc filter value dropdown responsive on high-cardinality columns and long dashboard time ranges, value
 suggestions are computed by a bounded, best-effort query rather than an exhaustive scan:
 
-- **Trailing 24h window**: suggestions are computed over the trailing 24 hours of the dashboard's time range (rounded
-  to 5-minute boundaries). A value that last occurred earlier than that window will not appear in the suggestions, but
-  it can still be entered manually and used as a filter — the applied filter itself is unaffected.
+- **Trailing lookback window**: suggestions are computed over a trailing lookback of the dashboard's time range
+  (default 24h, set with **Ad hoc filter suggestion lookback**; rounded to 5-minute boundaries). When no dashboard time
+  range is available, the window is the trailing lookback ending now. A value that last occurred earlier than that
+  window will not appear in the suggestions, but it can still be entered manually and used as a filter — the applied
+  filter itself is unaffected. An empty or invalid lookback falls back to 24h. Use a lookback of at least `5m`:
+  because both endpoints snap to the nearest 5-minute boundary, a shorter window frequently collapses to zero
+  width and the dropdown then returns no suggestions at all.
 - **`Map` column keys**: for a `Map` column the key dropdown offers `column['key']` entries discovered by scanning the
-  same trailing 24-hour window, so a key that did not occur in that window is not offered and must be typed in. Keys
+  same trailing lookback window, so a key that did not occur in that window is not offered and must be typed in. Keys
   for plain (non-`Map`) columns come from `DESCRIBE` and are always listed in full.
 - **Approximate top values**: up to 100 of the most frequent values are returned using an approximate (`topK`)
   aggregation, so inclusion and ordering near the cutoff are approximate rather than exact.
@@ -349,11 +434,12 @@ suggestions are computed by a bounded, best-effort query rather than an exhausti
   setting still applies to *all* queries from the data source, not only metadata lookups — it is only the metadata
   breaker's own effective value that is capped at 10 seconds.
 - **Partial results on timeout**: the value-suggestion and map-key queries also carry
-  `SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000` in the SQL text. Where the engine
+  `SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = <lookback + 600>` in the SQL text (`87000`
+  with the default 24h lookback). Where the engine
   honors `timeout_overflow_mode = 'break'`, hitting the execution-time cap returns the top values computed over the
   rows read so far instead of failing the query; if the cap is hit before any values are aggregated, the dropdown
   simply shows no suggestions. `hdx_query_max_timerange_sec` is a server-side
-  backstop for the trailing-24h window above and is not configurable from the data source settings.
+  backstop for the trailing lookback window above and follows it: the lookback plus 10 minutes of rounding slack.
 
 Because of these bounds the dropdowns are a convenience, not the set of filters the plugin accepts — a key or value
 missing from a suggestion list still filters correctly once applied. Typing one in requires **Allow custom values** on
@@ -453,9 +539,14 @@ Ad hoc filters set on the dashboard apply to your panel queries; they do not aff
 
 ## Grafana Assistant
 
-Grafana Assistant cannot query Hydrolix through its built-in SQL tools — they match datasources against a hard-coded allowlist that does not include this plugin. Assistant support is provided instead by registering the [Hydrolix MCP server](https://github.com/hydrolix/mcp-hydrolix) as a custom MCP server and installing the Hydrolix skill.
+Grafana Assistant can query Hydrolix natively through its built-in SQL tools.
 
-The plugin contributes query context — the datasource, cluster, SQL, time range, and the table's schema and primary time column — plus an Assistant button in the query editor. Without the MCP server, Assistant can write and explain Hydrolix SQL but cannot execute it.
+The built-in tools know nothing about Hydrolix summary tables, whose aggregate columns hold partial aggregation states rather than values. Assistant handles this on its own: it notices from the first attempt that the table is a summary table and switches to the `-Merge` functions, at the cost of a couple of extra steps.
+
+Two ways to skip those steps, either of which is optional:
+
+- **Install the Hydrolix skill.** It teaches Assistant the Hydrolix dialect, including the summary-table rule, so it writes the `-Merge` form first time. No MCP server needed.
+- **Register the [Hydrolix MCP server](https://github.com/hydrolix/mcp-hydrolix)** as a custom MCP server alongside the skill. Its `get_table_info` tool reports whether a table is a summary table and which `-Merge` function each aggregate column needs, so Assistant does not have to infer it from the schema at all.
 
 The skill document to install is [docs/assistant-skill.md](https://github.com/hydrolix/grafana-datasource-plugin/blob/main/docs/assistant-skill.md). Before registering the MCP server, note two things: queries through it bypass Grafana datasource permissions and per-user OAuth forwarding (the server authenticates with its own Hydrolix credential), and the server must be network-reachable from your Grafana instance — check that first by curling its `/mcp` endpoint, where an authentication failure is the expected reachable-server response.
 

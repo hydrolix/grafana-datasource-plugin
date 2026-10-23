@@ -208,7 +208,7 @@ When a FROM reference is a bare identifier that matches a WITH-clause alias in s
 
 ### Requirement: Explicit ad-hoc filter argument is a strict identifier
 
-When `$__adHocFilter(<arg>)` supplies an explicit `params[0]`, `AdHocFilterMacro` SHALL accept it only if it matches a strict identifier form (an identifier, optionally `database.table`). Any other value SHALL be rejected with an error and SHALL NOT reach the metadata query.
+When `$__adHocFilter(<arg>)` supplies an explicit `params[0]`, `AdHocFilterMacro` SHALL accept it only if it matches a strict identifier form: one name, optionally `database.table`, where each name is a bare identifier or a backtick- or double-quoted name containing no backtick. Any other value SHALL be rejected with an error and SHALL NOT reach the metadata query.
 
 #### Scenario: Injected explicit argument is rejected
 
@@ -222,6 +222,26 @@ When `$__adHocFilter(<arg>)` supplies an explicit `params[0]`, `AdHocFilterMacro
 - **GIVEN** SQL `SELECT 1 WHERE $__adHocFilter(events)`
 - **WHEN** the macro runs
 - **THEN** `params[0]` SHALL be accepted and used to resolve keys for `events`
+
+#### Scenario: Quoted explicit argument is accepted
+
+- **GIVEN** SQL ``SELECT 1 WHERE $__adHocFilter(akamai.`logs#redacted`)`` or `SELECT 1 WHERE $__adHocFilter("akamai"."logs#redacted")`
+- **WHEN** the macro runs
+- **THEN** `params[0]` SHALL be accepted and keys SHALL be resolved with ``DESCRIBE TABLE `akamai`.`logs#redacted` ``
+
+#### Scenario: Unquoted special character is rejected
+
+- **GIVEN** SQL `SELECT 1 WHERE $__adHocFilter(akamai.logs#redacted)`
+- **WHEN** the macro runs
+- **THEN** it SHALL return an invalid-argument error
+- **AND** SHALL NOT call the metadata key lookup
+
+#### Scenario: Backtick inside a quoted name is rejected
+
+- **GIVEN** an explicit argument ``"a`b"``, ``` `a`b ```, or ``` `a`b` ```
+- **WHEN** the macro runs
+- **THEN** it SHALL return an invalid-argument error
+- **AND** SHALL NOT call the metadata key lookup
 
 ### Requirement: Scalar/map filter operators are allowlisted
 

@@ -57,7 +57,7 @@ interface CreateResult {
 /**
  * Fluent builder that POSTs a dashboard JSON model to Grafana's
  * `/api/dashboards/db` endpoint. Use this instead of driving the
- * Settings → Variables UI: that UI has reshuffled across Grafana 10/11/12/13
+ * Settings → Variables UI: that UI has reshuffled across Grafana 11/12/13
  * (button names, tab labels, type-picker, value inputs) and is the single
  * largest source of cross-version flake. The JSON model is stable.
  *
@@ -122,7 +122,7 @@ export class DashboardBuilder {
      *
      * Baking the filters into the JSON model rather than driving the on-page
      * filter pill is deliberate: the pill's key/operator/value selects are
-     * three chained react-selects whose DOM has moved across Grafana 10–13,
+     * three chained react-selects whose DOM has moved across Grafana 11–13,
      * and the picker's *eligibility* logic (which columns are offered) is
      * already unit-tested against SUPPORTED_TYPES in
      * src/editor/metadataProvider.test.ts. What is untestable at that layer —

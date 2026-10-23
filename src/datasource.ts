@@ -21,6 +21,7 @@ import {
 import {
   DataSourceWithBackend,
   getTemplateSrv,
+  isFetchError,
   logError,
   logWarning,
   TemplateSrv,
@@ -36,11 +37,13 @@ import {
   TableIdentifier,
   InterpolationResponse,
   QuerySetting,
+  ValidationResult,
 } from "./types";
 import { from, Observable, switchMap } from "rxjs";
 import { map } from "rxjs/operators";
 import { ErrorMessageBeautifier } from "./errors/errorBeautifier";
 import { getMetadataProvider } from "./editor/metadataProvider";
+import { parseLookbackSeconds } from "./editor/timeRangeUtils";
 import { getColumnKeysForMapStatement, getColumnValuesStatement } from "./ast";
 import {
   AD_HOC_PRELOAD_LOOKBACK_SECONDS,
@@ -49,6 +52,7 @@ import {
   NULLABLE_TYPES,
   SYNTHETIC_EMPTY,
   SYNTHETIC_NULL,
+  VALIDATION_QUERY_SOURCE,
 } from "./constants";
 import { replace } from "./syntheticVariables";
 import { applyConditionalAll } from "./macros/macrosApplier";
@@ -59,6 +63,60 @@ import {
   isAnnotationRequest,
   prepareQuery,
 } from "./annotations";
+
+// backendSrv rejects a cancelled request with `{cancelled: true}`, no Error.
+const isCancelledRequest = (e: unknown): boolean =>
+  typeof e === "object" &&
+  e !== null &&
+  (e as { cancelled?: unknown }).cancelled === true;
+
+const requestErrorMessage = (e: unknown): string => {
+  if (isFetchError(e)) {
+    const message = e.data?.message;
+    return typeof message === "string" && message
+      ? message
+      : e.statusText || `HTTP ${e.status}`;
+  }
+  return e instanceof Error ? e.message : String(e);
+};
+
+const unquoteIdentifier = (s: string): string => {
+  const t = s.trim();
+  return /^([`"]).*\1$/.test(t) ? t.slice(1, -1) : t;
+};
+
+// Splits `db.table` on the first dot outside identifier quotes and returns
+// the bare names: akamai.`logs#redacted` is ["akamai", "logs#redacted"].
+const QUALIFIED_NAME = /^((?:`[^`]*`|"[^"]*"|[^.`"])*)\.(.*)$/s;
+
+export const splitTableName = (s: string): string[] => {
+  const match = QUALIFIED_NAME.exec(s);
+  return (match ? [match[1], match[2]] : [s]).map(unquoteIdentifier);
+};
+
+const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+// Backticks a bare name unless it is a plain identifier; a name containing a
+// backtick is rejected, as the backend's quoteIdentifier does.
+const quoteIdentifier = (s: string): string | undefined =>
+  PLAIN_IDENTIFIER.test(s) ? s : s.includes("`") ? undefined : `\`${s}\``;
+
+// Rebuilds the ad hoc table variable as `db.table`, defaulting the database
+// and quoting each part, so an unquoted view name (akamai.logs#redacted)
+// reaches DESCRIBE as akamai.`logs#redacted`.
+export const qualifiedTableName = (
+  s: string,
+  defaultDatabase?: string
+): string | undefined => {
+  const parts = splitTableName(s);
+  const [schema, table] =
+    parts.length === 2 ? parts : [defaultDatabase ?? "", parts[0]];
+  const quotedSchema = quoteIdentifier(schema);
+  const quotedTable = quoteIdentifier(table);
+  return quotedSchema && quotedTable
+    ? `${quotedSchema}.${quotedTable}`
+    : undefined;
+};
 
 export class DataSource extends DataSourceWithBackend<
   HdxQuery,
@@ -162,25 +220,31 @@ export class DataSource extends DataSourceWithBackend<
     t: HdxQuery,
     request: DataQueryRequest<HdxQuery>
   ) {
-    const builder = this.querySettingsBuilder({
-      raw_query: () => t.rawSql,
-      query_source: () => request.app,
-      "panel.id": () =>
-        request.panelId !== undefined ? String(request.panelId) : "",
-      "panel.name": () => request.panelName ?? "",
-      app: () => request.app,
-      ref_id: () => t.refId,
-    });
-    builder.addSettings(this.instanceSettings.jsonData.querySettings ?? []);
-    builder.addSettings(t.querySettings ?? []);
-
     return {
       ...t,
-      querySettings: builder.build(),
+      querySettings: this.resolveQuerySettings(t, {
+        raw_query: () => t.rawSql,
+        query_source: () => request.app,
+        "panel.id": () =>
+          request.panelId !== undefined ? String(request.panelId) : "",
+        "panel.name": () => request.panelName ?? "",
+        app: () => request.app,
+        ref_id: () => t.refId,
+      }),
       meta: {
         timezone: this.resolveTimezone(request),
       },
     };
+  }
+
+  private resolveQuerySettings(
+    t: HdxQuery,
+    vars: { [v: string]: () => string }
+  ): QuerySetting[] {
+    const builder = this.querySettingsBuilder(vars);
+    builder.addSettings(this.instanceSettings.jsonData.querySettings ?? []);
+    builder.addSettings(t.querySettings ?? []);
+    return builder.build();
   }
 
   private querySettingsBuilder(vars: { [v: string]: () => string }) {
@@ -210,13 +274,7 @@ export class DataSource extends DataSourceWithBackend<
     interpolationId: string,
     context: InterpolationContext
   ): Promise<InterpolationResult> {
-    let macroContext: Context = {
-      templateVars: this.templateSrv.getVariables(),
-      query: query.rawSql,
-    };
-    let sql = applyConditionalAll(query.rawSql, macroContext);
-
-    sql = this.templateSrv.replace(sql);
+    const sql = this.prepareSql(query.rawSql, context.scopedVars);
 
     let result: InterpolationResult = {
       originalSql: query.rawSql,
@@ -224,7 +282,6 @@ export class DataSource extends DataSourceWithBackend<
       interpolatedSql: sql,
       finalSql: sql,
       hasError: false,
-      hasWarning: false,
     };
     try {
       let interpolationResponse = await this.getInterpolatedQuery(
@@ -255,6 +312,68 @@ export class DataSource extends DataSourceWithBackend<
       };
     }
     return result;
+  }
+
+  // Mirrors applyTemplateVariables: template variables (incl. the panel's
+  // scopedVars) and $__conditionalAll; other macros expand server-side.
+  private prepareSql(rawSql: string, scopedVars?: ScopedVars): string {
+    const macroContext: Context = {
+      templateVars: this.templateSrv.getVariables(),
+      query: rawSql,
+    };
+    return this.templateSrv.replace(
+      applyConditionalAll(rawSql, macroContext),
+      scopedVars
+    );
+  }
+
+  /** Resolves to undefined when cancelled by a newer call. */
+  async validateQuery(
+    query: HdxQuery,
+    context: InterpolationContext,
+    requestId: string
+  ): Promise<ValidationResult | undefined> {
+    let response: {
+      error: boolean;
+      errorMessage?: string;
+      data?: ValidationResult;
+    };
+    try {
+      response = await this.postResource(
+        "validate",
+        {
+          data: {
+            rawSql: this.prepareSql(query.rawSql, context.scopedVars),
+            range: context.range,
+            interval: context.interval,
+            filters: context.filters,
+            round: query.round,
+            querySettings: this.resolveQuerySettings(query, {
+              raw_query: () => query.rawSql,
+              query_source: () => VALIDATION_QUERY_SOURCE,
+              "panel.id": () => "",
+              "panel.name": () => "",
+              app: () => VALIDATION_QUERY_SOURCE,
+              ref_id: () => query.refId,
+            }),
+          },
+        },
+        // The bar shows failures; a toast would fire on every editing pause.
+        { requestId, showErrorAlert: false }
+      );
+    } catch (e) {
+      if (isCancelledRequest(e)) {
+        return undefined;
+      }
+      throw new Error(requestErrorMessage(e));
+    }
+    if (response.error || !response.data) {
+      throw new Error(response.errorMessage || "Query validation failed");
+    }
+    const { error } = response.data;
+    return error
+      ? { ...response.data, error: this.beautifier.beautify(error) ?? error }
+      : response.data;
   }
 
   wrapSyntaxError(errorMessage: string, query: string) {
@@ -302,16 +421,23 @@ export class DataSource extends DataSourceWithBackend<
     let table = this.adHocFilterTableName();
 
     if (table) {
-      const keys = await this.metadataProvider.tableKeys(table);
+      // The primary key is resolved once here rather than per Map column:
+      // N Map columns would otherwise race N identical lookups against the
+      // memo before the first one lands.
+      const [keys, timeColumn] = await Promise.all([
+        this.metadataProvider.tableKeys(table),
+        this.resolvePreloadTimeColumn(table),
+      ]);
       const maps = await Promise.all(
         keys
           .filter((key) => key.type.includes("Map"))
           .map((key) => key.value?.toString())
-          .filter((key) => !!key)
+          .filter((key): key is string => !!key)
           .map((column) =>
             this.getTagKeysForMap(
-              column!,
+              column,
               table,
+              timeColumn,
               options?.timeRange,
               options?.filters
             )
@@ -339,15 +465,29 @@ export class DataSource extends DataSourceWithBackend<
     }
   }
 
+  /**
+   * `timeColumn` is the table's resolved primary key. Only `""` selects the
+   * keyless statement, which carries no time macro and therefore gets no
+   * range (see `adHocPreloadRange`). `undefined` — the frontend lookup
+   * failed — keeps the keyed statement: its `$__timeFilter()` is resolved by
+   * the backend from its own lookup, exactly as before the keyless form
+   * existed, so a transient frontend failure never changes what is scanned.
+   */
   async getTagKeysForMap(
     column: string,
     table: string,
+    timeColumn: string | undefined,
     timeRange?: TimeRange,
     filters?: AdHocVariableFilter[]
   ): Promise<{ key: string; val: string[] }> {
     const response = await this.metadataProvider.executeQuery(
-      getColumnKeysForMapStatement(column, table),
-      this.adHocPreloadRange(timeRange),
+      getColumnKeysForMapStatement(
+        column,
+        table,
+        timeColumn,
+        this.adHocLookbackSeconds()
+      ),
+      timeColumn === "" ? undefined : this.adHocPreloadRange(timeRange),
       filters
     );
     let values: string[] = this.getValuesFromResponse(response);
@@ -422,7 +562,10 @@ export class DataSource extends DataSourceWithBackend<
       return [];
     }
 
-    const keys = await this.metadataProvider.tableKeys(table);
+    const [keys, timeColumn] = await Promise.all([
+      this.metadataProvider.tableKeys(table),
+      this.resolvePreloadTimeColumn(table),
+    ]);
     const isMapKey = MAP_KEY_REGEX.test(options.key);
 
     const keyNames = keys.map((k) => k.value);
@@ -457,25 +600,20 @@ export class DataSource extends DataSourceWithBackend<
     const nullableTypes = isMapKey ? NULLABLE_MAP_TYPES : NULLABLE_TYPES;
     const isNullable = !!nullGateType && nullableTypes.includes(nullGateType);
 
-    let timeFilter = await this.metadataProvider.primaryKey(
-      this.getTableIdentifier(table)
-    );
-
-    let sql;
-    if (table && timeFilter) {
-      sql = getColumnValuesStatement(
-        column,
-        table,
-        timeFilter,
-        this.getAdHocFilterValueCondition()
-      );
-    }
-    if (!sql) {
+    if (timeColumn === undefined) {
       return [];
     }
+
+    const sql = getColumnValuesStatement(
+      column,
+      table,
+      timeColumn,
+      this.getAdHocFilterValueCondition(),
+      this.adHocLookbackSeconds()
+    );
     let response = await this.metadataProvider.executeQuery(
       sql,
-      this.adHocPreloadRange(options.timeRange),
+      timeColumn ? this.adHocPreloadRange(options.timeRange) : undefined,
       options.filters
     );
     let values: string[] = this.getValuesFromResponse(response);
@@ -493,6 +631,30 @@ export class DataSource extends DataSourceWithBackend<
         value: n,
       }));
   }
+  /**
+   * The preload time column for `table`: its primary key, `""` when the table
+   * declares none, `undefined` when the lookup failed or found no such table.
+   * Only `""` may select the keyless statement — a transient failure on a
+   * keyed table must not turn into an unfiltered scan on every dropdown open.
+   * For `undefined`, callers keep the pre-keyless behavior: `getTagValues`
+   * skips the preload, `getTagKeysForMap` sends the backend-resolved keyed
+   * statement.
+   */
+  private async resolvePreloadTimeColumn(
+    table: string
+  ): Promise<string | undefined> {
+    try {
+      return await this.metadataProvider.primaryKey(
+        this.getTableIdentifier(table)
+      );
+    } catch (e) {
+      logWarning(
+        `ad hoc filter preload skipped: cannot resolve the primary key of ${table}: ${e}`
+      );
+      return undefined;
+    }
+  }
+
   private getValuesFromResponse(response: DataQueryResponse): string[] {
     let fields: Field[] = response.data[0]?.fields?.length
       ? response.data[0].fields
@@ -504,37 +666,43 @@ export class DataSource extends DataSourceWithBackend<
    * Time window for the ad-hoc key/value preload queries. Resolution order is
    * tag-keys options -> template service -> trailing lookback.
    *
-   * Both preload statements carry `$__timeFilter()`, while `ZERO_TIME_RANGE` —
-   * the sentinel `executeQuery` substitutes for a missing range — means "this
-   * metadata query has no time macro" and is only correct for the unfiltered
-   * `system.*` / `DESCRIBE` lookups. Letting it reach a filtered query
+   * Only called for the time-filtered statements. `ZERO_TIME_RANGE` — the
+   * sentinel `executeQuery` substitutes for a missing range — means "this
+   * metadata query has no time macro", so letting it reach a filtered query
    * resolves to a 1970 window that returns no rows and silently erases the
    * column from the ad-hoc dropdown. This never returns undefined, so the
-   * sentinel is unreachable from the preload path.
+   * sentinel cannot arrive that way.
+   *
+   * The keyless form reaches the sentinel by design, by skipping this method
+   * entirely: its SQL carries no time macro, which is exactly the contract
+   * `ZERO_TIME_RANGE` documents for the `system.*` / `DESCRIBE` lookups.
+   * There is no window to cap or round when nothing filters on time.
    */
   private adHocPreloadRange(timeRange?: TimeRange): TimeRange {
     const resolved = timeRange ?? this.templateServiceRange();
     if (resolved) {
       return this.capPreloadTimeRange(resolved);
     }
-    // Last resort: the same lookback the cap already enforces for long ranges.
+    // Last resort: the same configured lookback the cap enforces for long
+    // ranges.
     const to = dateTime();
-    const from = dateTime(
-      to.valueOf() - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000
-    );
+    const from = dateTime(to.valueOf() - this.adHocLookbackSeconds() * 1000);
     return { from, to, raw: { from, to } };
   }
 
   /**
-   * Grafana 10.4 — the floor `plugin.json` declares — does not populate
-   * `timeRange` on the tag-keys options, even though the field has existed on
-   * `DataSourceFilteringRequestOptions` since 10.3. On that version the
-   * dashboard window is reachable only through the template service, so this
-   * fallback is load-bearing, not defensive: without it
-   * `tests/adHocMapKeys.spec.ts` fails on 10.4.18 (map keys resolve against a
-   * now-relative window instead of the dashboard's, find no rows, and the Map
-   * column disappears from the dropdown) while passing on 11.6.1 / 12.0.2 /
-   * 13.0.1. Re-check against the CI matrix before removing it.
+   * Fallback for a `getTagKeys` / `getTagValues` call whose options arrive
+   * without a populated `timeRange`.
+   *
+   * Now defensive rather than load-bearing. It was load-bearing on Grafana
+   * 10.4, which left the field unset even though it has existed on
+   * `DataSourceFilteringRequestOptions` since 10.3; every version at or above
+   * the current `>=11.0.0` floor populates it. Kept because the cost is one
+   * property read and the failure it prevents is silent rather than loud: an
+   * unresolved range falls through to a relative window, the metadata query
+   * finds no rows, and the column simply disappears from the dropdown with no
+   * error surfaced. That is exactly how it failed on 10.4.18, caught only by
+   * `tests/adHocMapKeys.spec.ts`.
    *
    * `timeRange` is absent from the published `TemplateSrv` type — `runQuery`
    * reads it the same way — so the value carries no type guarantee. Shape-guard
@@ -549,9 +717,23 @@ export class DataSource extends DataSourceWithBackend<
       : undefined;
   }
 
+  /**
+   * Ad-hoc preload lookback in seconds: the datasource's
+   * `adHocTimeRangeLookback`, or the 24h default when unset or invalid. Bounds
+   * the fallback window, the cap on resolved ranges, and the
+   * `hdx_query_max_timerange_sec` guardrail alike.
+   */
+  private adHocLookbackSeconds(): number {
+    return (
+      parseLookbackSeconds(
+        this.instanceSettings.jsonData.adHocTimeRangeLookback
+      ) ?? AD_HOC_PRELOAD_LOOKBACK_SECONDS
+    );
+  }
+
   private capPreloadTimeRange(range: TimeRange): TimeRange {
     const lookbackFromMs =
-      range.to.valueOf() - AD_HOC_PRELOAD_LOOKBACK_SECONDS * 1000;
+      range.to.valueOf() - this.adHocLookbackSeconds() * 1000;
     if (range.from.valueOf() >= lookbackFromMs) {
       // Already inside the lookback, so nothing to cap. Return the range
       // untouched rather than rebuilding it: the rewrite below would freeze a
@@ -577,11 +759,10 @@ export class DataSource extends DataSourceWithBackend<
     )?.trim();
 
     if (table && !table.startsWith("${")) {
-      if (table.includes(".")) {
-        return table;
-      } else {
-        return `${this.instanceSettings.jsonData.defaultDatabase}.${table}`;
-      }
+      return qualifiedTableName(
+        table,
+        this.instanceSettings.jsonData.defaultDatabase
+      );
     } else {
       return undefined;
     }
@@ -602,18 +783,8 @@ export class DataSource extends DataSourceWithBackend<
   }
 
   private getTableIdentifier(s: string): TableIdentifier {
-    if (s.includes(".")) {
-      let arr = s.split(".");
-      return {
-        schema: arr[0],
-        table: arr[1],
-      };
-    } else {
-      return {
-        schema: this.instanceSettings.jsonData.defaultDatabase,
-        table: s,
-      };
-    }
+    const [schema, table] = splitTableName(s);
+    return { schema, table };
   }
 
   filterQuery(query: HdxQuery): boolean {

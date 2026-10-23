@@ -8,6 +8,9 @@ x-common-variables: &common-variables
   GF_INSTALL_PLUGINS: "grafana-clickhouse-datasource 4.8.2"
 volumes:
   prometheus_data: {}
+  # The exchange stub's TLS certificate, kept across restarts so a running
+  # Grafana keeps trusting it (e2e/exchange-stub/main.go, certificate).
+  exchange-stub-certs: {}
 services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
@@ -27,9 +30,23 @@ services:
       service: grafana
     container_name: grafana-dashboards
     depends_on:
-      - keycloak
+      keycloak:
+        condition: service_started
+      # Healthy means its certificate is on the shared volume, which the
+      # trust-store mount below needs to exist before Grafana starts.
+      exchange-stub:
+        condition: service_healthy
     environment:
       <<: *common-variables
+      # Comma-separated feature toggles, e.g. to reproduce a nightly-e2e
+      # failure: GF_FEATURE_TOGGLES_ENABLE=datetime.useLuxon npm run server
+      # Runtime var, so no rebuild — unlike grafana_version, a build arg.
+      # Not in .config/docker-compose-base.yaml: that file is scaffold-owned.
+      GF_FEATURE_TOGGLES_ENABLE: "${GF_FEATURE_TOGGLES_ENABLE:-}"
+      # Same as .github/e2e-docker-compose.yml: a user's cached permissions
+      # would otherwise hide a dashboard created after they were read, which
+      # tests/exchangeCredentials.spec.ts does on every test.
+      GF_RBAC_PERMISSION_CACHE: "false"
       # --- OAuth2 / Keycloak ---
       GF_SERVER_ROOT_URL: "http://localhost:3000/"
       GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
@@ -48,19 +65,72 @@ services:
       GF_AUTH_GENERIC_OAUTH_NAME_ATTRIBUTE_PATH: "name"
       GF_AUTH_GENERIC_OAUTH_USE_PKCE: "true"
       GF_AUTH_SIGNOUT_REDIRECT_URL: "http://localhost:3000/login"
+      # --- Forward OAuth + Exchange (tests/exchangeCredentials.spec.ts) ---
+      # Grafana passes a plugin only the keys of its [plugin.<id>] section,
+      # as GF_PLUGIN_<KEY>; e2e/grafana.ini declares the two keys empty and
+      # these values replace them (pluginSettingsEnvVars reads the process
+      # environment for every declared key). The audience in the credential
+      # map is the datasource HOST, so it must be the stub's service name.
+      # https, on the stub's TLS listener: the plugin refuses any other URL.
+      GF_PLUGIN_EXCHANGE_URL: "https://exchange-stub:9443/token"
+      GF_PLUGIN_EXCHANGE_CLIENT_SECRETS: '{"exchange-stub":{"client_id":"grafana-e2e","client_secret":"e2e-delegate-secret"}}'
+    volumes:
+      # Merged with the base file's mounts. Replaces the image's grafana.ini,
+      # which is all comments, with the two-key file above.
+      - ./e2e/grafana.ini:/etc/grafana/grafana.ini:ro
+      # The exchanging mode refuses an unverified certificate for both the
+      # exchange and the cluster, so the plugin must trust the stub's. Go reads
+      # every file in /etc/ssl/certs, and a plugin process gets none of
+      # Grafana's environment, so a file here works where SSL_CERT_FILE cannot.
+      - type: volume
+        source: exchange-stub-certs
+        target: /etc/ssl/certs/exchange-stub.pem
+        read_only: true
+        volume:
+          subpath: cert.pem
     build:
       args:
         grafana_version: 13.2.1
     #    grafana_version: 12.3.1
     #    grafana_version: 12.0.2
     #    grafana_version: 11.5.4
-    #    grafana_version: 10.4.16
         development: true
         anonymous_auth_enabled: "true"
         # Must be >= the `go` directive in go.mod, otherwise mage inside the
         # container has to GOTOOLCHAIN-download a newer toolchain on every build.
-        GO_VERSION: 1.26.8
+        GO_VERSION: 1.27.3
 
+
+  # Stand-in for the console's token exchange and for a cluster that takes a
+  # bearer token (e2e/exchange-stub/main.go). The plugin exchanges a signed-in
+  # user's Keycloak token here, then queries "the cluster" here over TLS with
+  # the minted bearer; the stub forwards the query to clickhouse-server with
+  # the fixture user. /e2e/* lets a test read what it saw and break things.
+  exchange-stub:
+    build: e2e/exchange-stub
+    container_name: exchange-stub
+    depends_on:
+      - clickhouse-server
+    environment:
+      STUB_CERT_DIR: /certs
+      STUB_CLIENT_ID: grafana-e2e
+      STUB_CLIENT_SECRET: e2e-delegate-secret
+      STUB_AUDIENCE: exchange-stub
+      STUB_UPSTREAM: http://clickhouse-server:8123
+      STUB_UPSTREAM_USER: testuser
+      STUB_UPSTREAM_PASSWORD: testpass
+      STUB_TOKEN_TTL: 300s
+    volumes:
+      - exchange-stub-certs:/certs
+    # The control port answers only once the certificate is written.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9080/e2e/events"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+    ports:
+      - 9080:9080
+      - 9443:9443
 
   clickhouse-server:
     image: clickhouse/clickhouse-server:latest
@@ -158,4 +228,13 @@ services:
       E2E_CLICKHOUSE_HTTP_HOST:
       HYDROLIX_USERNAME:
       HYDROLIX_PASSWORD:
+      # tests/exchangeCredentials.spec.ts runs only when the stub is named,
+      # and reads it over its plain port. The cluster host is what the
+      # datasource under test is pointed at: the stub's TLS listener, by the
+      # name the credential map above is keyed on.
+      E2E_EXCHANGE_STUB_URL: "http://exchange-stub:9080"
+      E2E_EXCHANGE_CLUSTER_HOST: exchange-stub
+      # Grafana sends the browser to Keycloak at localhost:8080, which inside
+      # this container is nobody; the spec forwards that port to the real one.
+      E2E_KEYCLOAK_URL: "http://keycloak:8080"
 

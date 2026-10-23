@@ -16,6 +16,16 @@ release tag described below.
 All three channels build the frontend and backend within the run and sign
 the plugin. Only the release channel attests.
 
+> **S3 publication is not currently wired up.** Every "uploads to S3" below
+> describes the intended shape of the pipeline, not a step that runs today —
+> there is no `s3`/`aws` action anywhere in `.github/workflows/`. The only
+> implementation was the GitLab `publish-aws` job, retired along with the rest
+> of `.gitlab-ci.yml`. Until an upload step lands in `release.yml`, the dev and
+> rc channels produce a signed ZIP as a run artifact with no public URL, and
+> the release channel publishes to the GitHub release only. The digest
+> round-trip and the S3 assertion in the verification job are part of the same
+> gap.
+
 ## Branch containment
 
 Tag shape alone only says what a tag *claims* to be — anyone able to push a
@@ -99,7 +109,8 @@ to produce a signal the PR run lacks.
 
 3. The run asserts the tag's base version equals `package.json`, rewrites
    the in-run version to `X.Y.Z-rc.N`, signs, then runs the plugin validator
-   and the full Playwright matrix (Grafana 10.4.18, 11.6.1, 12.0.2, 13.0.1)
+   and the full Playwright matrix (Grafana 11.6.16, 12.4.10, 13.0.8,
+   13.1.5, 13.2.1, plus `nightly`)
    against the ZIP it just built. Only if both pass does it upload to S3
    under `rc/` and round-trip the digest.
 4. No GitHub release and no attestation are created for RCs — the S3 URL is

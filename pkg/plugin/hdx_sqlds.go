@@ -8,6 +8,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/sqlds/v5"
+	"github.com/hydrolix/plugin/pkg/plugin/exchange"
 	"github.com/hydrolix/plugin/pkg/plugin/models"
 )
 
@@ -37,8 +38,14 @@ type HdxSqlDatasource struct {
 	// Settings is the parsed plugin settings (nil on parse failure).
 	Settings *models.PluginSettings
 	// instanceSettings holds the original DataSourceInstanceSettings used
-	// to synthesise schema-query requests in MetadataProvider.executeQuery.
+	// to synthesise requests in MetadataProvider.executeQueryJSON.
 	instanceSettings backend.DataSourceInstanceSettings
+	// driver is kept so CheckHealth can ask what this process is configured
+	// for, which is the only thing it can honestly report for a mode whose
+	// credential belongs to a signed-in user.
+	driver sqlds.Driver
+	// Validator shares the interpolator and metadata caches with queries.
+	Validator *QueryValidator
 }
 
 // NewHdxSqlDatasource constructs the wrapper. settings.UID is captured by the
@@ -69,14 +76,69 @@ func NewHdxSqlDatasource(driver sqlds.Driver, settings backend.DataSourceInstanc
 		SQLDatasource:    ds,
 		Settings:         parsed,
 		instanceSettings: settings,
+		driver:           driver,
 	}
 	// MetadataProvider closes over the wrapper (for QueryData routing and
 	// DefaultDatabase access); the interpolator references the provider.
 	// Order matters: the wrapper must exist before NewMetadataProvider.
 	// ds.Interpolator is a func field; we install the method value, which
 	// overrides the default sqlds.NewDatasource wires in.
-	ds.Interpolator = NewHdxInterpolator(NewMetadataProvider(wrapper), Macros).Interpolate
+	md := NewMetadataProvider(wrapper)
+	interp := NewHdxInterpolator(md, Macros)
+	ds.Interpolator = interp.Interpolate
+	wrapper.Validator = NewQueryValidator(interp, md)
 	return wrapper
+}
+
+// CheckHealth answers Save & test.
+//
+// For a mode whose credential belongs to the signed-in user, the upstream check
+// is not merely unhelpful, it is misleading: it runs on the bootstrap
+// connection, which has no user, so a perfectly good datasource reports
+// degraded health and a broken one could report success. Worse, a green tick
+// would read as "your access works" when nothing about anyone's access was
+// tested.
+//
+// So for the forwarding modes this reports what it can actually establish —
+// whether this Grafana has an exchange configuration at all — and says
+// plainly that a person's access is proven by running a query, not here.
+//
+// It deliberately does not say whether a delegate exists for THIS host. The
+// credential map is instance-wide, and on a shared Grafana an org admin can
+// point a datasource at any hostname and press Save & test; a per-host answer
+// would tell them which other customers' clusters this instance serves. A host
+// with no delegate therefore passes here and fails in its first panel.
+func (ds *HdxSqlDatasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
+	if ds.Settings == nil || !forwardsUserIdentity(ds.Settings.CredentialsType) {
+		return ds.SQLDatasource.CheckHealth(ctx, req)
+	}
+
+	if ds.Settings.CredentialsType != exchange.CredentialsType {
+		// Plain forwarding: nothing to check here at all, and the upstream
+		// check would have failed on the bootstrap connection's missing
+		// credential.
+		return &backend.CheckHealthResult{
+			Status:  backend.HealthStatusOk,
+			Message: "This data source queries as the signed-in user. Open a panel to confirm access: a connection test carries no user.",
+		}, nil
+	}
+
+	hdx, ok := ds.driver.(*Hydrolix)
+	if !ok || hdx.exchangeSource == nil {
+		reason := "this Grafana has no token-exchange configuration"
+		if ok && hdx.exchangeConfigErr != nil {
+			reason = hdx.exchangeConfigErr.Error()
+		}
+		return &backend.CheckHealthResult{
+			Status:  backend.HealthStatusError,
+			Message: "Token exchange is not configured on this Grafana: " + reason,
+		}, nil
+	}
+
+	return &backend.CheckHealthResult{
+		Status:  backend.HealthStatusOk,
+		Message: "Open a panel to confirm access: a connection test carries no signed-in user, so it cannot check anyone's permissions.",
+	}, nil
 }
 
 // InstanceSettings returns the original DataSourceInstanceSettings captured

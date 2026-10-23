@@ -25,11 +25,10 @@ import { AdHocFilter } from "./adHocFilter";
  *   trailing 24h:    2025-04-19T00:00:00Z .. 2025-04-20T00:00:00Z
  *   "old_only" row:  2025-04-18T23:00:00Z (1h before the trailing window)
  *
- * Locator notes: Grafana renders this variable with two structurally
- * different widgets across the CI matrix — segment buttons on 10.4, a single
- * combobox from 11.5 on (with the placeholder changing again at 13) — so all
- * interaction goes through `tests/adHocFilter.ts`, which branches on
- * whichever is present. Read that file before changing any step here.
+ * Locator notes: Grafana renders this variable as a single combobox on every
+ * supported version, but the placeholder changes at 13 — so all interaction
+ * goes through `tests/adHocFilter.ts`, which matches either spelling. Read
+ * that file before changing any step here.
  */
 
 const FIXTURE_TABLE = "e2e.adhoc_topk";
@@ -37,7 +36,7 @@ const DASHBOARD_FROM = "2025-04-01T00:00:00.000Z";
 const DASHBOARD_TO = "2025-04-20T00:00:00.000Z";
 
 /** Guardrail budget from src/constants.ts: METADATA_QUERY_TIMEOUT_VALUE
- *  (10s breaker) + AD_HOC_QUERY_GUARDRAIL_SETTINGS timeout_overflow_mode.
+ *  (10s breaker) + adHocGuardrailSettings() timeout_overflow_mode.
  *  The dropdown must populate comfortably inside that budget. */
 const GUARDRAIL_BUDGET_MS = 8000;
 
@@ -115,5 +114,48 @@ test("ad hoc filter value dropdown: topK guardrails end-to-end", async ({
   });
   expect(nonNullableOptions).not.toContain("__null__");
   expect(nonNullableOptions).toContain("common");
+  await filters.dismiss();
+});
+
+test("ad hoc filter value dropdown: backtick-quoted table variable", async ({
+  page,
+  createDataSourceConfigPage,
+  gotoDashboardPage,
+}) => {
+  const steps = new ConfigPageSteps(page);
+  const dsConfigPage = await steps.createDatasourceConfigPage(
+    "adhoc quoted table",
+    createDataSourceConfigPage
+  );
+  await steps.fillTestHttpDatasource();
+  await steps.configPageLocator
+    .additionalSettingsExpandable()
+    .click({ force: true });
+  await steps.configPageLocator.defaultDatabase().fill("e2e");
+  await steps.configPageLocator.adHocTableVariable().fill("table");
+  await steps.saveSuccess(dsConfigPage);
+
+  const { uid, type } = dsConfigPage.datasource;
+  const { uid: dashUid } = await new DashboardBuilder(page, { uid, type })
+    .withTitle(`adhoc-quoted-table-${Date.now()}`)
+    .addCustomVariable({ name: "table", query: "e2e.`adhoc_topk`" })
+    .addAdHocVariable({ name: "Filters" })
+    .addPanel({ rawSql: "SELECT 1 AS v" })
+    .withTimeRange(DASHBOARD_FROM, DASHBOARD_TO)
+    .create();
+
+  await gotoDashboardPage({ uid: dashUid });
+  await closeWhatsNewDialog(page);
+
+  const filters = new AdHocFilter(page);
+  // Map keys come from a `$__timeFilter()` query that needs the primary key.
+  const keys = await filters.openKeys({ timeout: GUARDRAIL_BUDGET_MS });
+  expect(keys).toContain("attrs['env']");
+  await filters.dismiss();
+  await filters.selectKey("status");
+  const { options } = await filters.openValues({
+    timeout: GUARDRAIL_BUDGET_MS,
+  });
+  expect(options).toContain("common");
   await filters.dismiss();
 });

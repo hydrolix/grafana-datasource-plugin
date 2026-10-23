@@ -1,5 +1,73 @@
 # Changelog
 
+## 0.13.0
+
+- **Fix**: No redirect from the cluster is followed, in any credentials mode. Go's HTTP client keeps `Authorization` on a
+  redirect to a subdomain of the host and on an https-to-http downgrade, and copies every other header, the
+  `X-ClickHouse-Key` password among them, to any host; a proxy in front of the cluster or a mis-pointed datasource
+  could send the credential somewhere nobody configured. A 3xx now fails the query naming where it pointed.
+- **Feature**: New credentials type *Forward OAuth + Exchange* (`forwardOAuthExchange`). The signed-in user's token is
+  exchanged for a cluster token (RFC 8693) before querying, for a Grafana whose users sign in through an issuer the
+  cluster does not accept directly. The data source stores no credential; the exchange endpoint and its per-cluster
+  credentials come from a `[plugin.hydrolix-hydrolix-datasource]` section in Grafana's configuration file, which
+  reaches the plugin as `GF_PLUGIN_EXCHANGE_URL` / `GF_PLUGIN_EXCHANGE_CLIENT_SECRETS`. The audience is always the data
+  source's host. Requires verified TLS to the cluster, with *Skip TLS verify* refused, and an `https` exchange URL
+  whose redirects are not followed. Requires the HTTP protocol — native binds its credential to the connection and cannot carry a
+  refreshed token — and Grafana's `use_refresh_token`, since every exchange after the sign-in token expires is refused.
+  A cluster token is reused only by the exact sign-in token it was minted from, so a refresh costs one exchange.
+- **Fix**: A query's own `connectionArgs` no longer reach the connection cache in any credentials mode. sqlds reads
+  them from the query JSON the browser sends, so a caller could otherwise choose which cached connection a query ran
+  on
+- **Fix**: `Save & test` on either forwarding mode reported a working data source as degraded. The check ran on the
+  bootstrap connection, which has no signed-in user, so it tested something no query uses. Both modes now report what
+  can actually be established at configuration time
+- **Fix**: `$__adHocFilter(<table>)` with an explicit argument rejected a Hydrolix custom view or any quoted table name
+  with `invalid $__adHocFilter argument` (HDX-12561): the argument allowed only bare `table` or `database.table`. It now
+  also accepts backtick- and double-quoted names, so ``$__adHocFilter(akamai.`logs#redacted`)`` resolves the view's
+  columns. As in the table variable, quote a view name; an unquoted `#` is still rejected
+- **Fix**: Ad hoc filter values showed "No options found" when the ad hoc table variable named a Hydrolix custom view
+  (``akamai.`logs#redacted` ``) or any backtick- or double-quoted table (HDX-12543). Plain-column keys still loaded,
+  but the primary-key lookup behind the preloads searched `system.tables` for the quoted spelling and found no row: the
+  value query was never sent, and `Map` columns (`attrs['…']`) dropped out of the key list because their key discovery
+  runs a `$__timeFilter()` that failed on the backend. In any query whose FROM names such a table, `$__timeFilter()`,
+  `$__timeFilter_ms()`, `$__timeInterval()` and `$__timeInterval_ms()` without a column argument failed the same way
+  with `primary key not found`. The lookup now uses the bare name; each custom
+  view has its own `system.tables` row carrying the base table's primary key. The table variable no longer needs a view
+  name in backticks: the plugin quotes any part that is not a plain identifier, so `akamai.logs#redacted` is sent as
+  ``akamai.`logs#redacted` ``. A name without a database (including a quoted one containing a dot, `` `my.logs` ``) now
+  takes the datasource's default database for DESCRIBE and the value query too, not only for the key lookup
+- **Fix**: Ad hoc filters on a table without a primary key (HDX-11399). The key and value dropdowns came up empty when
+  `system.tables.primary_key` is `""`, and map-key discovery (`attrs['…']`) on such a table failed with a ClickHouse
+  parse error because the empty key was interpolated into `$__timeFilter()`. Both now issue a keyless preload: no
+  `$__timeFilter`, no time range, still bounded by `topK(100)`, `hdx_query_max_execution_time = 10` and the shared
+  `SETTINGS` suffix. Keyed tables issue the same statements as before. A `system.tables` lookup that fails is no longer
+  mistaken for a keyless table: it is not memoized and issues no preload. On the backend, `$__timeFilter()`,
+  `$__timeFilter_ms()`, `$__timeInterval()` and `$__timeInterval_ms()` without a column argument on a keyless table now
+  fail with `table has no primary key`, naming the table and hinting to pass the time column as the argument
+- **Fix**: The signed-in user's auth header did not reach the plugin backend's metadata lookups. It is set on
+  `HdxQuery.Headers`, which is `json:"-"`, so the `/interpolate` route marshalled it away and the QueryData path never
+  filled it — the macros found nil. It now travels on the request context, set at both entry points. Two things were
+  broken by that and are fixed together: the per-user metadata cache scope below, and a macro's metadata lookup, which
+  on a cold cache reached the cluster with no credential at all (`forwardOAuth: missing OAuth token in connection args`)
+- **Fix**: Schema metadata was cached across users in `forwardOAuth` mode. `MetadataProvider` keyed a table's primary
+  key and a CTE's columns on the table or CTE alone, for an hour per datasource instance, and the caller's token
+  reached the cluster only on a miss — so one user's lookup served every other user of that datasource that table's
+  primary key and column name→type map, without the cluster authorizing them. Schema shape, not rows. Both caches now
+  key on the forwarded identity; modes that forward no identity are unchanged. **Behaviour change for `forwardOAuth`
+  users**: cache hit rate falls, so more metadata queries reach the cluster
+- **Security**: Bump `source-map-js` to 1.2.2 to clear CVE-2026-93749 (GHSA-68fv-2mgg-jv7q, high severity), which fails the plugin validator. Build-time dependency only; it is not shipped in the plugin
+- **Security**: Override `follow-redirects` to 1.16.1 to clear CVE-2026-111755 and CVE-2026-111756 (both high severity), which fail the plugin validator. Reached only through the dev dependency `node-rest-client-promise`; not shipped in the plugin
+- **Chore**: Pin Go to 1.27.3 and `golang.org/x/net` to 0.61.0 — Grafana's govulncheck reported twelve reachable advisories against 1.26.8 and two against x/net 0.59.0; it now finds none. The go directive, CI, release and nightly workflows, the dev container and the e2e exchange stub move together
+- **Chore**: Update create-plugin scaffold to 7.11.0
+- **Chore**: Add a nightly compatibility canary (HDX-12393) that runs the e2e suite against every supported Grafana release with `datetime.useLuxon` off, and against the nightly image with the toggle off and on; a failing night files or updates a labelled GitHub issue naming the failing cells
+- **Chore**: Let Dependabot and fork PRs pass CI without the signing token (HDX-12501) — PR CI packages the plugin unsigned when the token is absent, and the release workflow asserts that exactly one signed zip exists before publishing
+
+- **Feature**: Validate queries in the query editor before they run (HDX-11409). About a second after you stop typing, a status bar under the SQL editor dry-runs the query with `EXPLAIN` on the cluster and reports *Query is valid* or the cluster's error (unknown column/table, syntax, permissions). It also warns when a table's primary (timestamp) key is not filtered in `WHERE` — add `$__timeFilter()` to avoid scanning the whole table; a filter in the query that reads a CTE or subquery counts. Validation never blocks running the query; only SELECT statements are dry-run. The `EXPLAIN` dry-run carries `query-validation` in `${__hydrolix.app}` / `${__hydrolix.query_source}`, so it can be told apart in query logs. Limitations: the primary-key warning covers single-table SELECTs (queries with a JOIN, comma join or `ARRAY JOIN` are not checked), it is a name match (any mention of the key column in `WHERE`/`PREWHERE` counts, while a key referenced only through a `SELECT` alias is reported as unfiltered), and tables without a primary key are never warned
+
+- **Feature**: Replace the unused *Ad hoc filter default time range* setting with *Ad hoc filter suggestion lookback* (`adHocTimeRangeLookback`, default `24h`; supported units `s`, `m`, `h`). It sets the ad hoc key/value suggestion window, the cap applied to longer dashboard ranges, and the `hdx_query_max_timerange_sec` guardrail (lookback + 10m). In the config editor an invalid value is cleared when the field loses focus; an invalid value that bypasses the editor (e.g. provisioned) falls back to 24h at runtime. `d` is still accepted for existing values. A previously saved default time range is ignored; it was never applied
+
+- **Breaking**: Drop Grafana 10.4 support — `grafanaDependency` is now `>=11.0.0`, and 10.4 is removed from the e2e, compatibility-check and nightly matrices. Instances on 10.4 will no longer be offered the plugin update
+
 ## 0.12.2 (compatible with Grafana <=13.3.0-34421444802 pre-release)
 
 - **Fix**: Plugin fails to import on Grafana builds with the Luxon-backed datetime layer (`datetime.useLuxon` feature toggle, Grafana Cloud / upcoming 13.3) — `dateTime().subtract("5m")` in the default ad-hoc time range used an invalid argument that Moment silently ignored but Luxon rejects at module load
