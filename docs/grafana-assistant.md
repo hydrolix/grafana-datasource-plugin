@@ -3,12 +3,27 @@
 How to give Grafana Assistant the ability to query a Hydrolix cluster, and what
 you are agreeing to when you do.
 
-Grafana Assistant can query Hydrolix through its built-in SQL tools but it is
-currently not fully featured. For example, it cannot query Hydrolix summary
-tables.
+Grafana Assistant can query Hydrolix natively through its built-in SQL tools,
+and for most tables that is all you need.
 
-An alternative is to set up the [Hydrolix MCP server](https://github.com/hydrolix/mcp-hydrolix)
-as a custom MCP server, alongwith a Hydrolix skill.
+Summary tables take it a couple of extra steps. The built-in tools carry no
+Hydrolix-specific schema knowledge, so Assistant does not know up front that a
+summary table's aggregate columns hold partial aggregation states that need
+their `-Merge` functions. It works this out by itself — the first attempt tells
+it the table is a summary table, and the next one is correct — so this is a
+minor detour, not a blocker.
+
+There are two optional ways to skip the detour:
+
+- **Install the Hydrolix skill** ([`docs/assistant-skill.md`](./assistant-skill.md)).
+  It teaches Assistant the Hydrolix dialect, including the summary-table rule,
+  so it writes the `-Merge` form on the first attempt. This needs no MCP
+  server; follow step 4 below and skip the tool allowlist.
+- **Register the [Hydrolix MCP server](https://github.com/hydrolix/mcp-hydrolix)**
+  as a custom MCP server alongside the skill. Its `get_table_info` tool reports
+  `is_summary_table` and the per-column `merge_function` directly, so Assistant
+  does not have to infer them from the schema at all. The rest of this document
+  is how to set that up, and what you are agreeing to when you do.
 
 ## Before you register: read this first
 
