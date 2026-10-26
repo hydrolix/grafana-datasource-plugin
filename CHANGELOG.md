@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.13.0 (unreleased)
+## 0.13.0
 
 - **Fix**: No redirect from the cluster is followed, in any credentials mode. Go's HTTP client keeps `Authorization` on a
   redirect to a subdomain of the host and on an https-to-http downgrade, and copies every other header, the
@@ -36,6 +36,14 @@
   name in backticks: the plugin quotes any part that is not a plain identifier, so `akamai.logs#redacted` is sent as
   ``akamai.`logs#redacted` ``. A name without a database (including a quoted one containing a dot, `` `my.logs` ``) now
   takes the datasource's default database for DESCRIBE and the value query too, not only for the key lookup
+- **Fix**: Ad hoc filters on a table without a primary key (HDX-11399). The key and value dropdowns came up empty when
+  `system.tables.primary_key` is `""`, and map-key discovery (`attrs['…']`) on such a table failed with a ClickHouse
+  parse error because the empty key was interpolated into `$__timeFilter()`. Both now issue a keyless preload: no
+  `$__timeFilter`, no time range, still bounded by `topK(100)`, `hdx_query_max_execution_time = 10` and the shared
+  `SETTINGS` suffix. Keyed tables issue the same statements as before. A `system.tables` lookup that fails is no longer
+  mistaken for a keyless table: it is not memoized and issues no preload. On the backend, `$__timeFilter()`,
+  `$__timeFilter_ms()`, `$__timeInterval()` and `$__timeInterval_ms()` without a column argument on a keyless table now
+  fail with `table has no primary key`, naming the table and hinting to pass the time column as the argument
 - **Fix**: The signed-in user's auth header did not reach the plugin backend's metadata lookups. It is set on
   `HdxQuery.Headers`, which is `json:"-"`, so the `/interpolate` route marshalled it away and the QueryData path never
   filled it — the macros found nil. It now travels on the request context, set at both entry points. Two things were
@@ -48,6 +56,11 @@
   key on the forwarded identity; modes that forward no identity are unchanged. **Behaviour change for `forwardOAuth`
   users**: cache hit rate falls, so more metadata queries reach the cluster
 - **Security**: Bump `source-map-js` to 1.2.2 to clear CVE-2026-93749 (GHSA-68fv-2mgg-jv7q, high severity), which fails the plugin validator. Build-time dependency only; it is not shipped in the plugin
+- **Security**: Override `follow-redirects` to 1.16.1 to clear CVE-2026-111755 and CVE-2026-111756 (both high severity), which fail the plugin validator. Reached only through the dev dependency `node-rest-client-promise`; not shipped in the plugin
+- **Chore**: Pin Go to 1.27.3 and `golang.org/x/net` to 0.61.0 — Grafana's govulncheck reported twelve reachable advisories against 1.26.8 and two against x/net 0.59.0; it now finds none. The go directive, CI, release and nightly workflows, the dev container and the e2e exchange stub move together
+- **Chore**: Update create-plugin scaffold to 7.11.0
+- **Chore**: Add a nightly compatibility canary (HDX-12393) that runs the e2e suite against every supported Grafana release with `datetime.useLuxon` off, and against the nightly image with the toggle off and on; a failing night files or updates a labelled GitHub issue naming the failing cells
+- **Chore**: Let Dependabot and fork PRs pass CI without the signing token (HDX-12501) — PR CI packages the plugin unsigned when the token is absent, and the release workflow asserts that exactly one signed zip exists before publishing
 
 - **Feature**: Validate queries in the query editor before they run (HDX-11409). About a second after you stop typing, a status bar under the SQL editor dry-runs the query with `EXPLAIN` on the cluster and reports *Query is valid* or the cluster's error (unknown column/table, syntax, permissions). It also warns when a table's primary (timestamp) key is not filtered in `WHERE` — add `$__timeFilter()` to avoid scanning the whole table; a filter in the query that reads a CTE or subquery counts. Validation never blocks running the query; only SELECT statements are dry-run. The `EXPLAIN` dry-run carries `query-validation` in `${__hydrolix.app}` / `${__hydrolix.query_source}`, so it can be told apart in query logs. Limitations: the primary-key warning covers single-table SELECTs (queries with a JOIN, comma join or `ARRAY JOIN` are not checked), it is a name match (any mention of the key column in `WHERE`/`PREWHERE` counts, while a key referenced only through a `SELECT` alias is reported as unfiltered), and tables without a primary key are never warned
 
