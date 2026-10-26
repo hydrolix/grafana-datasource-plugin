@@ -38,4 +38,23 @@ Follow these steps to set up and run the plugin in your local environment:
 7. Open Grafana at http://localhost:3000, and then go to **Administration** > **Plugins**. Make sure that
    this plugin is there.
 
+### Git hooks
 
+Checks run through [pre-commit](https://pre-commit.com/) so most CI failures show up before a push.
+Install it once (for example `brew install pre-commit`), then enable the hooks in your clone:
+
+```shell
+pre-commit install
+```
+
+- **On every commit** (staged files only): gofmt, golangci-lint on changed code (includes gosec), `go mod tidy`
+  drift, eslint, actionlint and zizmor for workflows, shellcheck for `.github/scripts`, gitleaks for secrets
+  (test fixtures are allowlisted in `.gitleaks.toml`), and file hygiene checks (merge-conflict markers, case
+  conflicts, line endings, large files, private keys, YAML syntax).
+- **On `git push`**: golangci-lint on the whole module, `go test -race` (needs Docker), `npm run typecheck`
+  and `npm run test:ci`. Each runs only when the push touches the matching files.
+- **CI only**: e2e, the production build, the plugin validator and govulncheck.
+
+Run everything by hand with `pre-commit run --all-files`, or the push-stage checks with
+`pre-commit run --all-files --hook-stage pre-push`. Skip a hook in an emergency with `git commit --no-verify`
+or `git push --no-verify`; CI still runs the same checks.

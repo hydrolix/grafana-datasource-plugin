@@ -1,0 +1,8 @@
+title = "hydrolix grafana datasource plugin"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Test fixtures: fake tokens and client secrets."
+paths = ['''_test\.go$''', '''^tests/''']
