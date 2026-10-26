@@ -57,4 +57,5 @@ pre-commit install
 
 Run everything by hand with `pre-commit run --all-files`, or the push-stage checks with
 `pre-commit run --all-files --hook-stage pre-push`. Skip a hook in an emergency with `git commit --no-verify`
-or `git push --no-verify`; CI still runs the same checks.
+or `git push --no-verify`. CI re-runs golangci-lint, eslint, the typecheck and the tests, but not gofmt, `go mod tidy`,
+gitleaks, actionlint, zizmor or shellcheck, so run those by hand before pushing.
