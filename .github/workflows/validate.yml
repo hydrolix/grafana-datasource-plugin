@@ -33,6 +33,22 @@ jobs:
         with:
           name: plugin-package
 
+      # The validator skips its gosec and govulncheck analyzers unless the
+      # binaries are on PATH. Install them so this job previews what the
+      # Grafana catalog review reports (informational; the lint-backend and
+      # govulncheck workflows are the gates). gosec is pinned to the version
+      # the review uses.
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install gosec and govulncheck
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.29.0
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
       - name: Run plugin-validator
         run: |
           ZIP=$(find . -maxdepth 1 -name '*.zip' | head -n 1)
