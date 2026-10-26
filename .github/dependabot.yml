@@ -10,6 +10,21 @@ updates:
       # Exclude plugin-e2e to prevent false positives with canary e2e tests
       exclude:
         - '@grafana/plugin-e2e'
+    ignore:
+      # eslint-plugin-react only accepts eslint up to ^9.7. Lift once it supports ESLint 10.
+      - dependency-name: 'eslint'
+        versions: ['>=10.0.0']
+      # From 13.2 these require React 19 (schema moves in lockstep). Lift with the React 19 migration.
+      - dependency-name: '@grafana/data'
+        versions: ['>=13.2.0']
+      - dependency-name: '@grafana/i18n'
+        versions: ['>=13.2.0']
+      - dependency-name: '@grafana/runtime'
+        versions: ['>=13.2.0']
+      - dependency-name: '@grafana/schema'
+        versions: ['>=13.2.0']
+      - dependency-name: '@grafana/ui'
+        versions: ['>=13.2.0']
     open-pull-requests-limit: 5
     commit-message:
       prefix: 'chore'
