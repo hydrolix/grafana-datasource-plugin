@@ -82,6 +82,14 @@ jobs:
     with:
       go_version: '1.27.3'
 
+  lint-backend:
+    name: Lint Backend
+    uses: ./.github/workflows/lint-backend.yml
+    permissions:
+      contents: read
+    with:
+      go_version: '1.27.3'
+
   test-backend:
     name: Test Backend
     uses: ./.github/workflows/test-backend.yml
