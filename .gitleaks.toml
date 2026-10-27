@@ -4,5 +4,5 @@ title = "hydrolix grafana datasource plugin"
 useDefault = true
 
 [[allowlists]]
-description = "Test fixtures: fake tokens and client secrets."
-paths = ['''_test\.go$''', '''^tests/''']
+description = "Fake JWT fixture in pkg/plugin/driver_test.go. Matches the exact value only, so other secrets in test files are still caught."
+regexes = ['''eyJhbGciOiJSUzI1NiJ9\.eyJzdWIiOiJ1In0\.sig''']
