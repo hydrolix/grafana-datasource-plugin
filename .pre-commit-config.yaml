@@ -39,7 +39,8 @@ repos:
         # Replaces the hook's default args, so --no-progress is repeated.
         args: [--no-progress, --min-severity=medium]
 
-  # Staged changes only; allowlist for test fixtures lives in .gitleaks.toml.
+  # Staged changes only, default rules, no allowlist: keep test fixtures
+  # obviously fake (low entropy) rather than exempting files.
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.1
     hooks:

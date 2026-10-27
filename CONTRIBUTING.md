@@ -49,7 +49,7 @@ pre-commit install
 
 - **On every commit** (staged files only): gofmt, golangci-lint on changed code (includes gosec), `go mod tidy`
   drift, eslint, actionlint and zizmor for workflows, shellcheck for `.github/scripts`, gitleaks for secrets
-  (test fixtures are allowlisted in `.gitleaks.toml`), and file hygiene checks (merge-conflict markers, case
+  (no allowlist: keep test fixtures obviously fake), and file hygiene checks (merge-conflict markers, case
   conflicts, line endings, large files, private keys, YAML syntax).
 - **On `git push`**: golangci-lint on the whole module, `go test -race` (needs Docker), `npm run typecheck`
   and `npm run test:ci`. Each runs only when the push touches the matching files.

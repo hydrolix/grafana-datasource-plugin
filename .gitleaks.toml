@@ -1,8 +1,0 @@
-title = "hydrolix grafana datasource plugin"
-
-[extend]
-useDefault = true
-
-[[allowlists]]
-description = "Fake JWT fixture in pkg/plugin/driver_test.go. Matches the exact value only, so other secrets in test files are still caught."
-regexes = ['''eyJhbGciOiJSUzI1NiJ9\.eyJzdWIiOiJ1In0\.sig''']
