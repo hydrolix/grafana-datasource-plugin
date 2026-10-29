@@ -112,7 +112,7 @@
     "react-dom": "^18.3.0",
     "react-use": "17.6.1",
     "rxjs": "^7.8.2",
-    "sql-formatter": "^15.4.11",
+    "sql-formatter": "^15.9.0",
     "uuid": "^14.0.0",
     "zustand": "^5.0.6"
   },
