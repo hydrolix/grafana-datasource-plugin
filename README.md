@@ -63,6 +63,9 @@ Following is the list of Hydrolix configuration options.
 - **Dial timeout** (optional) - Connection timeout in seconds.
 - **Query timeout** (optional) - Read timeout in seconds.
 
+For the experimental JSON-only identity-alias picker options, see
+[Preferred field names](docs/preferred-field-names.md). These options default off.
+
 **Query Settings subsection:**
 
 You can configure [Hydrolix query settings](https://docs.hydrolix.io/docs/query-options-reference) that will be sent
