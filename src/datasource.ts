@@ -43,6 +43,10 @@ import { from, Observable, switchMap } from "rxjs";
 import { map } from "rxjs/operators";
 import { ErrorMessageBeautifier } from "./errors/errorBeautifier";
 import { getMetadataProvider } from "./editor/metadataProvider";
+import {
+  columnsFromResponse,
+  preferredColumnsFromResponse,
+} from "./editor/preferredColumns";
 import { parseLookbackSeconds } from "./editor/timeRangeUtils";
 import { getColumnKeysForMapStatement, getColumnValuesStatement } from "./ast";
 import {
@@ -52,6 +56,8 @@ import {
   NULLABLE_TYPES,
   SYNTHETIC_EMPTY,
   SYNTHETIC_NULL,
+  SUPPORTED_TYPES,
+  ARRAY_TYPES,
   VALIDATION_QUERY_SOURCE,
 } from "./constants";
 import { replace } from "./syntheticVariables";
@@ -143,6 +149,12 @@ export class DataSource extends DataSourceWithBackend<
   async metricFindQuery(query: Partial<HdxQuery> | string, options?: any) {
     const hdxQuery: Partial<HdxQuery> =
       typeof query === "string" ? { rawSql: query } : query;
+    if (hdxQuery.preferredColumns) {
+      const columns = await this.preferredColumnChoices(
+        this.replace(hdxQuery.preferredColumns, {}) || ""
+      );
+      return columns.map(({ name }) => ({ text: name, value: name }));
+    }
     if (!hdxQuery.rawSql) {
       return [];
     }
@@ -415,10 +427,34 @@ export class DataSource extends DataSourceWithBackend<
     };
   }
 
+  private async describeColumns(table: string) {
+    // The explicit metadata query accepts only a qualified identifier, never SQL.
+    if (!/^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$/.test(table)) {
+      throw new Error("Preferred columns require a qualified database.table name");
+    }
+    return this.metadataProvider.executeQuery(`DESCRIBE ${table}`);
+  }
+
+  private async preferredColumnChoices(table: string) {
+    return preferredColumnsFromResponse(await this.describeColumns(table));
+  }
+
   async getTagKeys(
     options?: DataSourceGetTagKeysOptions<HdxQuery>
   ): Promise<MetricFindValue[]> {
     let table = this.adHocFilterTableName();
+
+    if (table && this.instanceSettings.jsonData.preferredFieldNames) {
+      const columns = await this.preferredColumnChoices(table);
+      return columns
+        .filter(
+          ({ type }) =>
+            SUPPORTED_TYPES.includes(type) ||
+            NULLABLE_TYPES.includes(type) ||
+            ARRAY_TYPES.includes(type)
+        )
+        .map(({ name }) => ({ text: name, value: name }));
+    }
 
     if (table) {
       // The primary key is resolved once here rather than per Map column:
@@ -563,7 +599,16 @@ export class DataSource extends DataSourceWithBackend<
     }
 
     const [keys, timeColumn] = await Promise.all([
-      this.metadataProvider.tableKeys(table),
+      this.instanceSettings.jsonData.preferredFieldNames
+        ? this.describeColumns(table).then((response) =>
+            // Existing filters can still use a base hidden from new choices.
+            columnsFromResponse(response).map(({ name, type }) => ({
+              text: name,
+              value: name,
+              type,
+            }))
+          )
+        : this.metadataProvider.tableKeys(table),
       this.resolvePreloadTimeColumn(table),
     ]);
     const isMapKey = MAP_KEY_REGEX.test(options.key);

@@ -10,6 +10,8 @@ import { DataQuery } from "@grafana/schema";
 export type HdxQuerySource = "annotation";
 
 export interface HdxQuery extends DataQuery {
+  /** Opt-in field variable: qualified database.table to DESCRIBE, preferring identity aliases. */
+  preferredColumns?: string;
   rawSql: string;
   round: string;
   queryFormat?: string;
@@ -44,6 +46,8 @@ export interface DataSourceResponse {
  * These are options configured for each DataSource instance
  */
 export interface HdxDataSourceOptions extends DataSourceJsonData {
+  /** Opt-in ad-hoc key choices: prefer same-type identity aliases over their physical bases. */
+  preferredFieldNames?: boolean;
   host?: string;
   port?: number;
   useDefaultPort?: boolean;
