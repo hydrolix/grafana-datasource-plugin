@@ -155,8 +155,8 @@ func TestGetOAuthToken(t *testing.T) {
 		},
 		{
 			name:      "complex JWT bare value",
-			args:      json.RawMessage(`{"oauthToken":"eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1In0.sig"}`),
-			wantToken: "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1In0.sig",
+			args:      json.RawMessage(`{"oauthToken":"header.payload.signature"}`),
+			wantToken: "header.payload.signature",
 			wantOK:    true,
 		},
 		{
