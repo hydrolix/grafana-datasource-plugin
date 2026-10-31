@@ -64,7 +64,7 @@ Following is the list of Hydrolix configuration options.
 - **Query timeout** (optional) - Read timeout in seconds.
 
 For the experimental JSON-only identity-alias picker options, see
-[Preferred field names](docs/preferred-field-names.md). These options default off.
+[Preferred field names](https://github.com/hydrolix/grafana-datasource-plugin/blob/develop/docs/preferred-field-names.md). These options default off.
 
 **Query Settings subsection:**
 
