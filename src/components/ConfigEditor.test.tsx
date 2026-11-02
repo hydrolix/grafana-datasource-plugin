@@ -271,6 +271,24 @@ describe("ConfigEditor", () => {
     );
   });
 
+  it("writes adHocKeysPreferAliases to jsonData on toggle, defaulting off", () => {
+    const onOptionsChange = jest.fn();
+    render(
+      <ConfigEditor {...getDefaultProps({})} onOptionsChange={onOptionsChange} />
+    );
+    expandAdditionalSettings();
+    const toggle = screen.getByLabelText(
+      labels.adHocKeysPreferAliases.label
+    ) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    fireEvent.click(toggle);
+    expect(onOptionsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        jsonData: expect.objectContaining({ adHocKeysPreferAliases: true }),
+      })
+    );
+  });
+
   // it('port input is enabled', () => {
   //     let component = render(<ConfigEditor {...getDefaultProps({})} />);
   //     expect(component.container.querySelector('#config-editor-port')?.getAttribute("disabled")).toBeNull();
