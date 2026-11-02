@@ -33,6 +33,32 @@ exactly as without the option.
 The option affects ad-hoc filter keys only. Monaco completion, the query
 editor's schema browser and query-variable results are unchanged.
 
+## Field-choice variables
+
+The option does not change query-variable results. A dashboard variable that
+offers column names for use in panel SQL (`SELECT $field, count() ... GROUP BY
+$field`) is a plain Query variable over `system.columns`. To apply the same
+identity-alias rule there, hide every column that is the same-type target of an
+`ALIAS` column; `trim` removes the backticks Hydrolix puts around the alias
+expression, and the `type` join keeps type-changing aliases from hiding their
+base:
+
+```sql
+SELECT c.name
+FROM system.columns AS c
+LEFT JOIN (
+    SELECT trim(BOTH '`' FROM default_expression) AS base, type
+    FROM system.columns
+    WHERE database = 'akamai' AND table = 'logs' AND default_kind = 'ALIAS'
+) AS a ON a.base = c.name AND a.type = c.type
+WHERE c.database = 'akamai' AND c.table = 'logs' AND a.base = ''
+ORDER BY c.position
+```
+
+For `cliIP String` plus `client_ip String ALIAS cliIP` this lists `client_ip`
+and not `cliIP`, matching the ad-hoc key list. Substitute a table variable for
+the literal names if the dashboard switches tables.
+
 ## What never changes
 
 The option changes new choices only. SQL is not rewritten and neither column
