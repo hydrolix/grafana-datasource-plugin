@@ -269,6 +269,17 @@ export const getType = (
   }
 };
 
+// An ALIAS column's DESCRIBE expression names its target either
+// backtick-wrapped (Hydrolix: `cliIP`, and the only spelling possible for a
+// summary column named like `count()`) or bare (plain ClickHouse and the
+// metadata-only Hydrolix DESCRIBE: cliIP). Anything else is a computed
+// expression, which never matches a column name and so resolves to no type.
+export const aliasTarget = (expression: string | undefined): string => {
+  const trimmed = (expression ?? "").trim();
+  const wrapped = /^`(.*)`$/s.exec(trimmed);
+  return wrapped ? wrapped[1] : trimmed;
+};
+
 export const getKeyMap = (r: DataQueryResponse): AdHocFilterKeys[] => {
   try {
     let fields = r.data[0]?.fields?.length
@@ -278,7 +289,6 @@ export const getKeyMap = (r: DataQueryResponse): AdHocFilterKeys[] => {
     let types: string[] = fields[1]?.values;
     let defaultTypes: string[] = fields[2]?.values;
     let defaultExpression: string[] = fields[3]?.values;
-    const aliasRegExp = /`(.*)`/;
     let definitionByKey: Map<string, KeyDefinition> = new Map(
       columns.map((c, i) => [
         c,
@@ -286,12 +296,23 @@ export const getKeyMap = (r: DataQueryResponse): AdHocFilterKeys[] => {
           name: c,
           type: types[i],
           isAlias: defaultTypes[i] === "ALIAS",
-          aliasFor: aliasRegExp.test(defaultExpression[i])
-            ? aliasRegExp.exec(defaultExpression[i])?.[1]!
-            : "",
+          aliasFor: aliasTarget(defaultExpression[i]),
         },
       ])
     );
+    // Only a strict identity alias (existing, non-alias target of the very
+    // same declared type) exposes `aliasFor`: that is the one relation the
+    // adhoc-keys-prefer-aliases policy may collapse without changing semantics.
+    const identityAliasFor = (c: string): string | undefined => {
+      const definition = definitionByKey.get(c)!;
+      const target = definitionByKey.get(definition.aliasFor);
+      return definition.isAlias &&
+        target &&
+        !target.isAlias &&
+        target.type === definition.type
+        ? target.name
+        : undefined;
+    };
     return columns
       .filter((c) => {
         let type = getType(definitionByKey, c);
@@ -303,7 +324,15 @@ export const getKeyMap = (r: DataQueryResponse): AdHocFilterKeys[] => {
             MAP_TYPES.includes(type))
         );
       })
-      .map((k) => ({ text: k, value: k, type: getType(definitionByKey, k) }));
+      .map((k) => {
+        const aliasFor = identityAliasFor(k);
+        return {
+          text: k,
+          value: k,
+          type: getType(definitionByKey, k),
+          ...(aliasFor ? { aliasFor } : {}),
+        };
+      });
   } catch (e: any) {
     throw new Error("can not get columns for ad hoc filter", e.message);
   }

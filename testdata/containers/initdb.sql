@@ -65,6 +65,11 @@ CREATE TABLE e2e.adhoc_topk
 (
     ts DateTime64(3, 'UTC'),
     status String,
+    -- Identity alias of `status` in the bare DESCRIBE spelling
+    -- (tests/adHocPreferredFieldNames.spec.ts): plain ClickHouse reports
+    -- `default_expression = status`, the spelling stock key discovery used
+    -- to drop. Not insertable, so the INSERTs below need no column list change.
+    status_alias String ALIAS status,
     status_null Nullable(String),
     status_nonnull String,
     tags Array(String),
