@@ -51,26 +51,26 @@ When neither the OAuth token (under `forwardOAuth`) nor the Org-Id header is pre
 - **WHEN** `MutateQueryData` runs
 - **THEN** `req.Queries[0].JSON` SHALL NOT contain a `connectionArgs` field after the call (if it was absent before, it stays absent)
 
-### Requirement: `injectConnectionArgs` overwrites, does not merge
+### Requirement: `MutateQueryData` overwrites `connectionArgs`, does not merge
 
-The plugin SHALL define `injectConnectionArgs(body json.RawMessage, args map[string]string) (json.RawMessage, error)` in `pkg/plugin/connection_args.go`. The function SHALL replace any existing `connectionArgs` value with the marshalled `args` map (no key-level merge) and SHALL preserve every other field of `body`.
+`MutateQueryData` SHALL write `connectionArgs` through `jsonSet` in `pkg/plugin/driver.go`. The write SHALL replace any existing `connectionArgs` value, including keys that differ from it only in case, with the plugin's own map (no key-level merge), and SHALL preserve every other field of the query JSON.
 
 #### Scenario: No prior connectionArgs
 
-- **GIVEN** `body = {"rawSql": "SELECT 1"}` and `args = {"oauthToken": "t"}`
-- **WHEN** `injectConnectionArgs(body, args)` is called
-- **THEN** the result SHALL parse to `{"rawSql": "SELECT 1", "connectionArgs": {"oauthToken": "t"}}`
+- **GIVEN** query JSON `{"rawSql": "SELECT 1"}` with `CredentialsType = "forwardOAuth"`, an `Authorization: Bearer t` header and no Org-Id header
+- **WHEN** `MutateQueryData` runs
+- **THEN** the query JSON SHALL parse to `{"rawSql": "SELECT 1", "connectionArgs": {"oauthToken": "t"}}`
 
 #### Scenario: Prior connectionArgs is overwritten
 
-- **GIVEN** `body = {"rawSql": "X", "connectionArgs": {"stale": "v"}}` and `args = {"oauthToken": "t"}`
-- **WHEN** `injectConnectionArgs(body, args)` is called
-- **THEN** the result's `connectionArgs` SHALL equal `{"oauthToken": "t"}` exactly (no `"stale"` key)
+- **GIVEN** query JSON `{"rawSql": "X", "connectionArgs": {"stale": "v"}}`
+- **WHEN** `MutateQueryData` writes the plugin's `connectionArgs`
+- **THEN** the result's `connectionArgs` SHALL equal the plugin's map exactly (no `"stale"` key)
 
-#### Scenario: Malformed body propagates the unmarshal error
+#### Scenario: Malformed query JSON propagates the unmarshal error
 
-- **GIVEN** `body = []byte("not json")`
-- **WHEN** `injectConnectionArgs(body, anything)` is called
+- **GIVEN** query JSON that is not a JSON object
+- **WHEN** `jsonSet` is called on it
 - **THEN** the returned error SHALL be non-nil
 
 ### Requirement: `getOAuthToken` / `getOrgId` read the flat `connectionArgs` shape
