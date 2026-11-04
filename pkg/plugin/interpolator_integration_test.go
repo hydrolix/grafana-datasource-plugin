@@ -115,6 +115,27 @@ func TestInterpolate_Integration_TimeMacroResolvesPKFromCache(t *testing.T) {
 	assert.NotContains(t, out, "$__timeFilter")
 }
 
+func TestInterpolate_Integration_TimeMacrosFollowWithAlias(t *testing.T) {
+	// HDX-11394: column-less time macros reading a WITH alias take the primary
+	// key of the table in the alias body, not of a table named like the alias.
+	i := newIntegrationInterpolator(func(p *MetadataProvider) {
+		p.pkCache.Set("sample_logs", "timestamp", ttlcache.DefaultTTL)
+	})
+	q := &models.HdxQuery{
+		RawSQL: "WITH errors AS (SELECT * FROM sample.logs WHERE status >= 500)\n" +
+			"SELECT $__timeInterval() AS t, count() FROM errors\n" +
+			"WHERE $__timeFilter()\nGROUP BY t",
+		TimeRange: backend.TimeRange{From: integrationFrom, To: integrationTo},
+		Interval:  time.Minute,
+	}
+
+	out, err := i.interpolate(context.Background(), q)
+	require.NoError(t, err)
+	assert.Contains(t, out, "toStartOfInterval(toDateTime(timestamp), INTERVAL 60 second) AS t")
+	assert.Contains(t, out, "timestamp >= toDateTime(1000) AND timestamp <= toDateTime(2000)")
+	assert.NotContains(t, out, "$__")
+}
+
 func TestInterpolate_Integration_InjectedOperatorRejected(t *testing.T) {
 	// The operator allowlist is unit-tested on buildFilterCondition directly;
 	// this asserts the rejection propagates all the way out of the real

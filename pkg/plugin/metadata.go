@@ -38,6 +38,11 @@ var (
 	// sentinel would make errors.Is match every error of that source. The
 	// downstream classification is added on the wrapper at the return site.
 	ErrPrimaryKeyEmpty = errors.New("table has no primary key")
+	// ErrPKNotExposed is raised by getPK when a WITH alias or subquery
+	// between the macro and its table does not select the primary-key column
+	// under its own name, so the expanded macro would name a column the
+	// macro's SELECT cannot see.
+	ErrPKNotExposed = errors.New("primary key column is not selected")
 	// ErrAdHocKeysNotFound is returned by QueryKeys when DESCRIBE yields
 	// fewer than two columns (name + type) — the ad-hoc filter macro
 	// needs both to operate.
@@ -440,25 +445,60 @@ func getPK(ctx context.Context, rawSQL string, pos parser.Pos, mdProvider *Metad
 	}
 	for _, c := range macroCTEs {
 		if c.MacroPos == pos {
-			pk, err := mdProvider.GetPK(ctx, headers, c.Database, c.Table)
-			if err != nil {
-				return "", err
-			}
-			if pk == "" {
-				// An unqualified FROM resolved against the default database
-				// inside GetPK; name that database so the message points at
-				// the table the lookup actually hit.
-				db := c.Database
-				if db == "" {
-					db = mdProvider.ds.DefaultDatabase()
-				}
-				return "", backend.DownstreamError(fmt.Errorf(
-					"%w: %s.%s; pass the time column as the macro argument, e.g. $__timeFilter(<column>)",
-					ErrPrimaryKeyEmpty, db, c.Table,
-				))
-			}
-			return pk, nil
+			return pkColumn(ctx, c.Source, mdProvider, headers)
 		}
 	}
 	return rawSQL, fmt.Errorf("no CTE found for macro at pos %d", pos)
+}
+
+// pkHint ends every error that a column argument would avoid.
+const pkHint = "pass the time column as the macro argument, e.g. $__timeFilter(<column>)"
+
+// pkColumn looks up the primary key of the table under source and checks that
+// every alias or subquery between it and the macro still selects that column.
+func pkColumn(ctx context.Context, source cte.PKSource, mdProvider *MetadataProvider, headers http.Header) (string, error) {
+	if source.Err != nil {
+		return "", backend.DownstreamError(fmt.Errorf("%w; %s", source.Err, pkHint))
+	}
+	pk, err := mdProvider.GetPK(ctx, headers, source.Database, source.Table)
+	if err != nil {
+		return "", err
+	}
+	if pk == "" {
+		// An unqualified FROM resolved against the default database
+		// inside GetPK; name that database so the message points at
+		// the table the lookup actually hit.
+		db := source.Database
+		if db == "" {
+			db = mdProvider.ds.DefaultDatabase()
+		}
+		return "", backend.DownstreamError(fmt.Errorf(
+			"%w: %s.%s; %s", ErrPrimaryKeyEmpty, db, source.Table, pkHint,
+		))
+	}
+	// An expression key cannot be matched against a SELECT list by name.
+	if column, ok := plainColumn(pk); ok {
+		for i := len(source.Layers) - 1; i >= 0; i-- {
+			if layer := source.Layers[i]; !layer.Exposes(column) {
+				return "", backend.DownstreamError(fmt.Errorf(
+					"%w: `%s` is not selected by %s; %s", ErrPKNotExposed, column, layer.Name, pkHint,
+				))
+			}
+		}
+	}
+	return pk, nil
+}
+
+// plainColumn returns the column name when primaryKey is a single bare
+// column, and false for an expression or a multi-column key.
+func plainColumn(primaryKey string) (string, bool) {
+	stmts, err := parser.NewParser("SELECT " + primaryKey).ParseStmts()
+	if err != nil || len(stmts) != 1 {
+		return "", false
+	}
+	sel, ok := stmts[0].(*parser.SelectQuery)
+	if !ok || len(sel.SelectItems) != 1 || sel.SelectItems[0].Alias != nil {
+		return "", false
+	}
+	return cte.IdentName(sel.SelectItems[0].Expr)
 }

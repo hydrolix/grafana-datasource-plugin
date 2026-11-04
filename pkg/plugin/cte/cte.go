@@ -23,7 +23,9 @@ type MacroId struct {
 // CTE describes a single macro invocation's surrounding context. CTE is the
 // containing SELECT's FROM as SQL text, quotes kept (it goes to DESCRIBE), or
 // the parenthesized body when the FROM names a WITH alias. Table and Database
-// are bare names as system.tables stores them, for the primary-key lookup.
+// are the FROM's own bare names, as the /macroCTE route reports them. Source
+// is that FROM followed through aliases and subqueries to the real table, for
+// the primary-key lookup.
 type CTE struct {
 	Macro    string     `json:"macro"`
 	MacroPos parser.Pos `json:"macroPos"`
@@ -31,6 +33,7 @@ type CTE struct {
 	Table    string     `json:"table"`
 	Database string     `json:"database"`
 	Pos      parser.Pos `json:"pos"`
+	Source   PKSource   `json:"-"`
 }
 
 // GetMacroCTEs walks the AST and returns the macro-to-CTE map used by the
@@ -122,29 +125,33 @@ type queryVisitor struct {
 }
 
 func (v *queryVisitor) Enter(expr parser.Expr) {
-	sq, ok := expr.(*parser.SelectQuery)
-	if !ok {
-		return
+	if sq, ok := expr.(*parser.SelectQuery); ok {
+		v.scopeStack = append(v.scopeStack, withAliases(sq))
 	}
+}
+
+// withAliases returns the subquery-form WITH aliases a SELECT defines.
+func withAliases(sq *parser.SelectQuery) map[string]*parser.SelectQuery {
 	aliases := map[string]*parser.SelectQuery{}
-	if sq.With != nil {
-		for _, c := range sq.With.CTEs {
-			// The parser stores CTEs as `<Expr> AS <Alias>`; for the subquery
-			// form `name AS (SELECT …)` the name is in Expr and the body in
-			// Alias. Expression-form CTEs (`1 AS a`) have an *Ident Alias and
-			// are skipped — they are not table sources.
-			body, ok := c.Alias.(*parser.SelectQuery)
-			if !ok {
-				continue
-			}
-			name, ok := IdentName(c.Expr)
-			if !ok {
-				continue
-			}
-			aliases[name] = body
-		}
+	if sq.With == nil {
+		return aliases
 	}
-	v.scopeStack = append(v.scopeStack, aliases)
+	for _, c := range sq.With.CTEs {
+		// The parser stores CTEs as `<Expr> AS <Alias>`; for the subquery
+		// form `name AS (SELECT …)` the name is in Expr and the body in
+		// Alias. Expression-form CTEs (`1 AS a`) have an *Ident Alias and
+		// are skipped — they are not table sources.
+		body, ok := c.Alias.(*parser.SelectQuery)
+		if !ok {
+			continue
+		}
+		name, ok := IdentName(c.Expr)
+		if !ok {
+			continue
+		}
+		aliases[name] = body
+	}
+	return aliases
 }
 
 func (v *queryVisitor) Leave(expr parser.Expr) {
@@ -212,6 +219,10 @@ func (v *queryVisitor) VisitSelectQuery(expr *parser.SelectQuery) error {
 	tPos := expr.From.Expr.Pos()
 	tVisitor := tableVisitor{pos: tPos}
 	_ = expr.Accept(&tVisitor)
+	source, ok := pkSource(SingleSource(expr), v.scopeStack)
+	if !ok {
+		source = PKSource{Database: tVisitor.database, Table: tVisitor.table}
+	}
 	mVisitor := macroVisitor{macros: make([]MacroId, 0)}
 	_ = expr.Accept(&mVisitor)
 	for _, macro := range mVisitor.macros {
@@ -225,6 +236,7 @@ func (v *queryVisitor) VisitSelectQuery(expr *parser.SelectQuery) error {
 				Pos:      pos,
 				Database: tVisitor.database,
 				Table:    tVisitor.table,
+				Source:   source,
 			}
 		}
 	}
