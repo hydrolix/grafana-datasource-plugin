@@ -55,7 +55,10 @@ import (
 	"time"
 )
 
-const grantTokenExchange = "urn:ietf:params:oauth:grant-type:token-exchange"
+const (
+	grantType     = "urn:ietf:params:oauth:grant-type:token-exchange"
+	accessTypeURI = "urn:ietf:params:oauth:token-type:access_token"
+)
 
 // event is one thing the stub saw. Tests read the list and assert on it.
 type event struct {
@@ -176,7 +179,7 @@ func (s *stub) token(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 	}
 	switch {
-	case form.Get("grant_type") != grantTokenExchange:
+	case form.Get("grant_type") != grantType:
 		s.oauthError(w, http.StatusBadRequest, "unsupported_grant_type", "", subject)
 		return
 	case subjectToken == "":
@@ -208,7 +211,7 @@ func (s *stub) token(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"access_token":      tok,
-		"issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+		"issued_token_type": accessTypeURI,
 		"token_type":        "Bearer",
 		"expires_in":        int(s.ttl.Seconds()),
 	})
@@ -410,11 +413,16 @@ func certificate(dir string, hosts []string) (tls.Certificate, error) {
 	if err != nil {
 		return tls.Certificate{}, err
 	}
-	// The key first: a cert.pem on disk means the pair is complete.
-	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
 		return tls.Certificate{}, err
 	}
-	if err := os.WriteFile(certPath, certPEM, 0o644); err != nil {
+	defer root.Close()
+	// The key first: a cert.pem on disk means the pair is complete.
+	if err := root.WriteFile("key.pem", keyPEM, 0o600); err != nil {
+		return tls.Certificate{}, err
+	}
+	if err := root.WriteFile("cert.pem", certPEM, 0o644); err != nil {
 		return tls.Certificate{}, err
 	}
 	log.Printf("certificate: made %s", certPath)

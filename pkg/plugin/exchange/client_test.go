@@ -43,7 +43,7 @@ func TestTheExchangeSendsTheStandardForm(t *testing.T) {
 	if got.Get("grant_type") != grantType {
 		t.Fatalf("grant_type=%q", got.Get("grant_type"))
 	}
-	if got.Get("subject_token") != stok || got.Get("subject_token_type") != tokenTypeAccess {
+	if got.Get("subject_token") != stok || got.Get("subject_token_type") != accessTypeURI {
 		t.Fatalf("subject token fields: %v", got)
 	}
 	if got.Get("audience") != aud {
@@ -166,8 +166,8 @@ func TestConfigFromEnv(t *testing.T) {
 	})
 	t.Run("a credential map is read", func(t *testing.T) {
 		cfg, err := ConfigFromEnv(env(map[string]string{
-			EnvURL:         "https://console/api/v1/auth/token-exchange",
-			EnvCredentials: `{"c1":{"client_id":"grafana-c1","client_secret":"s1"},"c2":{"client_id":"grafana-c2","client_secret":"s2"}}`,
+			EnvURL:           "https://console/api/v1/auth/token-exchange",
+			EnvClientsConfig: `{"c1":{"client_id":"grafana-c1","client_secret":"s1"},"c2":{"client_id":"grafana-c2","client_secret":"s2"}}`,
 		}))
 		if err != nil {
 			t.Fatal(err)
@@ -184,8 +184,8 @@ func TestConfigFromEnv(t *testing.T) {
 	})
 	t.Run("a credential missing its secret is refused", func(t *testing.T) {
 		_, err := ConfigFromEnv(env(map[string]string{
-			EnvURL:         "https://console/api",
-			EnvCredentials: `{"c1":{"client_id":"grafana-c1"}}`,
+			EnvURL:           "https://console/api",
+			EnvClientsConfig: `{"c1":{"client_id":"grafana-c1"}}`,
 		}))
 		if err == nil {
 			t.Fatal("expected an error naming the incomplete credential")
@@ -199,7 +199,7 @@ func TestConfigFromEnv(t *testing.T) {
 			"https:///api/v1/auth/token-exchange",
 			"unset",
 		} {
-			_, err := ConfigFromEnv(env(map[string]string{EnvURL: u, EnvCredentials: creds}))
+			_, err := ConfigFromEnv(env(map[string]string{EnvURL: u, EnvClientsConfig: creds}))
 			if err == nil || errors.Is(err, ErrNotConfigured) || !contains(err.Error(), "https") {
 				t.Fatalf("%q: got %v, want a refusal naming https", u, err)
 			}
@@ -207,8 +207,8 @@ func TestConfigFromEnv(t *testing.T) {
 	})
 	t.Run("the scheme is read case-insensitively and space is trimmed", func(t *testing.T) {
 		cfg, err := ConfigFromEnv(env(map[string]string{
-			EnvURL:         " HTTPS://console/api/v1/auth/token-exchange\n",
-			EnvCredentials: `{"c1":{"client_id":"grafana-c1","client_secret":"s1"}}`,
+			EnvURL:           " HTTPS://console/api/v1/auth/token-exchange\n",
+			EnvClientsConfig: `{"c1":{"client_id":"grafana-c1","client_secret":"s1"}}`,
 		}))
 		if err != nil {
 			t.Fatal(err)
@@ -220,8 +220,8 @@ func TestConfigFromEnv(t *testing.T) {
 	t.Run("a refused URL is not echoed", func(t *testing.T) {
 		// A URL can carry userinfo.
 		_, err := ConfigFromEnv(env(map[string]string{
-			EnvURL:         "http://operator:hunter2@console/api",
-			EnvCredentials: `{"c1":{"client_id":"grafana-c1","client_secret":"s1"}}`,
+			EnvURL:           "http://operator:hunter2@console/api",
+			EnvClientsConfig: `{"c1":{"client_id":"grafana-c1","client_secret":"s1"}}`,
 		}))
 		if err == nil || contains(err.Error(), "hunter2") {
 			t.Fatalf("got %v", err)
@@ -229,8 +229,8 @@ func TestConfigFromEnv(t *testing.T) {
 	})
 	t.Run("malformed json does not echo its input", func(t *testing.T) {
 		_, err := ConfigFromEnv(env(map[string]string{
-			EnvURL:         "https://console/api",
-			EnvCredentials: `{"c1":{"client_secret":"super-secret-value"`,
+			EnvURL:           "https://console/api",
+			EnvClientsConfig: `{"c1":{"client_secret":"super-secret-value"`,
 		}))
 		if err == nil {
 			t.Fatal("expected an error")

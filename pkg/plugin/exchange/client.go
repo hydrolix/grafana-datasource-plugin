@@ -14,8 +14,8 @@ import (
 
 // RFC 8693.
 const (
-	grantType       = "urn:ietf:params:oauth:grant-type:token-exchange"
-	tokenTypeAccess = "urn:ietf:params:oauth:token-type:access_token"
+	grantType     = "urn:ietf:params:oauth:grant-type:token-exchange"
+	accessTypeURI = "urn:ietf:params:oauth:token-type:access_token"
 )
 
 // Exchanger performs one exchange.
@@ -85,7 +85,7 @@ func (h *HTTPExchanger) Exchange(ctx context.Context, audience, subjectToken str
 	form := url.Values{
 		"grant_type":         {grantType},
 		"subject_token":      {subjectToken},
-		"subject_token_type": {tokenTypeAccess},
+		"subject_token_type": {accessTypeURI},
 		"audience":           {audience},
 	}
 	// No `scope`: the facade refuses a request that carries one.

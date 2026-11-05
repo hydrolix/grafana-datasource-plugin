@@ -68,8 +68,8 @@ type Config struct {
 // /api/admin/settings and in its startup log only when the key matches one of
 // setting.RedactedValue's patterns, and `exchange_credentials` matched none.
 const (
-	EnvURL         = "GF_PLUGIN_EXCHANGE_URL"
-	EnvCredentials = "GF_PLUGIN_EXCHANGE_CLIENT_SECRETS"
+	EnvURL           = "GF_PLUGIN_EXCHANGE_URL"
+	EnvClientsConfig = "GF_PLUGIN_EXCHANGE_CLIENT_SECRETS"
 )
 
 // ErrNotConfigured means this instance has no exchange configuration at all, so
@@ -84,7 +84,7 @@ var ErrNotConfigured = errors.New("exchange: not configured")
 // instance is an operator mistake worth naming, not a silent fallback.
 func ConfigFromEnv(lookup func(string) (string, bool)) (Config, error) {
 	rawURL, hasURL := lookup(EnvURL)
-	rawCreds, hasCreds := lookup(EnvCredentials)
+	rawCreds, hasCreds := lookup(EnvClientsConfig)
 	if !hasURL && !hasCreds {
 		return Config{}, ErrNotConfigured
 	}
@@ -99,16 +99,16 @@ func ConfigFromEnv(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, fmt.Errorf("exchange: %s must be an https URL: the exchange sends the sign-in token and the delegate secret", EnvURL)
 	}
 	if !hasCreds || strings.TrimSpace(rawCreds) == "" {
-		return Config{}, fmt.Errorf("exchange: %s is empty or unset", EnvCredentials)
+		return Config{}, fmt.Errorf("exchange: %s is empty or unset", EnvClientsConfig)
 	}
 	var creds map[string]Credential
 	if err := json.Unmarshal([]byte(rawCreds), &creds); err != nil {
 		// The error is not wrapped: a JSON decoding error can quote the input,
 		// and the input holds client secrets.
-		return Config{}, fmt.Errorf("exchange: %s is not a JSON object of audience to credential", EnvCredentials)
+		return Config{}, fmt.Errorf("exchange: %s is not a JSON object of audience to credential", EnvClientsConfig)
 	}
 	if len(creds) == 0 {
-		return Config{}, fmt.Errorf("exchange: %s names no cluster", EnvCredentials)
+		return Config{}, fmt.Errorf("exchange: %s names no cluster", EnvClientsConfig)
 	}
 	for audience, c := range creds {
 		if c.ClientID == "" || c.ClientSecret == "" {
