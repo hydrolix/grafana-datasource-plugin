@@ -189,6 +189,9 @@ func TestLayer_Exposes(t *testing.T) {
 		{"star except without parens", "SELECT * EXCEPT ts FROM t", false},
 		{"star except another column", "SELECT * EXCEPT (v) FROM t", true},
 		{"qualified star except the column", "SELECT t.* EXCEPT (v, ts) FROM t", false},
+		{"star except a regex matching the column", "SELECT * EXCEPT ('^t') FROM t", false},
+		{"star except a regex matching part of the column", "SELECT * EXCEPT ('s') FROM t", false},
+		{"star except a regex not matching the column", "SELECT * EXCEPT ('^time') FROM t", true},
 		{"star replace over the column", "SELECT * REPLACE (ts + 1 AS ts) FROM t", true},
 		{"star replace with another column", "SELECT * REPLACE (created AS ts) FROM t", false},
 		{"renamed away", "SELECT ts AS time FROM t", false},
@@ -338,4 +341,15 @@ func TestCTE_SourceIsNotSerialized(t *testing.T) {
 		require.NoError(t, json.Unmarshal(raw, &keys))
 		assert.ElementsMatch(t, []string{"macro", "macroPos", "cte", "table", "database", "pos"}, slices.Collect(maps.Keys(keys)))
 	}
+}
+
+func TestSource_RedefinitionInsideOwnBodyStillMeansTheTable(t *testing.T) {
+	// ClickHouse ignores a redefinition of an alias's name inside its own
+	// body too: the inner `logs` here is the real table (24.8).
+	s := sourceOf(t, "WITH logs AS (WITH logs AS (SELECT * FROM sample.inner_t) SELECT * FROM logs) "+
+		"SELECT $__timeFilter() FROM logs")
+	require.NoError(t, s.Err)
+	assert.Equal(t, "", s.Database)
+	assert.Equal(t, "logs", s.Table)
+	assert.Equal(t, []string{"`logs`"}, layerNames(s))
 }

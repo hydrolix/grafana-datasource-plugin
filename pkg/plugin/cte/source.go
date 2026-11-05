@@ -3,6 +3,7 @@ package cte
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
@@ -50,7 +51,7 @@ type Layer struct {
 
 // Exposes reports whether the layer's SELECT list makes the source column
 // col visible to its reader under that name: through `*` or `t.*` (unless an
-// EXCEPT drops it, or a REPLACE swaps in an expression that does not read
+// EXCEPT drops it by name or pattern, or a REPLACE swaps in an expression that does not read
 // it), the column itself (bare or qualified by the layer's table), or an
 // expression over col aliased back to col.
 func (l Layer) Exposes(col string) bool {
@@ -95,6 +96,13 @@ func starExposes(modifiers []*parser.FunctionExpr, col string) bool {
 			case "EXCEPT":
 				if name, ok := IdentName(arg); ok && name == col {
 					return false
+				}
+				// A string is a pattern; ClickHouse drops every column it
+				// matches anywhere in the name, with RE2 like regexp.
+				if lit, ok := arg.(*parser.StringLiteral); ok {
+					if matched, err := regexp.MatchString(lit.Literal, col); err == nil && matched {
+						return false
+					}
 				}
 			case "REPLACE":
 				if alias != nil && alias.Name == col && !readsColumn(arg, col) {
