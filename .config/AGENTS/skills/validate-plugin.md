@@ -94,7 +94,7 @@ Two silent traps around the binaries:
 | ------- | ----------------- |
 | `manifest` — **unsigned plugin**, no `MANIFEST.txt` | Any local build. Only `npm run sign` (release path) produces it. |
 | `sponsorshiplink` recommendation | Deliberate; we don't ship a sponsor link. |
-| `govulncheck` — `golang.org/x/crypto` **GO-2026-5932** | The `openpgp` "unmaintained by design" advisory. **No fix exists** and it's not reachable from our code — confirm with `go list -deps ./pkg/... \| grep -c openpgp` (expect `0`). |
+| `govulncheck` — `golang.org/x/crypto` **GO-2026-5932** | The `openpgp` "unmaintained by design" advisory. Not reachable from our code — confirm with `go list -deps ./pkg/... \| grep -c openpgp` (expect `0`). Since 2026-10 the fix is a **pseudo-version** (`v0.58.1-0.20261009181718-2f1f834330b2`, no tagged release yet); `go get` that exact version clears the warning. Pinned in `go.mod` as of 2026-11-05. |
 
 Most other `govulncheck` `GO-*` IDs track the **Go toolchain that built the
 binary**, not a dependency. Clearing them means bumping three places: the `go`
