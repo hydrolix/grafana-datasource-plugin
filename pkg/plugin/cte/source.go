@@ -9,6 +9,51 @@ import (
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
 )
 
+// How a column-less time macro finds its table:
+//
+//	WITH errors AS (SELECT * FROM recent WHERE status >= 500),
+//	     recent AS (SELECT l.timestamp, l.status
+//	                FROM sample.logs AS l
+//	                WHERE l.timestamp > now() - INTERVAL 1 DAY)
+//	SELECT $__timeInterval() AS t, count()
+//	FROM errors
+//	WHERE $__timeFilter()
+//	GROUP BY t
+//
+// Both macros sit in the outer SELECT, so both get the same CTE entry:
+//
+//   - CTE.Table / CTE.Database are "errors" / "": the FROM as written, which
+//     /macroCTE reports. CTE.CTE is the body of "errors", for ad-hoc filters.
+//   - The visitor's scope stack holds one map, {errors, recent}, from the
+//     outer WITH. No alias body encloses the outer SELECT, so nothing is
+//     hidden yet.
+//
+// pkSource then walks from the FROM down to a table, one sourceBody per step:
+//
+//  1. `lookupBody(errors)` finds the alias in that scope:
+//     sourceBody{query: SELECT * FROM recent …, alias: "errors",
+//     scopes: [{errors, recent}]}. That becomes Layer `errors`, whose
+//     items are [*] and whose qualifiers are [recent], the table its FROM
+//     names. "errors" is now hidden: inside its own body it would mean a
+//     table, not the alias.
+//  2. The body's FROM is recent. It resolves in the same scope even though
+//     recent is defined later, because siblings see each other in any order:
+//     sourceBody{query: SELECT l.timestamp, …, alias: "recent",
+//     scopes: [{errors, recent}]}. That becomes Layer `recent`, with items
+//     [l.timestamp, l.status] and qualifiers [l], [logs], [sample logs].
+//  3. That body's FROM, sample.logs, is database-qualified, so it is never an
+//     alias. lookupBody returns nil and the walk stops at the table.
+//
+// The result is PKSource{Database: "sample", Table: "logs",
+// Layers: [`errors`, `recent`]}, nearest the macro first. getPK looks up
+// sample.logs's primary key, say "timestamp", and checks the layers innermost
+// first. `recent` exposes it as l.timestamp, because l qualifies its own
+// table. `errors` exposes it through *. Both macros then expand on timestamp.
+//
+// Had the "recent" CTE selected `l.timestamp AS ts` instead, it would not expose
+// timestamp. The macro would fail with ErrPKNotExposed naming `recent`
+// instead of emitting a filter on a column errors cannot see.
+
 // ErrNoSingleSource reports that a WITH alias or subquery a macro reads from
 // has no single table under it to take the primary key from: its body is a
 // JOIN, a table function, a UNION / EXCEPT / INTERSECT, or has no FROM.
@@ -175,8 +220,8 @@ func qualifiersOf(body *parser.SelectQuery) [][]string {
 // already has.
 func pkSource(src parser.Expr, scopes []map[string]*parser.SelectQuery, hidden []string) (s PKSource, ok bool) {
 	for depth := 0; ; depth++ {
-		body, alias, bodyScopes, isBody := lookupBody(src, scopes, hidden)
-		if !isBody {
+		body := lookupBody(src, scopes, hidden)
+		if body == nil {
 			if depth == 0 {
 				return PKSource{}, false
 			}
@@ -192,52 +237,60 @@ func pkSource(src parser.Expr, scopes []map[string]*parser.SelectQuery, hidden [
 			return s, true
 		}
 		name := "subquery"
-		if alias != "" {
-			name = "`" + alias + "`"
+		if body.alias != "" {
+			name = "`" + body.alias + "`"
 			// Inside its own body an alias's name means a real table, even
 			// where an outer scope defines another alias of that name.
-			hidden = append(slices.Clip(hidden), alias)
+			hidden = slices.Concat(hidden, []string{body.alias})
 		}
-		s.Layers = append(s.Layers, Layer{Name: name, items: body.SelectItems, qualifiers: qualifiersOf(body)})
+		s.Layers = append(s.Layers, Layer{Name: name, items: body.query.SelectItems, qualifiers: qualifiersOf(body.query)})
 		if depth == maxSourceDepth {
 			s.Err = fmt.Errorf("%w under %s", ErrSourceTooDeep, s.Layers[0].Name)
 			return s, true
 		}
-		if body.Union != nil || body.Except != nil || body.Intersect != nil {
+		if body.query.Union != nil || body.query.Except != nil || body.query.Intersect != nil {
 			s.Err = fmt.Errorf("%w in %s", ErrNoSingleSource, name)
 			return s, true
 		}
-		if src = SingleSource(body); src == nil {
+		if src = SingleSource(body.query); src == nil {
 			s.Err = fmt.Errorf("%w in %s", ErrNoSingleSource, name)
 			return s, true
 		}
-		// Clip so the append allocates: bodyScopes may share the visitor's
-		// scope stack, which must not be overwritten.
-		scopes = append(slices.Clip(bodyScopes), withAliases(body))
+		// A copy: body.scopes may share the visitor's scope stack.
+		scopes = slices.Concat(body.scopes, []map[string]*parser.SelectQuery{withAliases(body.query)})
 	}
 }
 
-// lookupBody returns the SELECT a FROM source stands for when it is a
-// subquery or a visible WITH alias, the alias name ("" for a subquery), and
-// the scopes visible to that body: an alias's body sees the scope that
-// defines it and the scopes around that, not the scopes of the reference.
-func lookupBody(src parser.Expr, scopes []map[string]*parser.SelectQuery, hidden []string) (*parser.SelectQuery, string, []map[string]*parser.SelectQuery, bool) {
+// sourceBody is the SELECT a FROM source stands for.
+type sourceBody struct {
+	query *parser.SelectQuery
+	// alias is the WITH alias the source named, "" for an inline subquery.
+	alias string
+	// scopes are the WITH scopes visible inside query: an alias's body sees
+	// the scope that defines it and the scopes around that, not the scopes
+	// of the reference.
+	scopes []map[string]*parser.SelectQuery
+}
+
+// lookupBody returns the body of a FROM source that is a subquery or a
+// visible WITH alias, or nil when src is neither.
+func lookupBody(src parser.Expr, scopes []map[string]*parser.SelectQuery, hidden []string) *sourceBody {
 	switch e := src.(type) {
 	case *parser.SubQuery:
-		return e.Select, "", scopes, true
+		return &sourceBody{query: e.Select, scopes: scopes}
 	case *parser.SelectQuery:
-		return e, "", scopes, true
+		return &sourceBody{query: e, scopes: scopes}
 	case *parser.TableIdentifier:
 		if e.Database != nil || e.Table == nil || slices.Contains(hidden, e.Table.Name) {
-			return nil, "", nil, false
+			return nil
 		}
 		for i := len(scopes) - 1; i >= 0; i-- {
-			if body, ok := scopes[i][e.Table.Name]; ok {
-				return body, e.Table.Name, scopes[:i+1], true
+			if query, ok := scopes[i][e.Table.Name]; ok {
+				return &sourceBody{query: query, alias: e.Table.Name, scopes: scopes[:i+1]}
 			}
 		}
 	}
-	return nil, "", nil, false
+	return nil
 }
 
 // SingleSource returns a SELECT's only FROM source, with any `AS name`
