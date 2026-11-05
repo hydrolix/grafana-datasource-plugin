@@ -45,14 +45,15 @@ import (
 //     alias. lookupBody returns nil and the walk stops at the table.
 //
 // The result is PKSource{Database: "sample", Table: "logs",
-// layers: [`errors`, `recent`]}, nearest the macro first. getPK looks up
-// sample.logs's primary key, say "timestamp", and asks HiddenBy which layer,
-// innermost first, does not expose it. `recent` exposes it as l.timestamp, because l qualifies its own
-// table. `errors` exposes it through *. Both macros then expand on timestamp.
+// layers: [`errors`, `recent`]}, nearest the macro first. pkColumn (via
+// getPK) looks up sample.logs's primary key, say "timestamp", and asks
+// HiddenBy which layer, innermost first, does not expose it. `recent`
+// exposes it as l.timestamp, because l qualifies its own table. `errors`
+// exposes it through *. Both macros then expand on timestamp.
 //
-// Had the "recent" CTE selected `l.timestamp AS ts` instead, it would not expose
-// timestamp. The macro would fail with ErrPKNotExposed naming `recent`
-// instead of emitting a filter on a column errors cannot see.
+// Had the "recent" CTE selected `l.timestamp AS ts` instead, it would not
+// expose timestamp. The macro would fail with ErrPKNotExposed naming
+// `recent` instead of emitting a filter on a column errors cannot see.
 
 // ErrNoSingleSource reports that a WITH alias or subquery a macro reads from
 // has no single table under it to take the primary key from: its body is a
