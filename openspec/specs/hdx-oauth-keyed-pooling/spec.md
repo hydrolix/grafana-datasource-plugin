@@ -41,9 +41,9 @@ When `req.GetHTTPHeaders().Get("X-Grafana-Org-Id")` returns a non-empty value, `
 - **WHEN** `MutateQueryData` runs
 - **THEN** `connectionArgs` SHALL contain exactly `{"oauthToken": "t", "orgId": "5"}`
 
-### Requirement: `MutateQueryData` skips `connectionArgs` write when no per-request keying signal is present
+### Requirement: `MutateQueryData` removes `connectionArgs` when no per-request keying signal is present
 
-When neither the OAuth token (under `forwardOAuth`) nor the Org-Id header is present, `MutateQueryData` SHALL leave `connectionArgs` unwritten. An empty `connectionArgs` object would still SHA-256 to a non-default cache key and fragment the bootstrap entry.
+When neither the OAuth token (under `forwardOAuth`) nor the Org-Id header is present, `MutateQueryData` SHALL write no `connectionArgs` and SHALL remove any `connectionArgs` the query carried, so a client-supplied value never chooses the connection. An empty `connectionArgs` object would still SHA-256 to a non-default cache key and fragment the bootstrap entry.
 
 #### Scenario: No headers, non-OAuth mode
 
