@@ -40,7 +40,7 @@ jobs:
         run: ./.github/scripts/set-version.sh
 
       - name: Compatibility check
-        uses: grafana/plugin-actions/is-compatible@6a283a4015776c4becd1708906b59b2e78c221ae # is-compatible/v1.0.4
+        uses: grafana/plugin-actions/is-compatible@3ead4fe1bf6b7b8f6905513d0b8c986f4bc4754a # is-compatible/v1.1.0
         with:
           module: "./src/module.ts"
           comment-pr: "yes"
