@@ -118,10 +118,10 @@ func TestInterpolate_Integration_TimeMacroResolvesPKFromCache(t *testing.T) {
 func TestInterpolate_Integration_TimeMacrosFollowWithAlias(t *testing.T) {
 	// HDX-11394: column-less time macros reading a WITH alias take the primary
 	// key of the table in the alias body, not of a table named like the alias.
-	i := newIntegrationInterpolator(func(p *MetadataProvider) {
-		p.pkCache.Set("sample_logs", "timestamp", ttlcache.DefaultTTL)
+	interp := newIntegrationInterpolator(func(provider *MetadataProvider) {
+		provider.pkCache.Set("sample_logs", "timestamp", ttlcache.DefaultTTL)
 	})
-	q := &models.HdxQuery{
+	query := &models.HdxQuery{
 		RawSQL: "WITH errors AS (SELECT * FROM sample.logs WHERE status >= 500)\n" +
 			"SELECT $__timeInterval() AS t, count() FROM errors\n" +
 			"WHERE $__timeFilter()\nGROUP BY t",
@@ -129,7 +129,7 @@ func TestInterpolate_Integration_TimeMacrosFollowWithAlias(t *testing.T) {
 		Interval:  time.Minute,
 	}
 
-	out, err := i.interpolate(context.Background(), q)
+	out, err := interp.interpolate(context.Background(), query)
 	require.NoError(t, err)
 	assert.Contains(t, out, "toStartOfInterval(toDateTime(timestamp), INTERVAL 60 second) AS t")
 	assert.Contains(t, out, "timestamp >= toDateTime(1000) AND timestamp <= toDateTime(2000)")
@@ -148,14 +148,14 @@ func TestInterpolate_Integration_AliasErrorsKeepTheirType(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			i := newIntegrationInterpolator(func(p *MetadataProvider) {
-				p.pkCache.Set("sample_logs", "timestamp", ttlcache.DefaultTTL)
+			interp := newIntegrationInterpolator(func(provider *MetadataProvider) {
+				provider.pkCache.Set("sample_logs", "timestamp", ttlcache.DefaultTTL)
 			})
-			q := &models.HdxQuery{
+			query := &models.HdxQuery{
 				RawSQL:    tt.sql,
 				TimeRange: backend.TimeRange{From: integrationFrom, To: integrationTo},
 			}
-			_, err := i.interpolate(context.Background(), q)
+			_, err := interp.interpolate(context.Background(), query)
 			assert.ErrorIs(t, err, tt.want)
 			assert.True(t, backend.IsDownstreamError(err))
 		})

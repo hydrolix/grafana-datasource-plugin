@@ -141,16 +141,16 @@ func withAliases(sq *parser.SelectQuery) map[string]*parser.SelectQuery {
 	if sq.With == nil {
 		return aliases
 	}
-	for _, c := range sq.With.CTEs {
+	for _, cteStmt := range sq.With.CTEs {
 		// The parser stores CTEs as `<Expr> AS <Alias>`; for the subquery
 		// form `name AS (SELECT …)` the name is in Expr and the body in
 		// Alias. Expression-form CTEs (`1 AS a`) have an *Ident Alias and
 		// are skipped — they are not table sources.
-		body, ok := c.Alias.(*parser.SelectQuery)
+		body, ok := cteStmt.Alias.(*parser.SelectQuery)
 		if !ok {
 			continue
 		}
-		name, ok := IdentName(c.Expr)
+		name, ok := IdentName(cteStmt.Expr)
 		if !ok {
 			continue
 		}

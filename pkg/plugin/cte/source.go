@@ -32,22 +32,22 @@ import (
 //
 //  1. `lookupBody(errors)` finds the alias in that scope:
 //     sourceBody{query: SELECT * FROM recent …, alias: "errors",
-//     scopes: [{errors, recent}]}. That becomes Layer `errors`, whose
+//     scopes: [{errors, recent}]}. That becomes layer `errors`, whose
 //     items are [*] and whose qualifiers are [recent], the table its FROM
 //     names. "errors" is now hidden: inside its own body it would mean a
 //     table, not the alias.
 //  2. The body's FROM is recent. It resolves in the same scope even though
 //     recent is defined later, because siblings see each other in any order:
 //     sourceBody{query: SELECT l.timestamp, …, alias: "recent",
-//     scopes: [{errors, recent}]}. That becomes Layer `recent`, with items
+//     scopes: [{errors, recent}]}. That becomes layer `recent`, with items
 //     [l.timestamp, l.status] and qualifiers [l], [logs], [sample logs].
 //  3. That body's FROM, sample.logs, is database-qualified, so it is never an
 //     alias. lookupBody returns nil and the walk stops at the table.
 //
 // The result is PKSource{Database: "sample", Table: "logs",
-// Layers: [`errors`, `recent`]}, nearest the macro first. getPK looks up
-// sample.logs's primary key, say "timestamp", and checks the layers innermost
-// first. `recent` exposes it as l.timestamp, because l qualifies its own
+// layers: [`errors`, `recent`]}, nearest the macro first. getPK looks up
+// sample.logs's primary key, say "timestamp", and asks HiddenBy which layer,
+// innermost first, does not expose it. `recent` exposes it as l.timestamp, because l qualifies its own
 // table. `errors` exposes it through *. Both macros then expand on timestamp.
 //
 // Had the "recent" CTE selected `l.timestamp AS ts` instead, it would not expose
@@ -75,19 +75,31 @@ type PKSource struct {
 	// Database is "" when the query leaves the table unqualified. Both are
 	// "" when Err is set.
 	Database, Table string
-	// Layers are the alias / subquery bodies between the macro and the
-	// table: the first is the one the macro's SELECT reads, the last reads
-	// the table. Empty when the FROM names the table directly.
-	Layers []Layer
 	// Err wraps ErrNoSingleSource or ErrSourceTooDeep.
 	Err error
+	// layers are the alias / subquery bodies between the macro and the
+	// table: the first is the one the macro's SELECT reads, the last reads
+	// the table. Empty when the FROM names the table directly.
+	layers []layer
 }
 
-// Layer is one alias or subquery body a PKSource passed through.
-type Layer struct {
-	// Name identifies the layer in error messages: the backquoted alias, or
+// HiddenBy returns the name of the innermost layer that does not expose the
+// source column col (the backquoted alias, or "subquery"), or "" when every
+// layer does. Innermost first, so it names the layer that lost the column.
+func (source PKSource) HiddenBy(col string) string {
+	for _, hiding := range slices.Backward(source.layers) {
+		if !hiding.exposes(col) {
+			return hiding.name
+		}
+	}
+	return ""
+}
+
+// layer is one alias or subquery body a PKSource passed through.
+type layer struct {
+	// name identifies the layer in error messages: the backquoted alias, or
 	// "subquery" for an inline one.
-	Name  string
+	name  string
 	items []*parser.SelectItem
 	// qualifiers are the prefixes that name the table in the body's FROM,
 	// so `q.col` in the projection is a column of that table: its `AS`
@@ -95,31 +107,32 @@ type Layer struct {
 	qualifiers [][]string
 }
 
-// Exposes reports whether the layer's SELECT list makes the source column
+// exposes reports whether the layer's SELECT list makes the source column
 // col visible to its reader under that name: through `*` or `t.*` (unless an
 // EXCEPT drops it by name or pattern, or a REPLACE swaps in an expression
 // that does not read it), the column itself (bare or qualified by the
 // layer's table), or an expression over col aliased back to col.
-func (l Layer) Exposes(col string) bool {
-	for _, item := range l.items {
+func (lyr layer) exposes(col string) bool {
+	for _, item := range lyr.items {
 		if item.Alias != nil {
 			if item.Alias.Name == col && readsColumn(item.Expr, col) {
 				return true
 			}
 			continue
 		}
-		switch e := item.Expr.(type) {
+		switch expr := item.Expr.(type) {
 		case *parser.Ident:
-			if e.Name == col || (e.Name == "*" && starExposes(item.Modifiers, col)) {
+			if expr.Name == col || (expr.Name == "*" && starExposes(item.Modifiers, col)) {
 				return true
 			}
 		case *parser.NestedIdentifier:
 			// `t.*`; a qualified column `t.col` parses as a Path.
-			if e.DotIdent != nil && e.DotIdent.Name == "*" && starExposes(item.Modifiers, col) {
+			if expr.DotIdent != nil && expr.DotIdent.Name == "*" && starExposes(item.Modifiers, col) {
 				return true
 			}
 		case *parser.Path:
-			if n := len(e.Fields); n > 1 && e.Fields[n-1].Name == col && l.qualifies(identNames(e.Fields[:n-1])) {
+			last := len(expr.Fields) - 1
+			if last > 0 && expr.Fields[last].Name == col && lyr.qualifies(identNames(expr.Fields[:last])) {
 				return true
 			}
 		}
@@ -129,16 +142,16 @@ func (l Layer) Exposes(col string) bool {
 
 // starExposes reports whether a `*` with these modifiers still yields col.
 func starExposes(modifiers []*parser.FunctionExpr, col string) bool {
-	for _, m := range modifiers {
-		if m.Params == nil || m.Params.Items == nil {
+	for _, modifier := range modifiers {
+		if modifier.Params == nil || modifier.Params.Items == nil {
 			continue
 		}
-		for _, arg := range m.Params.Items.Items {
+		for _, arg := range modifier.Params.Items.Items {
 			var alias *parser.Ident
-			if c, ok := arg.(*parser.ColumnExpr); ok {
-				arg, alias = c.Expr, c.Alias
+			if column, ok := arg.(*parser.ColumnExpr); ok {
+				arg, alias = column.Expr, column.Alias
 			}
-			switch parser.Format(m.Name) {
+			switch parser.Format(modifier.Name) {
 			case "EXCEPT":
 				if name, ok := IdentName(arg); ok && name == col {
 					return false
@@ -164,25 +177,25 @@ func starExposes(modifiers []*parser.FunctionExpr, col string) bool {
 func readsColumn(expr parser.Expr, col string) bool {
 	found := false
 	parser.Walk(expr, func(node parser.Expr) bool {
-		switch n := node.(type) {
+		switch node := node.(type) {
 		case *parser.Ident:
-			found = n.Name == col
+			found = node.Name == col
 		case *parser.Path:
-			found = len(n.Fields) > 0 && n.Fields[len(n.Fields)-1].Name == col
+			found = len(node.Fields) > 0 && node.Fields[len(node.Fields)-1].Name == col
 		}
 		return !found
 	})
 	return found
 }
 
-func (l Layer) qualifies(prefix []string) bool {
-	return slices.ContainsFunc(l.qualifiers, func(q []string) bool { return slices.Equal(q, prefix) })
+func (lyr layer) qualifies(prefix []string) bool {
+	return slices.ContainsFunc(lyr.qualifiers, func(qualifier []string) bool { return slices.Equal(qualifier, prefix) })
 }
 
 func identNames(ids []*parser.Ident) []string {
 	names := make([]string, len(ids))
-	for i, id := range ids {
-		names[i] = id.Name
+	for index, id := range ids {
+		names[index] = id.Name
 	}
 	return names
 }
@@ -218,7 +231,7 @@ func qualifiersOf(body *parser.SelectQuery) [][]string {
 // hidden there because the SELECT sits inside their bodies. ok is false when
 // src is not an alias or a subquery, so the caller keeps the plain table it
 // already has.
-func pkSource(src parser.Expr, scopes []map[string]*parser.SelectQuery, hidden []string) (s PKSource, ok bool) {
+func pkSource(src parser.Expr, scopes []map[string]*parser.SelectQuery, hidden []string) (source PKSource, ok bool) {
 	for depth := 0; ; depth++ {
 		body := lookupBody(src, scopes, hidden)
 		if body == nil {
@@ -227,14 +240,14 @@ func pkSource(src parser.Expr, scopes []map[string]*parser.SelectQuery, hidden [
 			}
 			ti, isTable := src.(*parser.TableIdentifier)
 			if !isTable || ti.Table == nil {
-				s.Err = fmt.Errorf("%w in %s", ErrNoSingleSource, s.Layers[len(s.Layers)-1].Name)
-				return s, true
+				source.Err = fmt.Errorf("%w in %s", ErrNoSingleSource, source.layers[len(source.layers)-1].name)
+				return source, true
 			}
-			s.Table = ti.Table.Name
+			source.Table = ti.Table.Name
 			if ti.Database != nil {
-				s.Database = ti.Database.Name
+				source.Database = ti.Database.Name
 			}
-			return s, true
+			return source, true
 		}
 		name := "subquery"
 		if body.alias != "" {
@@ -243,18 +256,18 @@ func pkSource(src parser.Expr, scopes []map[string]*parser.SelectQuery, hidden [
 			// where an outer scope defines another alias of that name.
 			hidden = slices.Concat(hidden, []string{body.alias})
 		}
-		s.Layers = append(s.Layers, Layer{Name: name, items: body.query.SelectItems, qualifiers: qualifiersOf(body.query)})
+		source.layers = append(source.layers, layer{name: name, items: body.query.SelectItems, qualifiers: qualifiersOf(body.query)})
 		if depth == maxSourceDepth {
-			s.Err = fmt.Errorf("%w under %s", ErrSourceTooDeep, s.Layers[0].Name)
-			return s, true
+			source.Err = fmt.Errorf("%w under %s", ErrSourceTooDeep, source.layers[0].name)
+			return source, true
 		}
 		if body.query.Union != nil || body.query.Except != nil || body.query.Intersect != nil {
-			s.Err = fmt.Errorf("%w in %s", ErrNoSingleSource, name)
-			return s, true
+			source.Err = fmt.Errorf("%w in %s", ErrNoSingleSource, name)
+			return source, true
 		}
 		if src = SingleSource(body.query); src == nil {
-			s.Err = fmt.Errorf("%w in %s", ErrNoSingleSource, name)
-			return s, true
+			source.Err = fmt.Errorf("%w in %s", ErrNoSingleSource, name)
+			return source, true
 		}
 		// A copy: body.scopes may share the visitor's scope stack.
 		scopes = slices.Concat(body.scopes, []map[string]*parser.SelectQuery{withAliases(body.query)})
@@ -275,18 +288,18 @@ type sourceBody struct {
 // lookupBody returns the body of a FROM source that is a subquery or a
 // visible WITH alias, or nil when src is neither.
 func lookupBody(src parser.Expr, scopes []map[string]*parser.SelectQuery, hidden []string) *sourceBody {
-	switch e := src.(type) {
+	switch expr := src.(type) {
 	case *parser.SubQuery:
-		return &sourceBody{query: e.Select, scopes: scopes}
+		return &sourceBody{query: expr.Select, scopes: scopes}
 	case *parser.SelectQuery:
-		return &sourceBody{query: e, scopes: scopes}
+		return &sourceBody{query: expr, scopes: scopes}
 	case *parser.TableIdentifier:
-		if e.Database != nil || e.Table == nil || slices.Contains(hidden, e.Table.Name) {
+		if expr.Database != nil || expr.Table == nil || slices.Contains(hidden, expr.Table.Name) {
 			return nil
 		}
-		for i := len(scopes) - 1; i >= 0; i-- {
-			if query, ok := scopes[i][e.Table.Name]; ok {
-				return &sourceBody{query: query, alias: e.Table.Name, scopes: scopes[:i+1]}
+		for level := len(scopes) - 1; level >= 0; level-- {
+			if query, ok := scopes[level][expr.Table.Name]; ok {
+				return &sourceBody{query: query, alias: expr.Table.Name, scopes: scopes[:level+1]}
 			}
 		}
 	}
@@ -308,18 +321,18 @@ func leftSource(sq *parser.SelectQuery) parser.Expr {
 	if sq.From == nil {
 		return nil
 	}
-	e := sq.From.Expr
+	expr := sq.From.Expr
 	for {
-		j, ok := e.(*parser.JoinExpr)
+		join, ok := expr.(*parser.JoinExpr)
 		if !ok {
-			return tableSource(e)
+			return tableSource(expr)
 		}
-		e = j.Left
+		expr = join.Left
 	}
 }
 
-func tableSource(e parser.Expr) parser.Expr {
-	jte, ok := e.(*parser.JoinTableExpr)
+func tableSource(expr parser.Expr) parser.Expr {
+	jte, ok := expr.(*parser.JoinTableExpr)
 	if !ok || jte.Table == nil {
 		return nil
 	}

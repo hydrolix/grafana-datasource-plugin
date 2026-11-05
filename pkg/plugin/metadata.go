@@ -480,13 +480,10 @@ func pkColumn(ctx context.Context, source cte.PKSource, mdProvider *MetadataProv
 	// Only a single plain column can be matched against a SELECT list by
 	// name; expression and multi-column keys are expanded unchecked.
 	if column, ok := plainColumn(pk); ok {
-		// Innermost first, so the error names the layer that lost the column.
-		for i := len(source.Layers) - 1; i >= 0; i-- {
-			if layer := source.Layers[i]; !layer.Exposes(column) {
-				return "", backend.DownstreamError(fmt.Errorf(
-					"%w: `%s` is not selected by %s; %s", ErrPKNotExposed, column, layer.Name, pkHint,
-				))
-			}
+		if hiddenBy := source.HiddenBy(column); hiddenBy != "" {
+			return "", backend.DownstreamError(fmt.Errorf(
+				"%w: `%s` is not selected by %s; %s", ErrPKNotExposed, column, hiddenBy, pkHint,
+			))
 		}
 	}
 	return pk, nil

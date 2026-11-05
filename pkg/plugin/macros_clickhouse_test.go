@@ -374,12 +374,12 @@ func TestMacroPKLookup_FollowsWithAliasToTable(t *testing.T) {
 	sql := "WITH errors AS (SELECT * FROM sample.logs WHERE status >= 500)\n" +
 		"SELECT $__timeInterval() AS t, count() FROM errors\n" +
 		"WHERE $__timeFilter()\nGROUP BY t"
-	q := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t), Interval: 20 * time.Second}
+	query := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t), Interval: 20 * time.Second}
 
 	for name, macro := range pkLookupMacros {
 		t.Run(name, func(t *testing.T) {
-			p, ds := pkProvider("timestamp")
-			got, err := macro(context.Background(), q, nil, macroPosFor(t, sql), p)
+			provider, ds := pkProvider("timestamp")
+			got, err := macro(context.Background(), query, nil, macroPosFor(t, sql), provider)
 			require.NoError(t, err)
 			assert.Equal(t,
 				"SELECT primary_key FROM system.tables WHERE database='sample' AND table ='logs'",
@@ -392,10 +392,10 @@ func TestMacroPKLookup_FollowsWithAliasToTable(t *testing.T) {
 
 func TestMacroPKLookup_ColumnNotSelectedByAliasIsClearError(t *testing.T) {
 	sql := "WITH e AS (SELECT timestamp AS ts, v FROM sample.logs) SELECT $__timeFilter() FROM e"
-	q := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t)}
-	p, _ := pkProvider("timestamp")
+	query := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t)}
+	provider, _ := pkProvider("timestamp")
 
-	got, err := TimeFilter(context.Background(), q, nil, macroPosFor(t, sql), p)
+	got, err := TimeFilter(context.Background(), query, nil, macroPosFor(t, sql), provider)
 	assert.ErrorIs(t, err, ErrPKNotExposed)
 	assert.True(t, backend.IsDownstreamError(err))
 	assert.Empty(t, got)
@@ -408,10 +408,10 @@ func TestMacroPKLookup_ColumnDroppedByInnerLayerIsClearError(t *testing.T) {
 	// The outer alias selects *, but the alias it reads already dropped the
 	// column, so the error must name the inner one.
 	sql := "WITH b AS (SELECT v FROM sample.logs), a AS (SELECT * FROM b) SELECT $__timeFilter() FROM a"
-	q := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t)}
-	p, _ := pkProvider("timestamp")
+	query := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t)}
+	provider, _ := pkProvider("timestamp")
 
-	_, err := TimeFilter(context.Background(), q, nil, macroPosFor(t, sql), p)
+	_, err := TimeFilter(context.Background(), query, nil, macroPosFor(t, sql), provider)
 	assert.ErrorIs(t, err, ErrPKNotExposed)
 	assert.Contains(t, err.Error(), "`b`")
 }
@@ -420,20 +420,20 @@ func TestMacroPKLookup_ExpressionPrimaryKeySkipsColumnCheck(t *testing.T) {
 	// An expression key cannot be matched by name, so it is expanded
 	// unchecked and ClickHouse reports whatever is wrong with it.
 	sql := "WITH e AS (SELECT v FROM sample.logs) SELECT $__timeFilter() FROM e"
-	q := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t)}
-	p, _ := pkProvider("toStartOfHour(timestamp)")
+	query := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t)}
+	provider, _ := pkProvider("toStartOfHour(timestamp)")
 
-	got, err := TimeFilter(context.Background(), q, nil, macroPosFor(t, sql), p)
+	got, err := TimeFilter(context.Background(), query, nil, macroPosFor(t, sql), provider)
 	require.NoError(t, err)
 	assert.Contains(t, got, "toStartOfHour(timestamp) >= ")
 }
 
 func TestMacroPKLookup_NoSingleSourceNamesAliasWithoutLookup(t *testing.T) {
 	sql := "WITH e AS (SELECT * FROM a JOIN b ON a.k = b.k) SELECT $__timeFilter() FROM e"
-	q := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t)}
+	query := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t)}
 
 	// nopMetadataDS panics on QueryData: the error must come before any lookup.
-	got, err := TimeFilter(context.Background(), q, nil, macroPosFor(t, sql), NewMetadataProvider(nopMetadataDS{}))
+	got, err := TimeFilter(context.Background(), query, nil, macroPosFor(t, sql), NewMetadataProvider(nopMetadataDS{}))
 	assert.ErrorIs(t, err, cte.ErrNoSingleSource)
 	assert.True(t, backend.IsDownstreamError(err))
 	assert.Empty(t, got)
@@ -444,29 +444,29 @@ func TestMacroPKLookup_NoSingleSourceNamesAliasWithoutLookup(t *testing.T) {
 
 func TestMacroPKLookup_KeylessTableBehindAliasNamesTheTable(t *testing.T) {
 	sql := "WITH e AS (SELECT * FROM mydb.keyless) SELECT $__timeFilter() FROM e"
-	q := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t)}
-	p, _ := pkProvider("")
+	query := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t)}
+	provider, _ := pkProvider("")
 
-	_, err := TimeFilter(context.Background(), q, nil, macroPosFor(t, sql), p)
+	_, err := TimeFilter(context.Background(), query, nil, macroPosFor(t, sql), provider)
 	assert.ErrorIs(t, err, ErrPrimaryKeyEmpty)
 	assert.Contains(t, err.Error(), "mydb.keyless")
 }
 
 func TestMacroPKLookup_ExplicitColumnBehindAliasSendsNoLookup(t *testing.T) {
 	sql := "WITH e AS (SELECT * FROM sample.logs) SELECT $__timeFilter(ts) FROM e"
-	q := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t)}
+	query := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t)}
 
-	got, err := TimeFilter(context.Background(), q, []string{"ts"}, macroPosFor(t, sql), NewMetadataProvider(nopMetadataDS{}))
+	got, err := TimeFilter(context.Background(), query, []string{"ts"}, macroPosFor(t, sql), NewMetadataProvider(nopMetadataDS{}))
 	require.NoError(t, err)
 	assert.Contains(t, got, "ts >= ")
 }
 
 func TestMacroPKLookup_MultiColumnKeySkipsColumnCheck(t *testing.T) {
 	sql := "WITH e AS (SELECT v FROM sample.logs) SELECT $__timeFilter() FROM e"
-	q := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t)}
-	p, _ := pkProvider("timestamp, id")
+	query := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t)}
+	provider, _ := pkProvider("timestamp, id")
 
-	_, err := TimeFilter(context.Background(), q, nil, macroPosFor(t, sql), p)
+	_, err := TimeFilter(context.Background(), query, nil, macroPosFor(t, sql), provider)
 	assert.NotErrorIs(t, err, ErrPKNotExposed)
 }
 
@@ -474,10 +474,10 @@ func TestMacroPKLookup_ColumnDroppedByBothLayersNamesTheInner(t *testing.T) {
 	// The inner layer is where the column was lost; the outer one only
 	// inherited the loss.
 	sql := "WITH b AS (SELECT v FROM sample.logs), a AS (SELECT v FROM b) SELECT $__timeFilter() FROM a"
-	q := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t)}
-	p, _ := pkProvider("timestamp")
+	query := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t)}
+	provider, _ := pkProvider("timestamp")
 
-	_, err := TimeFilter(context.Background(), q, nil, macroPosFor(t, sql), p)
+	_, err := TimeFilter(context.Background(), query, nil, macroPosFor(t, sql), provider)
 	require.ErrorIs(t, err, ErrPKNotExposed)
 	assert.Contains(t, err.Error(), "`b`")
 	assert.NotContains(t, err.Error(), "`a`")

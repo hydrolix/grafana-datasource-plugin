@@ -22,8 +22,8 @@ func sourcesOf(t *testing.T, sql string) []PKSource {
 	require.NoError(t, err)
 	require.NotEmpty(t, got)
 	sources := make([]PKSource, 0, len(got))
-	for _, c := range got {
-		sources = append(sources, c.Source)
+	for _, entry := range got {
+		sources = append(sources, entry.Source)
 	}
 	return sources
 }
@@ -36,28 +36,28 @@ func sourceOf(t *testing.T, sql string) PKSource {
 	return sources[0]
 }
 
-func layerNames(s PKSource) []string {
-	names := make([]string, 0, len(s.Layers))
-	for _, l := range s.Layers {
-		names = append(names, l.Name)
+func layerNames(source PKSource) []string {
+	names := make([]string, 0, len(source.layers))
+	for _, body := range source.layers {
+		names = append(names, body.name)
 	}
 	return names
 }
 
 func TestSource_PlainTable(t *testing.T) {
-	s := sourceOf(t, "SELECT $__timeFilter() FROM sample.logs")
-	require.NoError(t, s.Err)
-	assert.Equal(t, "sample", s.Database)
-	assert.Equal(t, "logs", s.Table)
-	assert.Empty(t, s.Layers)
+	source := sourceOf(t, "SELECT $__timeFilter() FROM sample.logs")
+	require.NoError(t, source.Err)
+	assert.Equal(t, "sample", source.Database)
+	assert.Equal(t, "logs", source.Table)
+	assert.Empty(t, source.layers)
 }
 
 func TestSource_UnqualifiedTableLeavesDatabaseEmpty(t *testing.T) {
-	s := sourceOf(t, "SELECT $__timeFilter() FROM logs")
-	require.NoError(t, s.Err)
-	assert.Equal(t, "", s.Database)
-	assert.Equal(t, "logs", s.Table)
-	assert.Empty(t, s.Layers)
+	source := sourceOf(t, "SELECT $__timeFilter() FROM logs")
+	require.NoError(t, source.Err)
+	assert.Equal(t, "", source.Database)
+	assert.Equal(t, "logs", source.Table)
+	assert.Empty(t, source.layers)
 }
 
 func TestSource_TicketExampleFollowsWithAlias(t *testing.T) {
@@ -66,73 +66,73 @@ func TestSource_TicketExampleFollowsWithAlias(t *testing.T) {
 		"WHERE $__timeFilter()\nGROUP BY t"
 	sources := sourcesOf(t, sql)
 	require.Len(t, sources, 2, "both macros resolve")
-	for _, s := range sources {
-		require.NoError(t, s.Err)
-		assert.Equal(t, "sample", s.Database)
-		assert.Equal(t, "logs", s.Table)
-		assert.Equal(t, []string{"`errors`"}, layerNames(s))
+	for _, source := range sources {
+		require.NoError(t, source.Err)
+		assert.Equal(t, "sample", source.Database)
+		assert.Equal(t, "logs", source.Table)
+		assert.Equal(t, []string{"`errors`"}, layerNames(source))
 	}
 }
 
 func TestSource_AliasChainResolvesToUnderlyingTable(t *testing.T) {
-	s := sourceOf(t, "WITH b AS (SELECT * FROM sample.logs), a AS (SELECT * FROM b) "+
+	source := sourceOf(t, "WITH b AS (SELECT * FROM sample.logs), a AS (SELECT * FROM b) "+
 		"SELECT $__timeFilter() FROM a")
-	require.NoError(t, s.Err)
-	assert.Equal(t, "sample", s.Database)
-	assert.Equal(t, "logs", s.Table)
-	assert.Equal(t, []string{"`a`", "`b`"}, layerNames(s), "outermost first")
+	require.NoError(t, source.Err)
+	assert.Equal(t, "sample", source.Database)
+	assert.Equal(t, "logs", source.Table)
+	assert.Equal(t, []string{"`a`", "`b`"}, layerNames(source), "outermost first")
 }
 
 func TestSource_InlineSubquery(t *testing.T) {
-	s := sourceOf(t, "SELECT $__timeFilter() FROM (SELECT * FROM sample.logs) AS s")
-	require.NoError(t, s.Err)
-	assert.Equal(t, "logs", s.Table)
-	assert.Equal(t, []string{"subquery"}, layerNames(s))
+	source := sourceOf(t, "SELECT $__timeFilter() FROM (SELECT * FROM sample.logs) AS s")
+	require.NoError(t, source.Err)
+	assert.Equal(t, "logs", source.Table)
+	assert.Equal(t, []string{"subquery"}, layerNames(source))
 }
 
 func TestSource_AliasInsideSubquery(t *testing.T) {
-	s := sourceOf(t, "WITH e AS (SELECT * FROM sample.logs) "+
+	source := sourceOf(t, "WITH e AS (SELECT * FROM sample.logs) "+
 		"SELECT $__timeFilter() FROM (SELECT * FROM e)")
-	require.NoError(t, s.Err)
-	assert.Equal(t, "logs", s.Table)
-	assert.Equal(t, []string{"subquery", "`e`"}, layerNames(s))
+	require.NoError(t, source.Err)
+	assert.Equal(t, "logs", source.Table)
+	assert.Equal(t, []string{"subquery", "`e`"}, layerNames(source))
 }
 
 func TestSource_SubqueryInsideAlias(t *testing.T) {
-	s := sourceOf(t, "WITH e AS (SELECT * FROM (SELECT * FROM sample.logs)) "+
+	source := sourceOf(t, "WITH e AS (SELECT * FROM (SELECT * FROM sample.logs)) "+
 		"SELECT $__timeFilter() FROM e")
-	require.NoError(t, s.Err)
-	assert.Equal(t, "logs", s.Table)
-	assert.Equal(t, []string{"`e`", "subquery"}, layerNames(s))
+	require.NoError(t, source.Err)
+	assert.Equal(t, "logs", source.Table)
+	assert.Equal(t, []string{"`e`", "subquery"}, layerNames(source))
 }
 
 func TestSource_AliasBodySeesItsOwnWith(t *testing.T) {
-	s := sourceOf(t, "WITH e AS (WITH inner_e AS (SELECT * FROM sample.logs) SELECT * FROM inner_e) "+
+	source := sourceOf(t, "WITH e AS (WITH inner_e AS (SELECT * FROM sample.logs) SELECT * FROM inner_e) "+
 		"SELECT $__timeFilter() FROM e")
-	require.NoError(t, s.Err)
-	assert.Equal(t, "logs", s.Table)
-	assert.Equal(t, []string{"`e`", "`inner_e`"}, layerNames(s))
+	require.NoError(t, source.Err)
+	assert.Equal(t, "logs", source.Table)
+	assert.Equal(t, []string{"`e`", "`inner_e`"}, layerNames(source))
 }
 
 func TestSource_AliasedReferenceToWithAlias(t *testing.T) {
-	s := sourceOf(t, "WITH e AS (SELECT * FROM sample.logs) SELECT $__timeFilter() FROM e AS x")
-	require.NoError(t, s.Err)
-	assert.Equal(t, "logs", s.Table)
-	assert.Equal(t, []string{"`e`"}, layerNames(s))
+	source := sourceOf(t, "WITH e AS (SELECT * FROM sample.logs) SELECT $__timeFilter() FROM e AS x")
+	require.NoError(t, source.Err)
+	assert.Equal(t, "logs", source.Table)
+	assert.Equal(t, []string{"`e`"}, layerNames(source))
 }
 
 func TestSource_NearestScopeWins(t *testing.T) {
-	s := sourceOf(t, "WITH x AS (SELECT * FROM db.outer_tbl) SELECT * FROM "+
+	source := sourceOf(t, "WITH x AS (SELECT * FROM db.outer_tbl) SELECT * FROM "+
 		"(WITH x AS (SELECT * FROM db.inner_tbl) SELECT $__timeFilter() FROM x)")
-	require.NoError(t, s.Err)
-	assert.Equal(t, "inner_tbl", s.Table)
+	require.NoError(t, source.Err)
+	assert.Equal(t, "inner_tbl", source.Table)
 }
 
 func TestSource_AliasShadowsSameNamedTable(t *testing.T) {
-	s := sourceOf(t, "WITH logs AS (SELECT * FROM sample.real_logs) SELECT $__timeFilter() FROM logs")
-	require.NoError(t, s.Err)
-	assert.Equal(t, "sample", s.Database)
-	assert.Equal(t, "real_logs", s.Table)
+	source := sourceOf(t, "WITH logs AS (SELECT * FROM sample.real_logs) SELECT $__timeFilter() FROM logs")
+	require.NoError(t, source.Err)
+	assert.Equal(t, "sample", source.Database)
+	assert.Equal(t, "real_logs", source.Table)
 }
 
 func TestSource_NoSingleSourceNamesTheLayer(t *testing.T) {
@@ -149,9 +149,9 @@ func TestSource_NoSingleSourceNamesTheLayer(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := sourceOf(t, tt.sql)
-			require.ErrorIs(t, s.Err, ErrNoSingleSource)
-			assert.Contains(t, s.Err.Error(), tt.layer)
+			source := sourceOf(t, tt.sql)
+			require.ErrorIs(t, source.Err, ErrNoSingleSource)
+			assert.Contains(t, source.Err.Error(), tt.layer)
 		})
 	}
 }
@@ -164,14 +164,14 @@ func TestSource_DoesNotChangeExistingFields(t *testing.T) {
 	got, err := GetMacroCTEs(exprs)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
-	for _, c := range got {
-		assert.Equal(t, "e", c.Table)
-		assert.Equal(t, "", c.Database)
-		assert.Equal(t, "(SELECT * FROM sample.logs)", c.CTE)
+	for _, entry := range got {
+		assert.Equal(t, "e", entry.Table)
+		assert.Equal(t, "", entry.Database)
+		assert.Equal(t, "(SELECT * FROM sample.logs)", entry.CTE)
 	}
 }
 
-func TestLayer_Exposes(t *testing.T) {
+func TestLayer_exposes(t *testing.T) {
 	tests := []struct {
 		name, body string
 		want       bool
@@ -201,10 +201,10 @@ func TestLayer_Exposes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := sourceOf(t, "SELECT $__timeFilter() FROM ("+tt.body+")")
-			require.NoError(t, s.Err)
-			require.Len(t, s.Layers, 1)
-			assert.Equal(t, tt.want, s.Layers[0].Exposes("ts"))
+			source := sourceOf(t, "SELECT $__timeFilter() FROM ("+tt.body+")")
+			require.NoError(t, source.Err)
+			require.Len(t, source.layers, 1)
+			assert.Equal(t, tt.want, source.layers[0].exposes("ts"))
 		})
 	}
 }
@@ -212,55 +212,55 @@ func TestLayer_Exposes(t *testing.T) {
 func TestSource_OuterJoinResolvesLeftTable(t *testing.T) {
 	// Only alias and subquery bodies must have a single source. A JOIN in the
 	// macro's own FROM takes the primary key from its left table.
-	s := sourceOf(t, "SELECT $__timeFilter() FROM sample.logs AS l JOIN sample.users AS u ON l.k = u.k")
-	require.NoError(t, s.Err)
-	assert.Equal(t, "sample", s.Database)
-	assert.Equal(t, "logs", s.Table)
-	assert.Empty(t, s.Layers)
+	source := sourceOf(t, "SELECT $__timeFilter() FROM sample.logs AS l JOIN sample.users AS u ON l.k = u.k")
+	require.NoError(t, source.Err)
+	assert.Equal(t, "sample", source.Database)
+	assert.Equal(t, "logs", source.Table)
+	assert.Empty(t, source.layers)
 }
 
 func TestSource_AliasBodyReadsSameNamedTable(t *testing.T) {
 	// Inside its own body an alias's name is the real table (ClickHouse).
-	s := sourceOf(t, "WITH logs AS (SELECT * FROM logs WHERE v = 1) SELECT $__timeFilter() FROM logs")
-	require.NoError(t, s.Err)
-	assert.Equal(t, "", s.Database)
-	assert.Equal(t, "logs", s.Table)
-	assert.Equal(t, []string{"`logs`"}, layerNames(s))
+	source := sourceOf(t, "WITH logs AS (SELECT * FROM logs WHERE v = 1) SELECT $__timeFilter() FROM logs")
+	require.NoError(t, source.Err)
+	assert.Equal(t, "", source.Database)
+	assert.Equal(t, "logs", source.Table)
+	assert.Equal(t, []string{"`logs`"}, layerNames(source))
 }
 
 func TestSource_MacroInsideAliasBodyReadsSameNamedTable(t *testing.T) {
-	s := sourceOf(t, "WITH logs AS (SELECT * FROM logs WHERE $__timeFilter()) SELECT count() FROM logs")
-	require.NoError(t, s.Err)
-	assert.Equal(t, "logs", s.Table)
-	assert.Empty(t, s.Layers)
+	source := sourceOf(t, "WITH logs AS (SELECT * FROM logs WHERE $__timeFilter()) SELECT count() FROM logs")
+	require.NoError(t, source.Err)
+	assert.Equal(t, "logs", source.Table)
+	assert.Empty(t, source.layers)
 }
 
 func TestSource_OwnNameHidesOuterSameNamedAlias(t *testing.T) {
 	// The body's `logs` skips the outer alias of the same name too.
-	s := sourceOf(t, "WITH logs AS (SELECT * FROM db.u) SELECT * FROM "+
+	source := sourceOf(t, "WITH logs AS (SELECT * FROM db.u) SELECT * FROM "+
 		"(WITH logs AS (SELECT * FROM logs) SELECT $__timeFilter() FROM logs)")
-	require.NoError(t, s.Err)
-	assert.Equal(t, "", s.Database)
-	assert.Equal(t, "logs", s.Table)
-	assert.Equal(t, []string{"`logs`"}, layerNames(s))
+	require.NoError(t, source.Err)
+	assert.Equal(t, "", source.Database)
+	assert.Equal(t, "logs", source.Table)
+	assert.Equal(t, []string{"`logs`"}, layerNames(source))
 }
 
 func TestSource_AliasMayReadLaterSibling(t *testing.T) {
-	s := sourceOf(t, "WITH a AS (SELECT * FROM b), b AS (SELECT * FROM sample.logs) SELECT $__timeFilter() FROM a")
-	require.NoError(t, s.Err)
-	assert.Equal(t, "logs", s.Table)
-	assert.Equal(t, []string{"`a`", "`b`"}, layerNames(s))
+	source := sourceOf(t, "WITH a AS (SELECT * FROM b), b AS (SELECT * FROM sample.logs) SELECT $__timeFilter() FROM a")
+	require.NoError(t, source.Err)
+	assert.Equal(t, "logs", source.Table)
+	assert.Equal(t, []string{"`a`", "`b`"}, layerNames(source))
 }
 
 func TestSource_TooDeepIsItsOwnError(t *testing.T) {
 	var with strings.Builder
 	with.WriteString("WITH a0 AS (SELECT * FROM sample.logs)")
-	for i := 1; i <= 40; i++ {
-		fmt.Fprintf(&with, ", a%d AS (SELECT * FROM a%d)", i, i-1)
+	for level := 1; level <= 40; level++ {
+		fmt.Fprintf(&with, ", a%d AS (SELECT * FROM a%d)", level, level-1)
 	}
-	s := sourceOf(t, with.String()+" SELECT $__timeFilter() FROM a40")
-	require.ErrorIs(t, s.Err, ErrSourceTooDeep)
-	assert.NotErrorIs(t, s.Err, ErrNoSingleSource)
+	source := sourceOf(t, with.String()+" SELECT $__timeFilter() FROM a40")
+	require.ErrorIs(t, source.Err, ErrSourceTooDeep)
+	assert.NotErrorIs(t, source.Err, ErrNoSingleSource)
 }
 
 func TestSource_OuterJoinWithAliasOrSubqueryOnLeft(t *testing.T) {
@@ -276,11 +276,11 @@ func TestSource_OuterJoinWithAliasOrSubqueryOnLeft(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := sourceOf(t, "WITH e AS (SELECT * FROM sample.logs) SELECT $__timeFilter() FROM "+tt.from)
-			require.NoError(t, s.Err)
-			assert.Equal(t, "sample", s.Database)
-			assert.Equal(t, "logs", s.Table)
-			assert.Equal(t, tt.layers, layerNames(s))
+			source := sourceOf(t, "WITH e AS (SELECT * FROM sample.logs) SELECT $__timeFilter() FROM "+tt.from)
+			require.NoError(t, source.Err)
+			assert.Equal(t, "sample", source.Database)
+			assert.Equal(t, "logs", source.Table)
+			assert.Equal(t, tt.layers, layerNames(source))
 		})
 	}
 }
@@ -288,30 +288,30 @@ func TestSource_OuterJoinWithAliasOrSubqueryOnLeft(t *testing.T) {
 func TestSource_AliasBodySeesOnlyItsDefiningScope(t *testing.T) {
 	// y is defined in the outer scope, so the x it reads is the outer x even
 	// though the macro's own scope defines another x.
-	s := sourceOf(t, "WITH x AS (SELECT * FROM db.outer_tbl), y AS (SELECT * FROM x) SELECT * FROM "+
+	source := sourceOf(t, "WITH x AS (SELECT * FROM db.outer_tbl), y AS (SELECT * FROM x) SELECT * FROM "+
 		"(WITH x AS (SELECT * FROM db.inner_tbl) SELECT $__timeFilter() FROM y)")
-	require.NoError(t, s.Err)
-	assert.Equal(t, "outer_tbl", s.Table)
-	assert.Equal(t, []string{"`y`", "`x`"}, layerNames(s))
+	require.NoError(t, source.Err)
+	assert.Equal(t, "outer_tbl", source.Table)
+	assert.Equal(t, []string{"`y`", "`x`"}, layerNames(source))
 }
 
 func TestSource_ResolvingDoesNotDisturbLaterLookups(t *testing.T) {
 	// The IN subquery is visited after the macro's SELECT resolved y; the
 	// resolution must not have overwritten the scope stack it shares.
-	s := sourceOf(t, "WITH x AS (SELECT * FROM db.t) SELECT * FROM "+
+	source := sourceOf(t, "WITH x AS (SELECT * FROM db.t) SELECT * FROM "+
 		"(WITH y AS (SELECT * FROM db.u) SELECT $__timeFilter() FROM y WHERE k IN (SELECT k FROM x))")
-	require.NoError(t, s.Err)
-	assert.Equal(t, "db", s.Database)
-	assert.Equal(t, "u", s.Table)
-	assert.Equal(t, []string{"`y`"}, layerNames(s))
+	require.NoError(t, source.Err)
+	assert.Equal(t, "db", source.Database)
+	assert.Equal(t, "u", source.Table)
+	assert.Equal(t, []string{"`y`"}, layerNames(source))
 }
 
 func TestSource_QualifiedTableIsNeverAnAlias(t *testing.T) {
-	s := sourceOf(t, "WITH e AS (SELECT * FROM db.other) SELECT $__timeFilter() FROM sample.e")
-	require.NoError(t, s.Err)
-	assert.Equal(t, "sample", s.Database)
-	assert.Equal(t, "e", s.Table)
-	assert.Empty(t, s.Layers)
+	source := sourceOf(t, "WITH e AS (SELECT * FROM db.other) SELECT $__timeFilter() FROM sample.e")
+	require.NoError(t, source.Err)
+	assert.Equal(t, "sample", source.Database)
+	assert.Equal(t, "e", source.Table)
+	assert.Empty(t, source.layers)
 }
 
 func TestSource_MacrosInUnionBranchesResolveSeparately(t *testing.T) {
@@ -321,9 +321,9 @@ func TestSource_MacrosInUnionBranchesResolveSeparately(t *testing.T) {
 	got, err := GetMacroCTEs(exprs)
 	require.NoError(t, err)
 	tables := map[string]string{}
-	for id, c := range got {
-		require.NoError(t, c.Source.Err)
-		tables[id.Name] = c.Source.Table
+	for id, entry := range got {
+		require.NoError(t, entry.Source.Err)
+		tables[id.Name] = entry.Source.Table
 	}
 	assert.Equal(t, map[string]string{"$__timeFilter": "t1", "$__timeFilter_ms": "t2"}, tables)
 }
@@ -334,8 +334,8 @@ func TestCTE_SourceIsNotSerialized(t *testing.T) {
 	require.NoError(t, err)
 	got, err := GetMacroCTEs(exprs)
 	require.NoError(t, err)
-	for _, c := range got {
-		raw, err := json.Marshal(c)
+	for _, entry := range got {
+		raw, err := json.Marshal(entry)
 		require.NoError(t, err)
 		var keys map[string]any
 		require.NoError(t, json.Unmarshal(raw, &keys))
@@ -346,10 +346,10 @@ func TestCTE_SourceIsNotSerialized(t *testing.T) {
 func TestSource_RedefinitionInsideOwnBodyStillMeansTheTable(t *testing.T) {
 	// ClickHouse ignores a redefinition of an alias's name inside its own
 	// body too: the inner `logs` here is the real table (24.8).
-	s := sourceOf(t, "WITH logs AS (WITH logs AS (SELECT * FROM sample.inner_t) SELECT * FROM logs) "+
+	source := sourceOf(t, "WITH logs AS (WITH logs AS (SELECT * FROM sample.inner_t) SELECT * FROM logs) "+
 		"SELECT $__timeFilter() FROM logs")
-	require.NoError(t, s.Err)
-	assert.Equal(t, "", s.Database)
-	assert.Equal(t, "logs", s.Table)
-	assert.Equal(t, []string{"`logs`"}, layerNames(s))
+	require.NoError(t, source.Err)
+	assert.Equal(t, "", source.Database)
+	assert.Equal(t, "logs", source.Table)
+	assert.Equal(t, []string{"`logs`"}, layerNames(source))
 }
