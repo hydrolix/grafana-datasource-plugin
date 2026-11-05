@@ -6,7 +6,7 @@ require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.44.0
 	github.com/grafana/grafana-plugin-sdk-go v0.298.0
 	github.com/grafana/sqlds/v5 v5.2.0
-	github.com/hydrolix/clickhouse-sql-parser v0.5.2
+	github.com/hydrolix/clickhouse-sql-parser v0.5.7-0.20261105192524-8efb4484e197
 	github.com/jellydator/ttlcache/v3 v3.4.0
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.12.1

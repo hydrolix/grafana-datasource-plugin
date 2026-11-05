@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.13.1
+
+- **Fix**: A dashboard query using `SELECT * EXCEPT <column>` with a keyword-named column (`timestamp`, `date`, `key`,
+  `name`, `type`, `host`, ...) failed with `expected SELECT, WITH or (, got <keyword>` as soon as an ad hoc filter was
+  applied, while the same query ran in Explore (HDX-12821). The plugin parses the statement to find the table behind a
+  parameterless `$__adHocFilter()`, and its SQL parser accepted a bare `EXCEPT <column>` only for non-keyword names;
+  `* except (timestamp)` and an explicit `$__adHocFilter(db.table)` were the only workarounds. The parser is upgraded to
+  the build the Hydrolix HTTP proxy already runs, which also accepts `* EXCEPT STRICT <column>`, `db.table.*`, a SETTINGS
+  item named by a reserved keyword (`limit`, `offset`, ...), `interval` as a plain column name, an `AS alias` inside
+  `extract(...)`, and a subquery starting with `WITH` in expression position. Regressed in 0.11.0 with the move to
+  parser v0.5.2
+
 ## 0.13.0
 
 - **Fix**: No redirect from the cluster is followed, in any credentials mode. Go's HTTP client keeps `Authorization` on a
