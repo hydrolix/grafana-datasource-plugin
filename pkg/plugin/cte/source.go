@@ -44,8 +44,9 @@ type Layer struct {
 	// "subquery" for an inline one.
 	Name  string
 	items []*parser.SelectItem
-	// qualifiers are the prefixes that, written before a column (`q.col`),
-	// mean the layer's own source table: its alias, table, or db.table.
+	// qualifiers are the prefixes that name the table in the body's FROM,
+	// so `q.col` in the projection is a column of that table: its `AS`
+	// alias, its table name, and db.table. (Not the layer's own name.)
 	qualifiers [][]string
 }
 
