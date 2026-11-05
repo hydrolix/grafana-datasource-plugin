@@ -51,9 +51,9 @@ type Layer struct {
 
 // Exposes reports whether the layer's SELECT list makes the source column
 // col visible to its reader under that name: through `*` or `t.*` (unless an
-// EXCEPT drops it by name or pattern, or a REPLACE swaps in an expression that does not read
-// it), the column itself (bare or qualified by the layer's table), or an
-// expression over col aliased back to col.
+// EXCEPT drops it by name or pattern, or a REPLACE swaps in an expression
+// that does not read it), the column itself (bare or qualified by the
+// layer's table), or an expression over col aliased back to col.
 func (l Layer) Exposes(col string) bool {
 	for _, item := range l.items {
 		if item.Alias != nil {
