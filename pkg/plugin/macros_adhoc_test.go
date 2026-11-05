@@ -195,6 +195,37 @@ func TestAdHocFilterMacro_ExplicitCTEArgumentResolves(t *testing.T) {
 	assert.Contains(t, got, "id = '42'")
 }
 
+// TestAdHocFilterMacro_StarExceptKeywordColumn is the HDX-12821 regression:
+// the parameterless $__adHocFilter() parses the whole statement to find the
+// FROM table, and the parser used to reject `* EXCEPT <keyword-named column>`
+// (`timestamp`, `date`, `key`, ...) with "expected SELECT, WITH or (, got
+// <keyword>" — so the customer's Raw Logs query worked in Explore (no filters,
+// no parse) and failed in any dashboard with an ad hoc filter applied.
+func TestAdHocFilterMacro_StarExceptKeywordColumn(t *testing.T) {
+	columns := []string{"timestamp", "date", "key"}
+	for _, column := range columns {
+		t.Run(column, func(t *testing.T) {
+			sql := fmt.Sprintf(`SELECT
+%[1]s, * except %[1]s
+FROM ems.eks_prod
+WHERE $__timeFilter(%[1]s)
+AND $__adHocFilter()
+LIMIT 100`, column)
+			pos := parser.Pos(strings.Index(sql, "$__adHocFilter"))
+			require.NotEqual(t, parser.Pos(-1), pos)
+
+			p := preseededProvider("ems.eks_prod", map[string]string{"level": "String"})
+			query := &models.HdxQuery{
+				RawSQL:  sql,
+				Filters: []models.AdHocFilter{{Key: "level", Operator: "=", Value: "error"}},
+			}
+			got, err := AdHocFilterMacro(context.Background(), query, nil, pos, p)
+			require.NoError(t, err)
+			assert.Equal(t, "level = 'error'", got)
+		})
+	}
+}
+
 func TestAdHocFilterMacro_Matrix(t *testing.T) {
 	tests := []struct {
 		name    string
