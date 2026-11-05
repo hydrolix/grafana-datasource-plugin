@@ -297,8 +297,8 @@ func lookupBody(src parser.Expr, scopes []map[string]*parser.SelectQuery, hidden
 		if expr.Database != nil || expr.Table == nil || slices.Contains(hidden, expr.Table.Name) {
 			return nil
 		}
-		for level := len(scopes) - 1; level >= 0; level-- {
-			if query, ok := scopes[level][expr.Table.Name]; ok {
+		for level, scope := range slices.Backward(scopes) {
+			if query, ok := scope[expr.Table.Name]; ok {
 				return &sourceBody{query: query, alias: expr.Table.Name, scopes: scopes[:level+1]}
 			}
 		}
