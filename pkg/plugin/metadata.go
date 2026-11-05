@@ -425,15 +425,9 @@ func GetStringSafe(v any) (string, error) {
 }
 
 // getPK is the macro-facing helper. It parses rawSQL, finds the CTE entry
-// at pos, and delegates to MetadataProvider.GetPK. Used by C6's PK-lookup
-// macros (`TimeFilter`, `TimeFilterMs`, `TimeInterval`, `TimeIntervalMs`)
-// when their column argument is omitted.
-//
-// This is the one place that turns an empty primary key into an error: the
-// lookup treats "" as a legitimate result, but a macro cannot expand against
-// an empty column name — the cluster would reject the SQL with a parse error
-// naming neither the table nor the cause. A keyless table is a fact about
-// the user's schema, hence downstream.
+// at pos, and hands its PKSource to pkColumn. Used by C6's PK-lookup macros
+// (`TimeFilter`, `TimeFilterMs`, `TimeInterval`, `TimeIntervalMs`) when their
+// column argument is omitted.
 func getPK(ctx context.Context, rawSQL string, pos parser.Pos, mdProvider *MetadataProvider, headers http.Header) (string, error) {
 	exprs, err := parser.NewParser(rawSQL).ParseStmts()
 	if err != nil {
@@ -451,11 +445,18 @@ func getPK(ctx context.Context, rawSQL string, pos parser.Pos, mdProvider *Metad
 	return rawSQL, fmt.Errorf("no CTE found for macro at pos %d", pos)
 }
 
-// pkHint ends every error that a column argument would avoid.
+// pkHint ends the errors pkColumn raises itself, all of which a column
+// argument would avoid.
 const pkHint = "pass the time column as the macro argument, e.g. $__timeFilter(<column>)"
 
 // pkColumn looks up the primary key of the table under source and checks that
 // every alias or subquery between it and the macro still selects that column.
+//
+// This is the one place that turns an empty primary key into an error: the
+// lookup treats "" as a legitimate result, but a macro cannot expand against
+// an empty column name — the cluster would reject the SQL with a parse error
+// naming neither the table nor the cause. A keyless table is a fact about
+// the user's schema, hence downstream.
 func pkColumn(ctx context.Context, source cte.PKSource, mdProvider *MetadataProvider, headers http.Header) (string, error) {
 	if source.Err != nil {
 		return "", backend.DownstreamError(fmt.Errorf("%w; %s", source.Err, pkHint))
@@ -476,8 +477,10 @@ func pkColumn(ctx context.Context, source cte.PKSource, mdProvider *MetadataProv
 			"%w: %s.%s; %s", ErrPrimaryKeyEmpty, db, source.Table, pkHint,
 		))
 	}
-	// An expression key cannot be matched against a SELECT list by name.
+	// Only a single plain column can be matched against a SELECT list by
+	// name; expression and multi-column keys are expanded unchecked.
 	if column, ok := plainColumn(pk); ok {
+		// Innermost first, so the error names the layer that lost the column.
 		for i := len(source.Layers) - 1; i >= 0; i-- {
 			if layer := source.Layers[i]; !layer.Exposes(column) {
 				return "", backend.DownstreamError(fmt.Errorf(

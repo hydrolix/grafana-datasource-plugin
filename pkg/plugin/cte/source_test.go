@@ -1,6 +1,11 @@
 package cte
 
 import (
+	"encoding/json"
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
@@ -139,7 +144,8 @@ func TestSource_NoSingleSourceNamesTheLayer(t *testing.T) {
 		{"union in alias", "WITH e AS (SELECT * FROM a UNION ALL SELECT * FROM b) SELECT $__timeFilter() FROM e", "`e`"},
 		{"no FROM in alias", "WITH e AS (SELECT now() AS ts) SELECT $__timeFilter() FROM e", "`e`"},
 		{"join in subquery", "SELECT $__timeFilter() FROM (SELECT * FROM a JOIN b ON a.k = b.k)", "subquery"},
-		{"self-reference", "WITH e AS (SELECT * FROM e) SELECT $__timeFilter() FROM e", "`e`"},
+		{"except in alias", "WITH e AS (SELECT * FROM a EXCEPT SELECT * FROM b) SELECT $__timeFilter() FROM e", "`e`"},
+		{"intersect in alias", "WITH e AS (SELECT * FROM a INTERSECT SELECT * FROM b) SELECT $__timeFilter() FROM e", "`e`"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -175,7 +181,16 @@ func TestLayer_Exposes(t *testing.T) {
 		{"bare column", "SELECT ts, v FROM t", true},
 		{"qualified column", "SELECT t.ts FROM t", true},
 		{"database-qualified column", "SELECT db.t.ts FROM db.t", true},
-		{"expression aliased to the name", "SELECT toStartOfMinute(x) AS ts FROM t", true},
+		{"expression over the column aliased to the name", "SELECT toStartOfMinute(ts) AS ts FROM t", true},
+		{"other column aliased to the name", "SELECT created AS ts FROM t", false},
+		{"table-alias-qualified column", "SELECT l.ts FROM t AS l", true},
+		{"tuple or JSON subcolumn", "SELECT j.ts FROM t", false},
+		{"star except the column", "SELECT * EXCEPT (ts) FROM t", false},
+		{"star except without parens", "SELECT * EXCEPT ts FROM t", false},
+		{"star except another column", "SELECT * EXCEPT (v) FROM t", true},
+		{"qualified star except the column", "SELECT t.* EXCEPT (v, ts) FROM t", false},
+		{"star replace over the column", "SELECT * REPLACE (ts + 1 AS ts) FROM t", true},
+		{"star replace with another column", "SELECT * REPLACE (created AS ts) FROM t", false},
 		{"renamed away", "SELECT ts AS time FROM t", false},
 		{"dropped", "SELECT v FROM t", false},
 		{"only inside an expression", "SELECT toDate(ts) FROM t", false},
@@ -191,12 +206,136 @@ func TestLayer_Exposes(t *testing.T) {
 	}
 }
 
-func TestSource_OuterJoinKeepsTodaysLeftTable(t *testing.T) {
+func TestSource_OuterJoinResolvesLeftTable(t *testing.T) {
 	// Only alias and subquery bodies must have a single source. A JOIN in the
-	// macro's own FROM keeps the left table it has always resolved to.
+	// macro's own FROM takes the primary key from its left table.
 	s := sourceOf(t, "SELECT $__timeFilter() FROM sample.logs AS l JOIN sample.users AS u ON l.k = u.k")
 	require.NoError(t, s.Err)
 	assert.Equal(t, "sample", s.Database)
 	assert.Equal(t, "logs", s.Table)
 	assert.Empty(t, s.Layers)
+}
+
+func TestSource_AliasBodyReadsSameNamedTable(t *testing.T) {
+	// Inside its own body an alias's name is the real table (ClickHouse).
+	s := sourceOf(t, "WITH logs AS (SELECT * FROM logs WHERE v = 1) SELECT $__timeFilter() FROM logs")
+	require.NoError(t, s.Err)
+	assert.Equal(t, "", s.Database)
+	assert.Equal(t, "logs", s.Table)
+	assert.Equal(t, []string{"`logs`"}, layerNames(s))
+}
+
+func TestSource_MacroInsideAliasBodyReadsSameNamedTable(t *testing.T) {
+	s := sourceOf(t, "WITH logs AS (SELECT * FROM logs WHERE $__timeFilter()) SELECT count() FROM logs")
+	require.NoError(t, s.Err)
+	assert.Equal(t, "logs", s.Table)
+	assert.Empty(t, s.Layers)
+}
+
+func TestSource_OwnNameHidesOuterSameNamedAlias(t *testing.T) {
+	// The body's `logs` skips the outer alias of the same name too.
+	s := sourceOf(t, "WITH logs AS (SELECT * FROM db.u) SELECT * FROM "+
+		"(WITH logs AS (SELECT * FROM logs) SELECT $__timeFilter() FROM logs)")
+	require.NoError(t, s.Err)
+	assert.Equal(t, "", s.Database)
+	assert.Equal(t, "logs", s.Table)
+	assert.Equal(t, []string{"`logs`"}, layerNames(s))
+}
+
+func TestSource_AliasMayReadLaterSibling(t *testing.T) {
+	s := sourceOf(t, "WITH a AS (SELECT * FROM b), b AS (SELECT * FROM sample.logs) SELECT $__timeFilter() FROM a")
+	require.NoError(t, s.Err)
+	assert.Equal(t, "logs", s.Table)
+	assert.Equal(t, []string{"`a`", "`b`"}, layerNames(s))
+}
+
+func TestSource_TooDeepIsItsOwnError(t *testing.T) {
+	var with strings.Builder
+	with.WriteString("WITH a0 AS (SELECT * FROM sample.logs)")
+	for i := 1; i <= 40; i++ {
+		fmt.Fprintf(&with, ", a%d AS (SELECT * FROM a%d)", i, i-1)
+	}
+	s := sourceOf(t, with.String()+" SELECT $__timeFilter() FROM a40")
+	require.ErrorIs(t, s.Err, ErrSourceTooDeep)
+	assert.NotErrorIs(t, s.Err, ErrNoSingleSource)
+}
+
+func TestSource_OuterJoinWithAliasOrSubqueryOnLeft(t *testing.T) {
+	tests := []struct {
+		name, from string
+		layers     []string
+	}{
+		{"join", "e JOIN t ON e.k = t.k", []string{"`e`"}},
+		{"aliased join", "e AS l JOIN t ON l.k = t.k", []string{"`e`"}},
+		{"array join", "e ARRAY JOIN arr", []string{"`e`"}},
+		{"comma join", "e, t", []string{"`e`"}},
+		{"subquery on the left", "(SELECT * FROM sample.logs) AS s JOIN t ON s.k = t.k", []string{"subquery"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := sourceOf(t, "WITH e AS (SELECT * FROM sample.logs) SELECT $__timeFilter() FROM "+tt.from)
+			require.NoError(t, s.Err)
+			assert.Equal(t, "sample", s.Database)
+			assert.Equal(t, "logs", s.Table)
+			assert.Equal(t, tt.layers, layerNames(s))
+		})
+	}
+}
+
+func TestSource_AliasBodySeesOnlyItsDefiningScope(t *testing.T) {
+	// y is defined in the outer scope, so the x it reads is the outer x even
+	// though the macro's own scope defines another x.
+	s := sourceOf(t, "WITH x AS (SELECT * FROM db.outer_tbl), y AS (SELECT * FROM x) SELECT * FROM "+
+		"(WITH x AS (SELECT * FROM db.inner_tbl) SELECT $__timeFilter() FROM y)")
+	require.NoError(t, s.Err)
+	assert.Equal(t, "outer_tbl", s.Table)
+	assert.Equal(t, []string{"`y`", "`x`"}, layerNames(s))
+}
+
+func TestSource_ResolvingDoesNotDisturbLaterLookups(t *testing.T) {
+	// The IN subquery is visited after the macro's SELECT resolved y; the
+	// resolution must not have overwritten the scope stack it shares.
+	s := sourceOf(t, "WITH x AS (SELECT * FROM db.t) SELECT * FROM "+
+		"(WITH y AS (SELECT * FROM db.u) SELECT $__timeFilter() FROM y WHERE k IN (SELECT k FROM x))")
+	require.NoError(t, s.Err)
+	assert.Equal(t, "db", s.Database)
+	assert.Equal(t, "u", s.Table)
+	assert.Equal(t, []string{"`y`"}, layerNames(s))
+}
+
+func TestSource_QualifiedTableIsNeverAnAlias(t *testing.T) {
+	s := sourceOf(t, "WITH e AS (SELECT * FROM db.other) SELECT $__timeFilter() FROM sample.e")
+	require.NoError(t, s.Err)
+	assert.Equal(t, "sample", s.Database)
+	assert.Equal(t, "e", s.Table)
+	assert.Empty(t, s.Layers)
+}
+
+func TestSource_MacrosInUnionBranchesResolveSeparately(t *testing.T) {
+	exprs, err := parser.NewParser("WITH a AS (SELECT * FROM db.t1), b AS (SELECT * FROM db.t2) " +
+		"SELECT $__timeFilter() FROM a UNION ALL SELECT $__timeFilter_ms() FROM b").ParseStmts()
+	require.NoError(t, err)
+	got, err := GetMacroCTEs(exprs)
+	require.NoError(t, err)
+	tables := map[string]string{}
+	for id, c := range got {
+		require.NoError(t, c.Source.Err)
+		tables[id.Name] = c.Source.Table
+	}
+	assert.Equal(t, map[string]string{"$__timeFilter": "t1", "$__timeFilter_ms": "t2"}, tables)
+}
+
+func TestCTE_SourceIsNotSerialized(t *testing.T) {
+	// /macroCTE serves CTE as JSON; Source is internal and must stay out.
+	exprs, err := parser.NewParser("WITH e AS (SELECT * FROM sample.logs) SELECT $__timeFilter() FROM e").ParseStmts()
+	require.NoError(t, err)
+	got, err := GetMacroCTEs(exprs)
+	require.NoError(t, err)
+	for _, c := range got {
+		raw, err := json.Marshal(c)
+		require.NoError(t, err)
+		var keys map[string]any
+		require.NoError(t, json.Unmarshal(raw, &keys))
+		assert.ElementsMatch(t, []string{"macro", "macroPos", "cte", "table", "database", "pos"}, slices.Collect(maps.Keys(keys)))
+	}
 }

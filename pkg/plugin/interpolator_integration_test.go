@@ -136,6 +136,32 @@ func TestInterpolate_Integration_TimeMacrosFollowWithAlias(t *testing.T) {
 	assert.NotContains(t, out, "$__")
 }
 
+func TestInterpolate_Integration_AliasErrorsKeepTheirType(t *testing.T) {
+	// The macro errors must come out of interpolation still matchable and
+	// still classified as the user's to fix.
+	tests := []struct {
+		name, sql string
+		want      error
+	}{
+		{"column not selected", "WITH e AS (SELECT v FROM sample.logs) SELECT $__timeFilter() FROM e", ErrPKNotExposed},
+		{"no single source", "WITH e AS (SELECT * FROM a JOIN b ON a.k = b.k) SELECT $__timeFilter() FROM e", cte.ErrNoSingleSource},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			i := newIntegrationInterpolator(func(p *MetadataProvider) {
+				p.pkCache.Set("sample_logs", "timestamp", ttlcache.DefaultTTL)
+			})
+			q := &models.HdxQuery{
+				RawSQL:    tt.sql,
+				TimeRange: backend.TimeRange{From: integrationFrom, To: integrationTo},
+			}
+			_, err := i.interpolate(context.Background(), q)
+			assert.ErrorIs(t, err, tt.want)
+			assert.True(t, backend.IsDownstreamError(err))
+		})
+	}
+}
+
 func TestInterpolate_Integration_InjectedOperatorRejected(t *testing.T) {
 	// The operator allowlist is unit-tested on buildFilterCondition directly;
 	// this asserts the rejection propagates all the way out of the real

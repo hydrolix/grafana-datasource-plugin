@@ -78,6 +78,8 @@ The plugin SHALL define four stateless macros that read `query.TimeRange` and em
 
 The plugin SHALL define four macros that accept zero or one argument: `TimeFilter`, `TimeFilterMs`, `TimeInterval`, `TimeIntervalMs`. When `len(args) == 1 && args[0] != ""`, the macro SHALL use that column. Otherwise the macro SHALL call `getPK(ctx, query.RawSQL, pos, mdProvider, query.Headers)` to resolve the primary key for the table at `pos`. When `getPK` returns an error, the macro SHALL propagate it.
 
+The table at `pos` is the containing SELECT's FROM — its left table, for a JOIN — followed through WITH aliases and inline subqueries, chained or nested, to the real table underneath. An alias resolves as ad-hoc filters resolve it: the nearest enclosing definition wins and an alias wins over a same-named table, except inside the alias's own body, where its name means the real table. When an alias or subquery on that path has no single source table (a JOIN, table function, UNION / EXCEPT / INTERSECT, or no FROM), `getPK` SHALL fail with a downstream error wrapping `cte.ErrNoSingleSource` that names the alias (or "subquery"), before any metadata query. When the primary key is a single column and some alias or subquery on the path does not select it under its own name (through `*` without an EXCEPT of it, the column itself, or an expression over it aliased back to it), `getPK` SHALL fail with a downstream error wrapping `ErrPKNotExposed` that names the innermost such layer.
+
 #### Scenario: TimeFilter with explicit column
 
 - **GIVEN** `args = ["ts"]` and time range from `2014-11-12` to `2015-11-12`
@@ -90,6 +92,26 @@ The plugin SHALL define four macros that accept zero or one argument: `TimeFilte
 - **GIVEN** SQL `SELECT $__timeFilter FROM mydb.events` with `pkCache["mydb_events"] = "primary_ts"`
 - **WHEN** `TimeFilter` runs at the position of the macro
 - **THEN** the return SHALL contain `"primary_ts >= toDateTime(...)" AND "primary_ts <= toDateTime(...)"`
+
+#### Scenario: PK lookup follows a WITH alias to its table
+
+- **GIVEN** SQL `WITH errors AS (SELECT * FROM sample.logs WHERE status >= 500) SELECT $__timeInterval() AS t, count() FROM errors WHERE $__timeFilter() GROUP BY t`
+- **WHEN** either macro runs without a column argument
+- **THEN** the primary-key lookup SHALL target `database='sample' AND table ='logs'`
+- **AND** the macro SHALL expand on that table's primary key
+
+#### Scenario: Alias body without a single source table
+
+- **GIVEN** SQL `WITH e AS (SELECT * FROM a JOIN b ON a.k = b.k) SELECT $__timeFilter() FROM e`
+- **WHEN** `TimeFilter` runs without a column argument
+- **THEN** the error SHALL wrap `cte.ErrNoSingleSource`, name `` `e` ``, and be a `backend.DownstreamError`
+- **AND** no metadata query SHALL be issued
+
+#### Scenario: Alias that does not select the primary-key column
+
+- **GIVEN** SQL `WITH e AS (SELECT timestamp AS ts, v FROM sample.logs) SELECT $__timeFilter() FROM e` and primary key `timestamp`
+- **WHEN** `TimeFilter` runs without a column argument
+- **THEN** the error SHALL wrap `ErrPKNotExposed`, name `` `timestamp` `` and `` `e` ``, and be a `backend.DownstreamError`
 
 #### Scenario: Too many arguments produces a typed error
 

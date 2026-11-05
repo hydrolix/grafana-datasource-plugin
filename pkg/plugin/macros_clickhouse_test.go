@@ -417,8 +417,8 @@ func TestMacroPKLookup_ColumnDroppedByInnerLayerIsClearError(t *testing.T) {
 }
 
 func TestMacroPKLookup_ExpressionPrimaryKeySkipsColumnCheck(t *testing.T) {
-	// An expression key cannot be matched by name; expanding it is today's
-	// behavior, and ClickHouse reports whatever is wrong with it.
+	// An expression key cannot be matched by name, so it is expanded
+	// unchecked and ClickHouse reports whatever is wrong with it.
 	sql := "WITH e AS (SELECT v FROM sample.logs) SELECT $__timeFilter() FROM e"
 	q := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t)}
 	p, _ := pkProvider("toStartOfHour(timestamp)")
@@ -459,4 +459,26 @@ func TestMacroPKLookup_ExplicitColumnBehindAliasSendsNoLookup(t *testing.T) {
 	got, err := TimeFilter(context.Background(), q, []string{"ts"}, macroPosFor(t, sql), NewMetadataProvider(nopMetadataDS{}))
 	require.NoError(t, err)
 	assert.Contains(t, got, "ts >= ")
+}
+
+func TestMacroPKLookup_MultiColumnKeySkipsColumnCheck(t *testing.T) {
+	sql := "WITH e AS (SELECT v FROM sample.logs) SELECT $__timeFilter() FROM e"
+	q := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t)}
+	p, _ := pkProvider("timestamp, id")
+
+	_, err := TimeFilter(context.Background(), q, nil, macroPosFor(t, sql), p)
+	assert.NotErrorIs(t, err, ErrPKNotExposed)
+}
+
+func TestMacroPKLookup_ColumnDroppedByBothLayersNamesTheInner(t *testing.T) {
+	// The inner layer is where the column was lost; the outer one only
+	// inherited the loss.
+	sql := "WITH b AS (SELECT v FROM sample.logs), a AS (SELECT v FROM b) SELECT $__timeFilter() FROM a"
+	q := &models.HdxQuery{RawSQL: sql, TimeRange: stdRange(t)}
+	p, _ := pkProvider("timestamp")
+
+	_, err := TimeFilter(context.Background(), q, nil, macroPosFor(t, sql), p)
+	require.ErrorIs(t, err, ErrPKNotExposed)
+	assert.Contains(t, err.Error(), "`b`")
+	assert.NotContains(t, err.Error(), "`a`")
 }

@@ -9,6 +9,7 @@
 package cte
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
@@ -122,11 +123,15 @@ type queryVisitor struct {
 	parser.DefaultASTVisitor
 	macroIds   map[MacroId]CTE
 	scopeStack []map[string]*parser.SelectQuery
+	// selectStack holds the SELECTs being visited, outermost first, kept in
+	// step with scopeStack.
+	selectStack []*parser.SelectQuery
 }
 
 func (v *queryVisitor) Enter(expr parser.Expr) {
 	if sq, ok := expr.(*parser.SelectQuery); ok {
 		v.scopeStack = append(v.scopeStack, withAliases(sq))
+		v.selectStack = append(v.selectStack, sq)
 	}
 }
 
@@ -157,6 +162,7 @@ func withAliases(sq *parser.SelectQuery) map[string]*parser.SelectQuery {
 func (v *queryVisitor) Leave(expr parser.Expr) {
 	if _, ok := expr.(*parser.SelectQuery); ok && len(v.scopeStack) > 0 {
 		v.scopeStack = v.scopeStack[:len(v.scopeStack)-1]
+		v.selectStack = v.selectStack[:len(v.selectStack)-1]
 	}
 }
 
@@ -175,6 +181,21 @@ func (v *queryVisitor) resolveWithAlias(fromExpr parser.Expr) (*parser.SelectQue
 		}
 	}
 	return nil, false
+}
+
+// enclosingAliases returns the names of the WITH aliases whose bodies
+// contain the SELECT being visited. ClickHouse resolves such a name, inside
+// that body, to a real table rather than to any alias.
+func (v *queryVisitor) enclosingAliases() []string {
+	var names []string
+	for _, aliases := range v.scopeStack {
+		for name, body := range aliases {
+			if slices.Contains(v.selectStack, body) {
+				names = append(names, name)
+			}
+		}
+	}
+	return names
 }
 
 // IdentName returns the name of a plain identifier expression.
@@ -219,7 +240,7 @@ func (v *queryVisitor) VisitSelectQuery(expr *parser.SelectQuery) error {
 	tPos := expr.From.Expr.Pos()
 	tVisitor := tableVisitor{pos: tPos}
 	_ = expr.Accept(&tVisitor)
-	source, ok := pkSource(SingleSource(expr), v.scopeStack)
+	source, ok := pkSource(leftSource(expr), v.scopeStack, v.enclosingAliases())
 	if !ok {
 		source = PKSource{Database: tVisitor.database, Table: tVisitor.table}
 	}
