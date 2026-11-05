@@ -5,7 +5,7 @@ TBD - created by archiving change plugin-oauth-keyed-pooling. Update Purpose aft
 ## Requirements
 ### Requirement: `MutateQueryData` injects `oauthToken` into `connectionArgs` when in `forwardOAuth` mode
 
-When `pluginSettings.CredentialsType == "forwardOAuth"` and `req.GetHTTPHeaders().Get(backend.OAuthIdentityTokenHeaderName)` returns a non-empty value, `Driver.MutateQueryData` SHALL write the value (with any `"Bearer "` prefix stripped) into every query's `connectionArgs.oauthToken` field. The write SHALL preserve every other JSON field byte-for-byte modulo the new key.
+When `pluginSettings.CredentialsType == "forwardOAuth"` and `req.GetHTTPHeaders().Get(backend.OAuthIdentityTokenHeaderName)` returns a non-empty value, `Driver.MutateQueryData` SHALL write the value (with any `"Bearer "` prefix stripped) into every query's `connectionArgs.oauthToken` field. The write SHALL preserve every other JSON field except `querySettings`, which `MutateQueryData` always rewrites with the merged settings.
 
 #### Scenario: `forwardOAuth` with `Authorization: Bearer abc...`
 
@@ -53,13 +53,13 @@ When neither the OAuth token (under `forwardOAuth`) nor the Org-Id header is pre
 
 ### Requirement: `MutateQueryData` overwrites `connectionArgs`, does not merge
 
-`MutateQueryData` SHALL write `connectionArgs` through `jsonSet` in `pkg/plugin/driver.go`. The write SHALL replace any existing `connectionArgs` value, including keys that differ from it only in case, with the plugin's own map (no key-level merge), and SHALL preserve every other field of the query JSON.
+`MutateQueryData` SHALL write `connectionArgs` through `jsonSet` in `pkg/plugin/driver.go`. The write SHALL replace any existing `connectionArgs` value, including keys that differ from it only in case, with the plugin's own map (no key-level merge). It SHALL also rewrite `querySettings` with the merged settings, and SHALL preserve every other field of the query JSON.
 
 #### Scenario: No prior connectionArgs
 
-- **GIVEN** query JSON `{"rawSql": "SELECT 1"}` with `CredentialsType = "forwardOAuth"`, an `Authorization: Bearer t` header and no Org-Id header
+- **GIVEN** query JSON `{"rawSql": "SELECT 1"}` with `CredentialsType = "forwardOAuth"`, an `Authorization: Bearer t` header, no Org-Id header, and no query settings on the datasource or the query
 - **WHEN** `MutateQueryData` runs
-- **THEN** the query JSON SHALL parse to `{"rawSql": "SELECT 1", "connectionArgs": {"oauthToken": "t"}}`
+- **THEN** the query JSON SHALL parse to `{"rawSql": "SELECT 1", "querySettings": [], "connectionArgs": {"oauthToken": "t"}}`
 
 #### Scenario: Prior connectionArgs is overwritten
 
@@ -67,11 +67,12 @@ When neither the OAuth token (under `forwardOAuth`) nor the Org-Id header is pre
 - **WHEN** `MutateQueryData` writes the plugin's `connectionArgs`
 - **THEN** the result's `connectionArgs` SHALL equal the plugin's map exactly (no `"stale"` key)
 
-#### Scenario: Malformed query JSON propagates the unmarshal error
+#### Scenario: Query JSON that cannot be patched fails closed
 
-- **GIVEN** query JSON that is not a JSON object
-- **WHEN** `jsonSet` is called on it
-- **THEN** the returned error SHALL be non-nil
+- **GIVEN** query JSON that is not a JSON object (malformed, `null`, an array, a scalar) or cannot be decoded into one
+- **WHEN** `MutateQueryData` runs
+- **THEN** the query JSON SHALL hold only the plugin's own patches (`querySettings`, and `connectionArgs` when built), with no `rawSql`
+- **AND** none of the original query's `connectionArgs` SHALL survive, so sqlds refuses the query instead of running it on a connection the client chose
 
 ### Requirement: `getOAuthToken` / `getOrgId` read the flat `connectionArgs` shape
 
