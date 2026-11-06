@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
 )
@@ -133,6 +134,10 @@ func (lyr layer) exposes(col string) bool {
 			}
 		case *parser.Path:
 			last := len(expr.Fields) - 1
+			// `db.t.*`; `t.*` parses as a NestedIdentifier.
+			if last > 0 && expr.Fields[last].Name == "*" && starExposes(item.Modifiers, col) {
+				return true
+			}
 			if last > 0 && expr.Fields[last].Name == col && lyr.qualifies(identNames(expr.Fields[:last])) {
 				return true
 			}
@@ -152,7 +157,9 @@ func starExposes(modifiers []*parser.FunctionExpr, col string) bool {
 			if column, ok := arg.(*parser.ColumnExpr); ok {
 				arg, alias = column.Expr, column.Alias
 			}
-			switch parser.Format(modifier.Name) {
+			// The name carries any qualifier: EXCEPT STRICT is still EXCEPT.
+			keyword, _, _ := strings.Cut(parser.Format(modifier.Name), " ")
+			switch keyword {
 			case "EXCEPT":
 				if name, ok := IdentName(arg); ok && name == col {
 					return false
