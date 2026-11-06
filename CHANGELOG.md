@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.0
+
+- **Fix**: `$__timeFilter()`, `$__timeFilter_ms()`, `$__timeInterval()` and `$__timeInterval_ms()` without a column
+  failed with `primary key not found` when the query read from a WITH alias (HDX-11394): the plugin looked up a table
+  named like the alias. They now follow WITH aliases and inline subqueries, chained or nested, to the table underneath
+  and use its primary key, also on the left side of a JOIN. When that path has no single table (a JOIN, table function
+  or UNION inside an alias), or an alias or subquery renames or drops the time column, the macro fails naming the alias
+  and asking for an explicit column instead of emitting SQL the cluster rejects.
+
 ## 0.13.1
 
 - **Fix**: A dashboard query using `SELECT * EXCEPT <column>` with a keyword-named column (`timestamp`, `date`, `key`,

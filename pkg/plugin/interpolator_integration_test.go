@@ -115,6 +115,53 @@ func TestInterpolate_Integration_TimeMacroResolvesPKFromCache(t *testing.T) {
 	assert.NotContains(t, out, "$__timeFilter")
 }
 
+func TestInterpolate_Integration_TimeMacrosFollowWithAlias(t *testing.T) {
+	// HDX-11394: column-less time macros reading a WITH alias take the primary
+	// key of the table in the alias body, not of a table named like the alias.
+	interp := newIntegrationInterpolator(func(provider *MetadataProvider) {
+		provider.pkCache.Set("sample_logs", "timestamp", ttlcache.DefaultTTL)
+	})
+	query := &models.HdxQuery{
+		RawSQL: "WITH errors AS (SELECT * FROM sample.logs WHERE status >= 500)\n" +
+			"SELECT $__timeInterval() AS t, count() FROM errors\n" +
+			"WHERE $__timeFilter()\nGROUP BY t",
+		TimeRange: backend.TimeRange{From: integrationFrom, To: integrationTo},
+		Interval:  time.Minute,
+	}
+
+	out, err := interp.interpolate(context.Background(), query)
+	require.NoError(t, err)
+	assert.Contains(t, out, "toStartOfInterval(toDateTime(timestamp), INTERVAL 60 second) AS t")
+	assert.Contains(t, out, "timestamp >= toDateTime(1000) AND timestamp <= toDateTime(2000)")
+	assert.NotContains(t, out, "$__")
+}
+
+func TestInterpolate_Integration_AliasErrorsKeepTheirType(t *testing.T) {
+	// The macro errors must come out of interpolation still matchable and
+	// still classified as the user's to fix.
+	tests := []struct {
+		name, sql string
+		want      error
+	}{
+		{"column not selected", "WITH e AS (SELECT v FROM sample.logs) SELECT $__timeFilter() FROM e", ErrPKNotExposed},
+		{"no single source", "WITH e AS (SELECT * FROM a JOIN b ON a.k = b.k) SELECT $__timeFilter() FROM e", cte.ErrNoSingleSource},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			interp := newIntegrationInterpolator(func(provider *MetadataProvider) {
+				provider.pkCache.Set("sample_logs", "timestamp", ttlcache.DefaultTTL)
+			})
+			query := &models.HdxQuery{
+				RawSQL:    tt.sql,
+				TimeRange: backend.TimeRange{From: integrationFrom, To: integrationTo},
+			}
+			_, err := interp.interpolate(context.Background(), query)
+			assert.ErrorIs(t, err, tt.want)
+			assert.True(t, backend.IsDownstreamError(err))
+		})
+	}
+}
+
 func TestInterpolate_Integration_InjectedOperatorRejected(t *testing.T) {
 	// The operator allowlist is unit-tested on buildFilterCondition directly;
 	// this asserts the rejection propagates all the way out of the real
