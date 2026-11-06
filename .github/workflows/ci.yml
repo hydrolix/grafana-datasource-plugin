@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -30,7 +30,7 @@ jobs:
     if: github.base_ref == 'main'
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -79,6 +79,14 @@ jobs:
   build-backend:
     name: Build Backend
     uses: ./.github/workflows/build-backend.yml
+    with:
+      go_version: '1.27.3'
+
+  lint-backend:
+    name: Lint Backend
+    uses: ./.github/workflows/lint-backend.yml
+    permissions:
+      contents: read
     with:
       go_version: '1.27.3'
 

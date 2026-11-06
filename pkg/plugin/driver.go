@@ -136,7 +136,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 	var tlsConfig *tls.Config
 	if settings.Secure {
 		tlsConfig = &tls.Config{
-			InsecureSkipVerify: settings.SkipTlsVerify,
+			InsecureSkipVerify: settings.SkipTlsVerify, //nolint:gosec // opt-in "Skip TLS verify" datasource setting
 		}
 	}
 

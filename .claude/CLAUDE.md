@@ -87,6 +87,14 @@ copy outside `.config/` to fall back on.
   - `npm run build` — webpack production bundle (`dist/module.js*`)
   - `npm run e2e` — Playwright (prefer `e2e-dev` skill)
 
+Git hooks are managed by `pre-commit` (`.pre-commit-config.yaml`; run
+`pre-commit install` once per clone). Commit stage: gofmt, golangci-lint on
+changed code, eslint. Push stage: full golangci-lint, `go test -race`,
+typecheck, jest. CI runs golangci-lint (with gosec) and govulncheck. Keep the
+golangci-lint version in `.pre-commit-config.yaml` and
+`.github/workflows/lint-backend.yml` in step, and bump the hooks'
+`language_version` with go.mod's Go version.
+
 Go is built via `mage` **inside the dev container**, not on the host.
 Host Go picks up the wrong toolchain. See `build-plugin`.
 
