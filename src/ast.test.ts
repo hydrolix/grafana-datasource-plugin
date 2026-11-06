@@ -190,7 +190,7 @@ describe("ast statement builders with and without a primary key", () => {
   const HEAD_VALUE_SQL =
     "SELECT arrayJoin(topK(100)(status)) AS value FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter()  SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000";
   const HEAD_MAP_KEY_SQL =
-    "SELECT distinct(arrayJoin(mapKeys(attributes))) FROM sample.log WHERE $__timeFilter() AND $__adHocFilter() SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000";
+    "SELECT arrayJoin(topKArray(100)(mapKeys(attributes))) AS key FROM sample.log WHERE $__timeFilter() AND $__adHocFilter() SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000";
   const SETTINGS_SUFFIX =
     "SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000";
 
@@ -259,7 +259,7 @@ describe("ast statement builders with and without a primary key", () => {
       AD_HOC_PRELOAD_LOOKBACK_SECONDS
     );
     expect(result).toBe(
-      `SELECT distinct(arrayJoin(mapKeys(attributes))) FROM sample.log WHERE $__adHocFilter() ${SETTINGS_SUFFIX}`
+      `SELECT arrayJoin(topKArray(100)(mapKeys(attributes))) AS key FROM sample.log WHERE $__adHocFilter() ${SETTINGS_SUFFIX}`
     );
     expect(result).not.toContain("$__timeFilter");
   });

@@ -19,6 +19,7 @@ export const PK_SQL =
 export const FUNCTIONS_SQL = "SELECT name FROM  system.functions";
 
 export const AD_HOC_VALUE_TOP_K = 100;
+export const AD_HOC_MAP_KEY_TOP_K = 100;
 
 // Default ad-hoc preload lookback, used when the datasource's
 // `adHocTimeRangeLookback` is unset or invalid.
@@ -63,7 +64,9 @@ export const adHocGuardrailSettings = (lookbackSeconds: number): string =>
 // `$__timeFilter() AND ` (map keys) or empty for a table with no primary key,
 // so the keyed statement is byte-identical to the pre-slot template.
 export const AD_HOC_KEY_QUERY = "DESCRIBE ${table}";
-export const AD_HOC_MAP_KEY_QUERY = `SELECT distinct(arrayJoin(mapKeys(\${column}))) FROM \${table} WHERE \${timeFilter}$__adHocFilter() \${settings}`;
+// topKArray counts every key of every row, so a high-cardinality map offers
+// its most common keys rather than every key it has ever held.
+export const AD_HOC_MAP_KEY_QUERY = `SELECT arrayJoin(topKArray(${AD_HOC_MAP_KEY_TOP_K})(mapKeys(\${column}))) AS key FROM \${table} WHERE \${timeFilter}$__adHocFilter() \${settings}`;
 export const AD_HOC_VALUE_QUERY = `SELECT arrayJoin(topK(${AD_HOC_VALUE_TOP_K})(\${column})) AS value FROM \${table} WHERE \${timeFilter}$__adHocFilter() \${condition} \${settings}`;
 
 export const SUPPORTED_TYPES = [
