@@ -12,35 +12,39 @@ import (
 
 // How a column-less time macro finds its table:
 //
-//	WITH errors AS (SELECT * FROM recent WHERE status >= 500),
-//	     recent AS (SELECT l.timestamp, l.status
+//	WITH recent AS (SELECT l.timestamp, l.status
 //	                FROM sample.logs AS l
-//	                WHERE l.timestamp > now() - INTERVAL 1 DAY)
+//	                WHERE l.timestamp > now() - INTERVAL 1 DAY),
+//	     errors AS (SELECT * FROM recent WHERE status >= 500)
 //	SELECT $__timeInterval() AS t, count()
 //	FROM errors
 //	WHERE $__timeFilter()
 //	GROUP BY t
 //
-// Both macros sit in the outer SELECT, so both get the same CTE entry:
+// Names resolve as ClickHouse's old analyzer resolves them; Hydrolix runs
+// with enable_analyzer=0. A SELECT's main body sees all of its WITH
+// aliases. An alias's body sees only the aliases defined before it in that
+// WITH, plus the scopes around the WITH. It never sees itself or a later
+// sibling, so either name would mean a real table there.
+//
+// Both macros sit in the outer SELECT's main body, so both get the same CTE
+// entry:
 //
 //   - CTE.Table / CTE.Database are "errors" / "": the FROM as written, which
 //     /macroCTE reports. CTE.CTE is the body of "errors", for ad-hoc filters.
-//   - The visitor's scope stack holds one map, {errors, recent}, from the
-//     outer WITH. No alias body encloses the outer SELECT, so nothing is
-//     hidden yet.
+//   - visibleScopes is [[recent, errors]]: the outer WITH, all of it, since
+//     the macros are in its SELECT's main body rather than in an alias body.
 //
 // pkSource then walks from the FROM down to a table, one sourceBody per step:
 //
-//  1. `lookupBody(errors)` finds the alias in that scope:
+//  1. lookupBody(errors) finds errors second in that WITH:
 //     sourceBody{query: SELECT * FROM recent …, alias: "errors",
-//     scopes: [{errors, recent}]}. That becomes layer `errors`, whose
-//     items are [*] and whose qualifiers are [recent], the table its FROM
-//     names. "errors" is now hidden: inside its own body it would mean a
-//     table, not the alias.
-//  2. The body's FROM is recent. It resolves in the same scope even though
-//     recent is defined later, because siblings see each other in any order:
+//     scopes: [[recent]]}, the aliases defined before it. That becomes
+//     layer `errors`, whose items are [*] and whose qualifiers are
+//     [recent], the table its FROM names.
+//  2. The body's FROM is recent, the one alias it can see:
 //     sourceBody{query: SELECT l.timestamp, …, alias: "recent",
-//     scopes: [{errors, recent}]}. That becomes layer `recent`, with items
+//     scopes: [[]]}. That becomes layer `recent`, with items
 //     [l.timestamp, l.status] and qualifiers [l], [logs], [sample logs].
 //  3. That body's FROM, sample.logs, is database-qualified, so it is never an
 //     alias. lookupBody returns nil and the walk stops at the table.
@@ -54,7 +58,8 @@ import (
 //
 // Had the "recent" CTE selected `l.timestamp AS ts` instead, it would not
 // expose timestamp. The macro would fail with ErrPKNotExposed naming
-// `recent` instead of emitting a filter on a column errors cannot see.
+// `recent` instead of emitting a filter on a column errors cannot see. Had
+// errors come first in the WITH, its `recent` would be a real table.
 
 // ErrNoSingleSource reports that a WITH alias or subquery a macro reads from
 // has no single table under it to take the primary key from: its body is a
@@ -132,6 +137,13 @@ func (lyr layer) exposes(col string) bool {
 			if expr.DotIdent != nil && expr.DotIdent.Name == "*" && starExposes(item.Modifiers, col) {
 				return true
 			}
+		case *parser.FunctionExpr:
+			// COLUMNS('pattern') / COLUMNS(a, b) is a matcher: each column it
+			// picks keeps its own name.
+			if strings.EqualFold(parser.Format(expr.Name), "COLUMNS") && columnsMatch(expr, col) &&
+				starExposes(item.Modifiers, col) {
+				return true
+			}
 		case *parser.Path:
 			last := len(expr.Fields) - 1
 			// `db.t.*`; `t.*` parses as a NestedIdentifier.
@@ -179,6 +191,31 @@ func starExposes(modifiers []*parser.FunctionExpr, col string) bool {
 		}
 	}
 	return true
+}
+
+// columnsMatch reports whether a COLUMNS(...) matcher picks col: a string
+// argument is an RE2 pattern matched anywhere in the name, as in ClickHouse;
+// a bare argument is a column name.
+func columnsMatch(matcher *parser.FunctionExpr, col string) bool {
+	if matcher.Params == nil || matcher.Params.Items == nil {
+		return false
+	}
+	for _, arg := range matcher.Params.Items.Items {
+		if column, ok := arg.(*parser.ColumnExpr); ok {
+			arg = column.Expr
+		}
+		switch arg := arg.(type) {
+		case *parser.StringLiteral:
+			if matched, err := regexp.MatchString(arg.Literal, col); err == nil && matched {
+				return true
+			}
+		case *parser.Ident:
+			if arg.Name == col {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // readsColumn reports whether expr mentions a column named col.
@@ -235,13 +272,12 @@ func qualifiersOf(body *parser.SelectQuery) [][]string {
 }
 
 // pkSource resolves the PKSource for a SELECT whose FROM source is src,
-// given the WITH scopes visible to it (outermost first) and the alias names
-// hidden there because the SELECT sits inside their bodies. ok is false when
-// src is not an alias or a subquery, so the caller keeps the plain table it
+// given the WITH scopes visible to it (outermost first). ok is false when src
+// is not an alias or a subquery, so the caller keeps the plain table it
 // already has.
-func pkSource(src parser.Expr, scopes []map[string]*parser.SelectQuery, hidden []string) (source PKSource, ok bool) {
+func pkSource(src parser.Expr, scopes [][]withAlias) (source PKSource, ok bool) {
 	for depth := 0; ; depth++ {
-		body := lookupBody(src, scopes, hidden)
+		body := lookupBody(src, scopes)
 		if body == nil {
 			if depth == 0 {
 				return PKSource{}, false
@@ -260,9 +296,6 @@ func pkSource(src parser.Expr, scopes []map[string]*parser.SelectQuery, hidden [
 		name := "subquery"
 		if body.alias != "" {
 			name = "`" + body.alias + "`"
-			// Inside its own body an alias's name means a real table, even
-			// where an outer scope defines another alias of that name.
-			hidden = slices.Concat(hidden, []string{body.alias})
 		}
 		source.layers = append(source.layers, layer{name: name, items: body.query.SelectItems, qualifiers: qualifiersOf(body.query)})
 		if depth == maxSourceDepth {
@@ -278,7 +311,7 @@ func pkSource(src parser.Expr, scopes []map[string]*parser.SelectQuery, hidden [
 			return source, true
 		}
 		// A copy: body.scopes may share the visitor's scope stack.
-		scopes = slices.Concat(body.scopes, []map[string]*parser.SelectQuery{withAliases(body.query)})
+		scopes = slices.Concat(body.scopes, [][]withAlias{withAliases(body.query)})
 	}
 }
 
@@ -287,27 +320,33 @@ type sourceBody struct {
 	query *parser.SelectQuery
 	// alias is the WITH alias the source named, "" for an inline subquery.
 	alias string
-	// scopes are the WITH scopes visible inside query: an alias's body sees
-	// the scope that defines it and the scopes around that, not the scopes
-	// of the reference.
-	scopes []map[string]*parser.SelectQuery
+	// scopes are the WITH scopes visible inside query. An alias's body sees
+	// the aliases defined before it in its WITH and the scopes around that
+	// WITH, never itself, a later sibling, or the scopes of the reference.
+	scopes [][]withAlias
 }
 
 // lookupBody returns the body of a FROM source that is a subquery or a
 // visible WITH alias, or nil when src is neither.
-func lookupBody(src parser.Expr, scopes []map[string]*parser.SelectQuery, hidden []string) *sourceBody {
+func lookupBody(src parser.Expr, scopes [][]withAlias) *sourceBody {
 	switch expr := src.(type) {
 	case *parser.SubQuery:
 		return &sourceBody{query: expr.Select, scopes: scopes}
 	case *parser.SelectQuery:
 		return &sourceBody{query: expr, scopes: scopes}
 	case *parser.TableIdentifier:
-		if expr.Database != nil || expr.Table == nil || slices.Contains(hidden, expr.Table.Name) {
+		if expr.Database != nil || expr.Table == nil {
 			return nil
 		}
 		for level, scope := range slices.Backward(scopes) {
-			if query, ok := scope[expr.Table.Name]; ok {
-				return &sourceBody{query: query, alias: expr.Table.Name, scopes: scopes[:level+1]}
+			if index, ok := findAlias(scope, expr.Table.Name); ok {
+				return &sourceBody{
+					query: scope[index].body,
+					alias: expr.Table.Name,
+					// The scopes outside this WITH, and only the aliases
+					// defined before this one in it.
+					scopes: slices.Concat(scopes[:level], [][]withAlias{scope[:index]}),
+				}
 			}
 		}
 	}

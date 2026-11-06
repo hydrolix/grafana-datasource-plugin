@@ -197,6 +197,12 @@ func TestLayer_exposes(t *testing.T) {
 		{"star except a regex matching the column", "SELECT * EXCEPT ('^t') FROM t", false},
 		{"star except a regex matching part of the column", "SELECT * EXCEPT ('s') FROM t", false},
 		{"star except a regex not matching the column", "SELECT * EXCEPT ('^time') FROM t", true},
+		{"columns pattern matching the column", "SELECT COLUMNS('^t') FROM t", true},
+		{"columns pattern, lower case", "SELECT columns('s') FROM t", true},
+		{"columns pattern not matching the column", "SELECT COLUMNS('^x') FROM t", false},
+		{"columns list with the column", "SELECT COLUMNS(ts, v) FROM t", true},
+		{"columns list without the column", "SELECT COLUMNS(v) FROM t", false},
+		{"columns pattern except the column", "SELECT COLUMNS('^t') EXCEPT (ts) FROM t", false},
 		{"star replace over the column", "SELECT * REPLACE (ts + 1 AS ts) FROM t", true},
 		{"star replace with another column", "SELECT * REPLACE (created AS ts) FROM t", false},
 		{"renamed away", "SELECT ts AS time FROM t", false},
@@ -224,8 +230,13 @@ func TestSource_OuterJoinResolvesLeftTable(t *testing.T) {
 	assert.Empty(t, source.layers)
 }
 
+// The scoping tests follow ClickHouse's old analyzer, which Hydrolix runs
+// (enable_analyzer=0); each was checked on 24.8, 25.8 (Hydrolix) and 26.1
+// with the old analyzer. An alias body sees the aliases defined before it in
+// its WITH and the scopes around that WITH, never itself or later siblings.
+
 func TestSource_AliasBodyReadsSameNamedTable(t *testing.T) {
-	// Inside its own body an alias's name is the real table (ClickHouse).
+	// An alias body never sees itself, so its own name is the real table.
 	source := sourceOf(t, "WITH logs AS (SELECT * FROM logs WHERE v = 1) SELECT $__timeFilter() FROM logs")
 	require.NoError(t, source.Err)
 	assert.Equal(t, "", source.Database)
@@ -238,23 +249,6 @@ func TestSource_MacroInsideAliasBodyReadsSameNamedTable(t *testing.T) {
 	require.NoError(t, source.Err)
 	assert.Equal(t, "logs", source.Table)
 	assert.Empty(t, source.layers)
-}
-
-func TestSource_OwnNameHidesOuterSameNamedAlias(t *testing.T) {
-	// The body's `logs` skips the outer alias of the same name too.
-	source := sourceOf(t, "WITH logs AS (SELECT * FROM db.u) SELECT * FROM "+
-		"(WITH logs AS (SELECT * FROM logs) SELECT $__timeFilter() FROM logs)")
-	require.NoError(t, source.Err)
-	assert.Equal(t, "", source.Database)
-	assert.Equal(t, "logs", source.Table)
-	assert.Equal(t, []string{"`logs`"}, layerNames(source))
-}
-
-func TestSource_AliasMayReadLaterSibling(t *testing.T) {
-	source := sourceOf(t, "WITH a AS (SELECT * FROM b), b AS (SELECT * FROM sample.logs) SELECT $__timeFilter() FROM a")
-	require.NoError(t, source.Err)
-	assert.Equal(t, "logs", source.Table)
-	assert.Equal(t, []string{"`a`", "`b`"}, layerNames(source))
 }
 
 func TestSource_TooDeepIsItsOwnError(t *testing.T) {
@@ -348,13 +342,92 @@ func TestCTE_SourceIsNotSerialized(t *testing.T) {
 	}
 }
 
-func TestSource_RedefinitionInsideOwnBodyStillMeansTheTable(t *testing.T) {
-	// ClickHouse ignores a redefinition of an alias's name inside its own
-	// body too: the inner `logs` here is the real table (24.8).
+func TestSource_AliasBodySeesOuterSameNamedAlias(t *testing.T) {
+	// The inner body cannot see itself, so its `logs` is the outer alias.
+	source := sourceOf(t, "WITH logs AS (SELECT * FROM db.u) SELECT * FROM "+
+		"(WITH logs AS (SELECT * FROM logs) SELECT $__timeFilter() FROM logs)")
+	require.NoError(t, source.Err)
+	assert.Equal(t, "db", source.Database)
+	assert.Equal(t, "u", source.Table)
+	assert.Equal(t, []string{"`logs`", "`logs`"}, layerNames(source))
+}
+
+func TestSource_AliasBodyOwnWithShadows(t *testing.T) {
+	// The body's own WITH redefines logs, and its main SELECT sees that.
 	source := sourceOf(t, "WITH logs AS (WITH logs AS (SELECT * FROM sample.inner_t) SELECT * FROM logs) "+
 		"SELECT $__timeFilter() FROM logs")
 	require.NoError(t, source.Err)
+	assert.Equal(t, "sample", source.Database)
+	assert.Equal(t, "inner_t", source.Table)
+	assert.Equal(t, []string{"`logs`", "`logs`"}, layerNames(source))
+}
+
+func TestSource_AliasBodySeesEarlierSibling(t *testing.T) {
+	source := sourceOf(t, "WITH logs AS (SELECT * FROM db.real), a AS (SELECT * FROM logs) SELECT $__timeFilter() FROM a")
+	require.NoError(t, source.Err)
+	assert.Equal(t, "db", source.Database)
+	assert.Equal(t, "real", source.Table)
+	assert.Equal(t, []string{"`a`", "`logs`"}, layerNames(source))
+}
+
+func TestSource_AliasBodyDoesNotSeeLaterSibling(t *testing.T) {
+	source := sourceOf(t, "WITH a AS (SELECT * FROM b), b AS (SELECT * FROM sample.logs) SELECT $__timeFilter() FROM a")
+	require.NoError(t, source.Err)
+	assert.Equal(t, "", source.Database)
+	assert.Equal(t, "b", source.Table)
+	assert.Equal(t, []string{"`a`"}, layerNames(source))
+}
+
+func TestSource_SubqueryInBodyKeepsTheBodysScope(t *testing.T) {
+	source := sourceOf(t, "WITH a AS (SELECT * FROM (SELECT * FROM b)), b AS (SELECT * FROM db.real) SELECT $__timeFilter() FROM a")
+	require.NoError(t, source.Err)
+	assert.Equal(t, "b", source.Table)
+	assert.Equal(t, []string{"`a`", "subquery"}, layerNames(source))
+}
+
+func TestSource_NestedBodyDoesNotSeeParentsLaterSibling(t *testing.T) {
+	source := sourceOf(t, "WITH a AS (WITH c AS (SELECT * FROM b) SELECT * FROM c), b AS (SELECT * FROM db.real) "+
+		"SELECT $__timeFilter() FROM a")
+	require.NoError(t, source.Err)
+	assert.Equal(t, "", source.Database)
+	assert.Equal(t, "b", source.Table)
+	assert.Equal(t, []string{"`a`", "`c`"}, layerNames(source))
+}
+
+func TestSource_PathLeavingAnInnerSameNamedBody(t *testing.T) {
+	// The macro sits in the inner logs body; a is defined before the outer
+	// logs, so a's `logs` is the real table, not the outer alias.
+	source := sourceOf(t, "WITH a AS (SELECT * FROM logs), logs AS (SELECT * FROM db.real) "+
+		"SELECT * FROM (WITH logs AS (SELECT $__timeFilter() FROM a) SELECT * FROM logs)")
+	require.NoError(t, source.Err)
 	assert.Equal(t, "", source.Database)
 	assert.Equal(t, "logs", source.Table)
-	assert.Equal(t, []string{"`logs`"}, layerNames(source))
+	assert.Equal(t, []string{"`a`"}, layerNames(source))
+}
+
+func TestSource_MacroInBodySeesOnlyEarlierSiblings(t *testing.T) {
+	tests := []struct {
+		name, sql, database, table string
+		layers                     []string
+	}{
+		{"earlier sibling", "WITH b AS (SELECT * FROM db.real), a AS (SELECT $__timeFilter() FROM b) SELECT * FROM a",
+			"db", "real", []string{"`b`"}},
+		{"later sibling", "WITH a AS (SELECT $__timeFilter() FROM b), b AS (SELECT * FROM db.real) SELECT * FROM a",
+			"", "b", []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			source := sourceOf(t, tt.sql)
+			require.NoError(t, source.Err)
+			assert.Equal(t, tt.database, source.Database)
+			assert.Equal(t, tt.table, source.Table)
+			assert.Equal(t, tt.layers, layerNames(source))
+		})
+	}
+}
+
+func TestSource_RepeatedAliasLastDefinitionWins(t *testing.T) {
+	source := sourceOf(t, "WITH x AS (SELECT * FROM db.first), x AS (SELECT * FROM db.second) SELECT $__timeFilter() FROM x")
+	require.NoError(t, source.Err)
+	assert.Equal(t, "second", source.Table)
 }

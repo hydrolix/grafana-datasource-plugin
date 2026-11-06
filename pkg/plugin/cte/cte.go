@@ -122,10 +122,27 @@ func (v *tableVisitor) VisitTableIdentifier(expr *parser.TableIdentifier) error 
 type queryVisitor struct {
 	parser.DefaultASTVisitor
 	macroIds   map[MacroId]CTE
-	scopeStack []map[string]*parser.SelectQuery
+	scopeStack [][]withAlias
 	// selectStack holds the SELECTs being visited, outermost first, kept in
 	// step with scopeStack.
 	selectStack []*parser.SelectQuery
+}
+
+// withAlias is one subquery-form WITH alias, `name AS (body)`.
+type withAlias struct {
+	name string
+	body *parser.SelectQuery
+}
+
+// findAlias returns the position of name in a WITH clause; with a repeated
+// name, the last definition wins.
+func findAlias(scope []withAlias, name string) (int, bool) {
+	for index, alias := range slices.Backward(scope) {
+		if alias.name == name {
+			return index, true
+		}
+	}
+	return 0, false
 }
 
 func (v *queryVisitor) Enter(expr parser.Expr) {
@@ -135,9 +152,10 @@ func (v *queryVisitor) Enter(expr parser.Expr) {
 	}
 }
 
-// withAliases returns the subquery-form WITH aliases a SELECT defines.
-func withAliases(sq *parser.SelectQuery) map[string]*parser.SelectQuery {
-	aliases := map[string]*parser.SelectQuery{}
+// withAliases returns the subquery-form WITH aliases a SELECT defines, in
+// order.
+func withAliases(sq *parser.SelectQuery) []withAlias {
+	var aliases []withAlias
 	if sq.With == nil {
 		return aliases
 	}
@@ -154,7 +172,7 @@ func withAliases(sq *parser.SelectQuery) map[string]*parser.SelectQuery {
 		if !ok {
 			continue
 		}
-		aliases[name] = body
+		aliases = append(aliases, withAlias{name: name, body: body})
 	}
 	return aliases
 }
@@ -175,27 +193,32 @@ func (v *queryVisitor) resolveWithAlias(fromExpr parser.Expr) (*parser.SelectQue
 	if !ok {
 		return nil, false
 	}
-	for i := len(v.scopeStack) - 1; i >= 0; i-- {
-		if body, ok := v.scopeStack[i][name]; ok {
-			return body, true
+	for _, scope := range slices.Backward(v.scopeStack) {
+		if index, ok := findAlias(scope, name); ok {
+			return scope[index].body, true
 		}
 	}
 	return nil, false
 }
 
-// enclosingAliases returns the names of the WITH aliases whose bodies
-// contain the SELECT being visited. ClickHouse resolves such a name, inside
-// that body, to a real table rather than to any alias.
-func (v *queryVisitor) enclosingAliases() []string {
-	var names []string
-	for _, aliases := range v.scopeStack {
-		for name, body := range aliases {
-			if slices.Contains(v.selectStack, body) {
-				names = append(names, name)
+// visibleScopes returns the WITH scopes the SELECT being visited can see,
+// outermost first, as ClickHouse's old analyzer resolves them (Hydrolix runs
+// with enable_analyzer=0). An enclosing WITH contributes only the aliases
+// defined before the one whose body leads to that SELECT, never that alias
+// itself or a later one; a WITH whose SELECT's main body leads there
+// contributes all of its aliases.
+func (v *queryVisitor) visibleScopes() [][]withAlias {
+	visible := make([][]withAlias, len(v.scopeStack))
+	for level, scope := range v.scopeStack {
+		visible[level] = scope
+		if level+1 < len(v.selectStack) {
+			inner := v.selectStack[level+1]
+			if index := slices.IndexFunc(scope, func(alias withAlias) bool { return alias.body == inner }); index >= 0 {
+				visible[level] = scope[:index]
 			}
 		}
 	}
-	return names
+	return visible
 }
 
 // IdentName returns the name of a plain identifier expression.
@@ -240,7 +263,7 @@ func (v *queryVisitor) VisitSelectQuery(expr *parser.SelectQuery) error {
 	tPos := expr.From.Expr.Pos()
 	tVisitor := tableVisitor{pos: tPos}
 	_ = expr.Accept(&tVisitor)
-	source, ok := pkSource(leftSource(expr), v.scopeStack, v.enclosingAliases())
+	source, ok := pkSource(leftSource(expr), v.visibleScopes())
 	if !ok {
 		source = PKSource{Database: tVisitor.database, Table: tVisitor.table}
 	}
