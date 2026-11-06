@@ -202,11 +202,11 @@ func (v *queryVisitor) resolveWithAlias(fromExpr parser.Expr) (*parser.SelectQue
 }
 
 // visibleScopes returns the WITH scopes the SELECT being visited can see,
-// outermost first, as ClickHouse's old analyzer resolves them (Hydrolix runs
-// with enable_analyzer=0). An enclosing WITH contributes only the aliases
-// defined before the one whose body leads to that SELECT, never that alias
-// itself or a later one; a WITH whose SELECT's main body leads there
-// contributes all of its aliases.
+// outermost first, as Hydrolix query heads resolve them (ClickHouse's
+// old-analyzer rule, whatever enable_analyzer is). An enclosing WITH
+// contributes only the aliases defined before the one whose body leads to
+// that SELECT, never that alias itself or a later one; a WITH whose SELECT's
+// main body leads there contributes all of its aliases.
 func (v *queryVisitor) visibleScopes() [][]withAlias {
 	visible := make([][]withAlias, len(v.scopeStack))
 	for level, scope := range v.scopeStack {

@@ -21,11 +21,12 @@ import (
 //	WHERE $__timeFilter()
 //	GROUP BY t
 //
-// Names resolve as ClickHouse's old analyzer resolves them; Hydrolix runs
-// with enable_analyzer=0. A SELECT's main body sees all of its WITH
-// aliases. An alias's body sees only the aliases defined before it in that
-// WITH, plus the scopes around the WITH. It never sees itself or a later
-// sibling, so either name would mean a real table there.
+// Names resolve as Hydrolix query heads resolve them, which is ClickHouse's
+// old-analyzer rule; on Hydrolix 25.8 that held with enable_analyzer set to
+// either 0 or 1. A SELECT's main body sees all of its WITH aliases. An
+// alias's body sees only the aliases defined before it in that WITH, plus the
+// scopes around the WITH. It never sees itself or a later sibling, so either
+// name would mean a real table there.
 //
 // Both macros sit in the outer SELECT's main body, so both get the same CTE
 // entry:

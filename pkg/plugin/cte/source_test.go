@@ -230,10 +230,12 @@ func TestSource_OuterJoinResolvesLeftTable(t *testing.T) {
 	assert.Empty(t, source.layers)
 }
 
-// The scoping tests follow ClickHouse's old analyzer, which Hydrolix runs
-// (enable_analyzer=0); each was checked on 24.8, 25.8 (Hydrolix) and 26.1
-// with the old analyzer. An alias body sees the aliases defined before it in
-// its WITH and the scopes around that WITH, never itself or later siblings.
+// The scoping tests follow how Hydrolix query heads resolve names: ClickHouse's
+// old-analyzer rule. Each was checked on Hydrolix 25.8 with enable_analyzer
+// set to 0 and to 1, and with the old analyzer on ClickHouse 24.8 and 26.1.
+// (Plain ClickHouse with the new analyzer differs: it lets a body see later
+// siblings.) An alias body sees the aliases defined before it in its WITH and
+// the scopes around that WITH, never itself or later siblings.
 
 func TestSource_AliasBodyReadsSameNamedTable(t *testing.T) {
 	// An alias body never sees itself, so its own name is the real table.
