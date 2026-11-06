@@ -107,6 +107,12 @@ export default {
           description:
             "Name of a dashboard variable that defines which table to use for retrieving ad hoc filter columns and values. Column and value suggestions are bounded (approximate top values over a trailing lookback window, default 24h), so enable 'Allow custom values' on the ad hoc variable to let users filter on a key or value the dropdown does not list",
         },
+        adHocKeysPreferAliases: {
+          testId: "data-testid hdx_adHocKeysPreferAliases",
+          label: "Ad hoc filter keys prefer aliases",
+          description:
+            "Offer a same-type identity alias (client_ip ALIAS cliIP) in the ad hoc filter key list instead of its physical column. Filters on the hidden column keep working and SQL is not rewritten",
+        },
         adHocConditionVariable: {
           testId: "data-testid hdx_adHocConditionVariable",
           label: "Ad hoc filter values query condition variable name",

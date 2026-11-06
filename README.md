@@ -63,6 +63,9 @@ Following is the list of Hydrolix configuration options.
 - **Dial timeout** (optional) - Connection timeout in seconds.
 - **Query timeout** (optional) - Read timeout in seconds.
 
+For the identity-alias ad-hoc key option, see
+[Ad-hoc keys prefer aliases](https://github.com/hydrolix/grafana-datasource-plugin/blob/develop/docs/adhoc-keys-prefer-aliases.md). It defaults off.
+
 **Query Settings subsection:**
 
 You can configure [Hydrolix query settings](https://docs.hydrolix.io/docs/query-options-reference) that will be sent

@@ -595,6 +595,8 @@ interface ConfigPageLocator {
 
     adHocTableVariable(): Locator;
 
+    adHocKeysPreferAliasesSwitch(): Locator;
+
     adHocConditionVariable(): Locator;
 
     adHocTimeRangeLookback(): Locator;

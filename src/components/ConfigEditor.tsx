@@ -687,6 +687,27 @@ export function ConfigEditor(props: Props) {
             />
           </Field>
           <Field
+            data-testid={labels.adHocKeysPreferAliases.testId}
+            label={labels.adHocKeysPreferAliases.label}
+            description={labels.adHocKeysPreferAliases.description}
+          >
+            <Switch
+              id="adHocKeysPreferAliases"
+              className="gf-form"
+              value={jsonData.adHocKeysPreferAliases ?? false}
+              aria-label={labels.adHocKeysPreferAliases.label}
+              onChange={(e) =>
+                onOptionsChange({
+                  ...options,
+                  jsonData: {
+                    ...options.jsonData,
+                    adHocKeysPreferAliases: e.currentTarget.checked,
+                  },
+                })
+              }
+            />
+          </Field>
+          <Field
             data-testid={labels.adHocConditionVariable.testId}
             label={labels.adHocConditionVariable.label}
             description={labels.adHocConditionVariable.description}

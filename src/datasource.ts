@@ -43,6 +43,7 @@ import { from, Observable, switchMap } from "rxjs";
 import { map } from "rxjs/operators";
 import { ErrorMessageBeautifier } from "./errors/errorBeautifier";
 import { getMetadataProvider } from "./editor/metadataProvider";
+import { preferIdentityAliases } from "./editor/preferIdentityAliases";
 import { parseLookbackSeconds } from "./editor/timeRangeUtils";
 import { getColumnKeysForMapStatement, getColumnValuesStatement } from "./ast";
 import {
@@ -415,6 +416,13 @@ export class DataSource extends DataSourceWithBackend<
     };
   }
 
+  /**
+   * Ad-hoc filter keys for the ad-hoc table. With `adHocKeysPreferAliases` on,
+   * the only difference from stock is the `preferIdentityAliases` pass over
+   * the memoized key list before the Map-key enumeration: no extra DESCRIBE,
+   * Map columns still expand, and `getTagValues` still resolves a hidden
+   * base because it reads the unfiltered list.
+   */
   async getTagKeys(
     options?: DataSourceGetTagKeysOptions<HdxQuery>
   ): Promise<MetricFindValue[]> {
@@ -424,10 +432,13 @@ export class DataSource extends DataSourceWithBackend<
       // The primary key is resolved once here rather than per Map column:
       // N Map columns would otherwise race N identical lookups against the
       // memo before the first one lands.
-      const [keys, timeColumn] = await Promise.all([
+      const [tableKeys, timeColumn] = await Promise.all([
         this.metadataProvider.tableKeys(table),
         this.resolvePreloadTimeColumn(table),
       ]);
+      const keys = this.instanceSettings.jsonData.adHocKeysPreferAliases
+        ? preferIdentityAliases(tableKeys)
+        : tableKeys;
       const maps = await Promise.all(
         keys
           .filter((key) => key.type.includes("Map"))
