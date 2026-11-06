@@ -9,6 +9,40 @@
   or UNION inside an alias), or an alias or subquery renames or drops the time column, the macro fails naming the alias
   and asking for an explicit column instead of emitting SQL the cluster rejects.
 
+## 0.13.1
+
+- **Fix**: A dashboard query using `SELECT * EXCEPT <column>` with a keyword-named column (`timestamp`, `date`, `key`,
+  `name`, `type`, `host`, ...) failed with `expected SELECT, WITH or (, got <keyword>` as soon as an ad hoc filter was
+  applied, while the same query ran in Explore (HDX-12821). The plugin parses the statement to find the table behind a
+  parameterless `$__adHocFilter()`, and its SQL parser accepted a bare `EXCEPT <column>` only for non-keyword names;
+  `* except (timestamp)` and an explicit `$__adHocFilter(db.table)` were the only workarounds. The parser is upgraded to
+  the build the Hydrolix HTTP proxy already runs, which also accepts `* EXCEPT STRICT <column>`, `db.table.*`, a SETTINGS
+  item named by a reserved keyword (`limit`, `offset`, ...), `interval` as a plain column name, an `AS alias` inside
+  `extract(...)`, and a subquery starting with `WITH` in expression position. Regressed in 0.11.0 with the move to
+  parser v0.5.2
+- **Security**: Bump transitive Go dependencies flagged by the plugin validator: `andybalholm/brotli` to 1.2.8
+  (CVE-2026-111497, Brotli decoder out-of-bounds write), `golang.org/x/net` to 0.62.0 (GO-2026-6860, GO-2026-6866) and
+  `golang.org/x/crypto` to the pseudo-version govulncheck names as the fix for GO-2026-5932 (no tagged release carries it
+  yet; `openpgp` is not linked into the plugin). `govulncheck` now reports no advisories
+- **Security**: Override `zod` to 4.6.7 (CVE-2023-54404, memory exhaustion) and `follow-redirects` to 1.16.2
+  (CVE-2026-116689, `sensitiveHeaders` leak). Both are build-time or dev-only dependencies, not shipped in the plugin;
+  the `follow-redirects` override was then dropped together with its only consumer, the unused `node-rest-client-promise`
+  devDependency
+- **Chore**: Rename four Go identifiers that Grafana's plugin review flagged under gosec G101 (hardcoded credentials)
+  on 0.13.0 (HDX-12726). They held an environment variable name and RFC 8693 URNs, not secrets; the validator runs gosec
+  with `-nosec`, so renaming was the only fix. `GF_PLUGIN_EXCHANGE_CLIENT_SECRETS` keeps its name, so configured
+  instances need no change. The e2e exchange stub now writes its certificate files through `os.OpenRoot` (G703). G402
+  (`InsecureSkipVerify`) is the *Skip TLS verify* datasource option, off by default, and is left as is
+- **Chore**: Delete unreachable Go code: `stats_stripping_reader.go` (its only caller went with the disabled
+  `hdx_query_streaming_result` path, and QH 6.2.x no longer appends the `X-HDX-Query-Stats` trailer, HDX-11371) and
+  `connection_args.go` (`injectConnectionArgs` was never called; `MutateQueryData` writes `connectionArgs` through
+  `jsonSet`). The `hdx-oauth-keyed-pooling` spec now names the `jsonSet` path. `pierrec/lz4` becomes an indirect
+  dependency and the unused direct `monaco-editor` dependency is removed; the SQL editor comes from `@grafana/ui`
+- **Chore**: Bump `grafana-plugin-sdk-go` to 0.298.0, `@grafana/sign-plugin` to 4.0.0, `@grafana/plugin-e2e` to 3.15.1,
+  `@playwright/test` to 1.64.1, `sql-formatter` to 15.9.0, `webpack` to 5.112.2, `@swc/core` to 1.16.21, `sass` to
+  1.106.1, `prettier` to 3.9.10, `@types/node` to 26.6.5, and the `is-compatible` plugin action to 1.1.0
+- **Chore**: Configure Dependabot for npm, Go modules and GitHub Actions on `develop`
+
 ## 0.13.0
 
 - **Fix**: No redirect from the cluster is followed, in any credentials mode. Go's HTTP client keeps `Authorization` on a

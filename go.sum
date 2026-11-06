@@ -162,8 +162,8 @@ github.com/hashicorp/yamux v0.1.2 h1:XtB8kyFOyHXYVFnwT5C3+Bdo8gArse7j2AQ0DA0Uey8
 github.com/hashicorp/yamux v0.1.2/go.mod h1:C+zze2n6e/7wshOZep2A70/aQU6QBRWJO/G6FT1wIns=
 github.com/hydrolix/clickhouse-go/v2 v2.0.0-20260714213021-283271ae9b86 h1:s1o36WJjA+RwIsInz+ge7fZwWEPd+Ql/v3Pg+4t9j10=
 github.com/hydrolix/clickhouse-go/v2 v2.0.0-20260714213021-283271ae9b86/go.mod h1:sPj7C7UYQ2MWHcfX+4eGN6nwnCqwUKfgO6PcwKpd6K8=
-github.com/hydrolix/clickhouse-sql-parser v0.5.2 h1:QsladYz0eoEzfe6khNh+NiReY9I+d1vLB1pB6qGrLL8=
-github.com/hydrolix/clickhouse-sql-parser v0.5.2/go.mod h1:W6fpj0Ls87wFVhwmqyOuJOGx47O5LnyJBi+uP9CbVsw=
+github.com/hydrolix/clickhouse-sql-parser v0.5.7-0.20261105192524-8efb4484e197 h1:t9Nie2UN7+KTGGPDZ/sSZQZRDS5H+PjPHRbzMQg4kMg=
+github.com/hydrolix/clickhouse-sql-parser v0.5.7-0.20261105192524-8efb4484e197/go.mod h1:W6fpj0Ls87wFVhwmqyOuJOGx47O5LnyJBi+uP9CbVsw=
 github.com/jaegertracing/jaeger-idl v0.14.0 h1:qfeFswJMftWq2CJKvpws5Zlcpfnnmf9+LmDwTYOUMPo=
 github.com/jaegertracing/jaeger-idl v0.14.0/go.mod h1:XGC1/asZXDZTJdN5ZUooZROTlAc6tsbW6sxtF0PNODk=
 github.com/jellydator/ttlcache/v3 v3.4.0 h1:YS4P125qQS0tNhtL6aeYkheEaB/m8HCqdMMP4mnWdTY=
