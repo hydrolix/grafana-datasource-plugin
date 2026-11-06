@@ -14,22 +14,42 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ inputs.node_version }}
+          # Only npx runs here; there is nothing to cache.
+          package-manager-cache: false
 
       - name: Set version
         run: ./.github/scripts/set-version.sh
 
       - name: Download plugin package
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: plugin-package
+
+      # The validator skips its gosec and govulncheck analyzers unless the
+      # binaries are on PATH. Install them so this job previews what the
+      # Grafana catalog review reports (informational; the lint-backend and
+      # govulncheck workflows are the gates). gosec is pinned to the version
+      # the review uses.
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          # Only `go install` runs here; don't restore a cache into the release gate.
+          cache: false
+
+      - name: Install gosec and govulncheck
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.29.0
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Run plugin-validator
         run: |

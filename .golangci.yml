@@ -1,9 +1,17 @@
 version: '2'
 linters:
+  enable:
+    - gosec
   exclusions:
     paths:
       - node_modules
     rules:
+      # gosec in tests: the hits are fixtures (fake credentials, deliberate
+      # test-server redirects, small int conversions on test data), not
+      # shipped behavior.
+      - linters:
+          - gosec
+        path: _test\.go
       # SA1019: data.FieldTypeNullableJSON -> data.FieldTypeJSON is a field-type
       # behavior change (null handling for JSON columns). Deferred until it can
       # be validated against real JSON columns rather than blind-swapped.
