@@ -12,6 +12,9 @@
   a cluster, or whatever answers at its address, sends was logged and shown in the panel error verbatim, so userinfo,
   a query string and a fragment, any of which can carry a credential or a token, are now dropped before the value
   reaches Grafana's log or a dashboard. Flagged by Grafana's plugin review of 0.13.1
+- **Docs**: Drop the installation section from the README. The plugin catalog shows its own installation
+  instructions next to the README, so the section was a duplicate; Grafana's plugin review of 0.13.1 asked for its
+  removal. Configuration and usage stay
 
 ## 0.13.1
 
