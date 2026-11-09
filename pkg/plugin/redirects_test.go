@@ -260,3 +260,56 @@ func TestRefuseRedirectsReleasesTheConnectionOnClose(t *testing.T) {
 			"the idle connection was not released")
 	})
 }
+
+// A Location is written by whoever answered at the cluster's address, and
+// the plugin logs it and shows it in the panel: nothing in it that could be
+// a credential may survive. Only where the hop pointed does.
+func TestRedactLocationKeepsOnlyWhereTheHopPointed(t *testing.T) {
+	cases := map[string]struct{ in, want string }{
+		"empty":                   {"", ""},
+		"plain":                   {"https://other.example.com/", "https://other.example.com/"},
+		"path kept":               {"https://other.example.com/login/callback", "https://other.example.com/login/callback"},
+		"userinfo dropped":        {"https://alice:s3cret@other.example.com/", "https://other.example.com/"},
+		"query dropped":           {"https://other.example.com/?token=abc&user=alice", "https://other.example.com/"},
+		"bare question mark":      {"https://other.example.com/?", "https://other.example.com/"},
+		"fragment dropped":        {"https://other.example.com/#access_token=abc", "https://other.example.com/"},
+		"everything at once":      {"http://alice:s3cret@sub.example.com:8123/db?password=x#y", "http://sub.example.com:8123/db"},
+		"relative keeps the path": {"/login?next=%2Fdash&sid=abc", "/login"},
+		"unparseable is dropped":  {"http://[::1/", ""},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, c.want, redactLocation(c.in))
+		})
+	}
+}
+
+// answers is a transport that returns the same response to every request.
+type answers struct{ resp *http.Response }
+
+func (a answers) RoundTrip(*http.Request) (*http.Response, error) {
+	r := *a.resp
+	r.Body = io.NopCloser(strings.NewReader(""))
+	return &r, nil
+}
+
+func TestRefuseRedirectsRedactsTheLocationItReports(t *testing.T) {
+	rt := refuseRedirects(answers{resp: &http.Response{
+		StatusCode: http.StatusFound,
+		Header:     http.Header{"Location": {"https://alice:s3cret@elsewhere.example.com/callback?token=abc#frag"}},
+	}})
+	req, err := http.NewRequest(http.MethodPost, "https://cluster.example.com/", nil)
+	require.NoError(t, err)
+
+	resp, err := rt.RoundTrip(req)
+
+	require.Nil(t, resp)
+	var redirect *RedirectError
+	require.True(t, errors.As(err, &redirect), "got %v", err)
+	assert.Equal(t, http.StatusFound, redirect.Status)
+	assert.Equal(t, "https://elsewhere.example.com/callback", redirect.Location)
+	for _, secret := range []string{"alice", "s3cret", "token=abc", "frag"} {
+		assert.NotContains(t, err.Error(), secret)
+	}
+	assert.Contains(t, err.Error(), `redirecting to "https://elsewhere.example.com/callback"`)
+}

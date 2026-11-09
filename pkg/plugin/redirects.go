@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 )
 
 // RedirectError is the answer to the cluster, or whatever answers at its
@@ -16,6 +17,10 @@ import (
 // credential of any mode somewhere nobody configured. ClickHouse itself never
 // redirects; a 3xx is the operator's problem and is reported as one, naming
 // where it pointed.
+//
+// Location is already redacted (redactLocation): whoever answered chose it,
+// and it is logged and shown in the panel, so it carries no userinfo, query
+// or fragment, only where the hop would have gone.
 type RedirectError struct {
 	Status   int
 	Location string
@@ -69,12 +74,35 @@ func (n *noRedirects) RoundTrip(req *http.Request) (*http.Response, error) {
 	// handling.
 	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther,
 		http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
-		location := resp.Header.Get("Location")
+		location := redactLocation(resp.Header.Get("Location"))
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 		_ = resp.Body.Close()
 		return nil, &RedirectError{Status: resp.StatusCode, Location: location}
 	}
 	return resp, nil
+}
+
+// redactLocation keeps of a redirect target only what says where it pointed:
+// scheme, host and path. A Location is written by whatever answered at the
+// cluster's address, and the plugin logs it and puts it in the panel's error,
+// so userinfo, the query string and the fragment are dropped unread: a
+// credential or a token in any of them must not travel into Grafana's log or
+// a dashboard. A value that does not parse as a URL is not quoted either; the
+// error then names the status alone.
+func redactLocation(location string) string {
+	if location == "" {
+		return ""
+	}
+	u, err := url.Parse(location)
+	if err != nil {
+		return ""
+	}
+	u.User = nil
+	u.RawQuery = ""
+	u.ForceQuery = false
+	u.Fragment = ""
+	u.RawFragment = ""
+	return u.String()
 }
 
 // transportFor is the one TransportFunc every credentials mode installs.

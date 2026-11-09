@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.14.0
+## 0.13.2
 
 - **Fix**: `$__timeFilter()`, `$__timeFilter_ms()`, `$__timeInterval()` and `$__timeInterval_ms()` without a column
   failed with `primary key not found` when the query read from a WITH alias (HDX-11394): the plugin looked up a table
@@ -8,6 +8,10 @@
   and use its primary key, also on the left side of a JOIN. When that path has no single table (a JOIN, table function
   or UNION inside an alias), or an alias or subquery renames or drops the time column, the macro fails naming the alias
   and asking for an explicit column instead of emitting SQL the cluster rejects.
+- **Security**: A redirect refused from the cluster is reported by status, scheme, host and path only. The `Location`
+  a cluster, or whatever answers at its address, sends was logged and shown in the panel error verbatim, so userinfo,
+  a query string and a fragment, any of which can carry a credential or a token, are now dropped before the value
+  reaches Grafana's log or a dashboard. Flagged by Grafana's plugin review of 0.13.1
 
 ## 0.13.1
 
