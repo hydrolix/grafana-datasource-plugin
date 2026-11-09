@@ -255,7 +255,7 @@ func newSelectGraph(stmt *parser.SelectQuery) selectGraph {
 
 // source returns the SELECT sq reads from — a FROM subquery or a CTE body.
 func (g selectGraph) source(sq *parser.SelectQuery) *parser.SelectQuery {
-	switch s := singleSource(sq).(type) {
+	switch s := cte.SingleSource(sq).(type) {
 	case *parser.SubQuery:
 		return s.Select
 	case *parser.SelectQuery:
@@ -271,7 +271,7 @@ func (g selectGraph) source(sq *parser.SelectQuery) *parser.SelectQuery {
 // baseTable returns the table sq reads when its only FROM source is a table,
 // not a CTE.
 func (g selectGraph) baseTable(sq *parser.SelectQuery) *parser.TableIdentifier {
-	ti, ok := singleSource(sq).(*parser.TableIdentifier)
+	ti, ok := cte.SingleSource(sq).(*parser.TableIdentifier)
 	if !ok || ti.Table == nil || (ti.Database == nil && g.cteBodies[ti.Table.Name] != nil) {
 		return nil
 	}
@@ -321,22 +321,6 @@ func setBranches(sq *parser.SelectQuery) []*parser.SelectQuery {
 		}
 	}
 	return branches
-}
-
-// singleSource returns a SELECT's only FROM source, or nil for a JOIN.
-func singleSource(sq *parser.SelectQuery) parser.Expr {
-	if sq.From == nil {
-		return nil
-	}
-	jte, ok := sq.From.Expr.(*parser.JoinTableExpr)
-	if !ok || jte.Table == nil {
-		return nil
-	}
-	source := jte.Table.Expr
-	if alias, ok := source.(*parser.AliasExpr); ok {
-		source = alias.Expr
-	}
-	return source
 }
 
 // leadingPKColumn returns the first column of a primary_key value: the one
