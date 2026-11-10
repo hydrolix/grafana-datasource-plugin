@@ -8,6 +8,12 @@
   and use its primary key, also on the left side of a JOIN. When that path has no single table (a JOIN, table function
   or UNION inside an alias), or an alias or subquery renames or drops the time column, the macro fails naming the alias
   and asking for an explicit column instead of emitting SQL the cluster rejects.
+- **Security**: Queries over HTTP now run through the Grafana plugin SDK's HTTP middlewares, so Grafana's
+  `dataproxy.response_limit` is enforced on the cluster's answer, and the request carries the SDK's tracing, datasource
+  metrics and error-source attribution. The middlewares wrap clickhouse-go's own transport, which keeps its dial and
+  read timeouts, pooling and TLS; the two that write credentials from Grafana's HTTP settings are left out, so the
+  token the forwarding modes put on the request is never overwritten. An answer over the limit fails the query with a
+  message naming the limit; redirects stay refused. Flagged by Grafana's plugin review of 0.13.1
 - **Security**: A redirect refused from the cluster is reported by status, scheme, host and path only. The `Location`
   a cluster, or whatever answers at its address, sends was logged and shown in the panel error verbatim, so userinfo,
   a query string and a fragment, any of which can carry a credential or a token, are now dropped before the value

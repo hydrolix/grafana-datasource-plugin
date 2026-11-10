@@ -104,19 +104,3 @@ func redactLocation(location string) string {
 	u.RawFragment = ""
 	return u.String()
 }
-
-// transportFor is the one TransportFunc every credentials mode installs.
-// clickhouse-go builds its Transport with DisableCompression: true; the plugin
-// keeps Go's transparent gzip on, as it always has. No redirect is followed,
-// in any mode. wrap, when given, sits above that, so a watch sees the
-// cluster's own status codes and never a redirect hop.
-func transportFor(wrap func(http.RoundTripper) http.RoundTripper) func(*http.Transport) (http.RoundTripper, error) {
-	return func(t *http.Transport) (http.RoundTripper, error) {
-		t.DisableCompression = false
-		rt := refuseRedirects(t)
-		if wrap != nil {
-			rt = wrap(rt)
-		}
-		return rt, nil
-	}
-}
