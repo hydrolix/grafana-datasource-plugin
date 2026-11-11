@@ -35,3 +35,12 @@
 - [x] 6.1 Grep `tests/adHoc*.spec.ts` for exact key-list assertions over `e2e.adhoc_topk`; add `status_alias String ALIAS status` to that table in `testdata/containers/initdb.sql` and update any affected assertions (stock now lists both `status` and `status_alias`).
 - [x] 6.2 Add `tests/adHocKeysPreferAliases.spec.ts` using the `e2e-dev` skill conventions: a datasource with `adHocKeysPreferAliases: true` and `adHocTableVariable` set offers `status_alias` and not `status`, still offers `attrs['…']` map keys, and filtering on `status_alias = rare1` yields the fixture's single row; a stock datasource offers both names.
 - [x] 6.3 `npm run build`, then run the new spec, `tests/configEditor.spec.ts` and the touched ad-hoc specs via the `e2e-dev` skill; confirm green.
+
+## 7. Validation bar: identity alias of the primary key
+
+- [x] 7.1 Add `MetadataProvider.QueryAliases` in `pkg/plugin/metadata.go`: an uncached `DESCRIBE TABLE` (default database applied, user headers carried) returning ALIAS columns with their expressions.
+- [x] 7.2 In `pkg/plugin/validator.go`, when the leading primary-key column is unfiltered, accept a filter on any alias whose expression names exactly that column (bare or backticked); skip the check when the lookup fails.
+- [x] 7.3 Unit tests in `pkg/plugin/validator_test.go`: summary key filtered through its alias, bare identity alias, alias filtered by a CTE reader, computed alias and alias of another column still warn, no DESCRIBE when the column is filtered, lookup failure skips and logs; `Validate` sends `DESCRIBE TABLE` with the user's headers.
+- [x] 7.4 Integration test in `pkg/plugin/validator_suite_test.go` over a summary-shaped ClickHouse table: filtered through the alias is valid, unfiltered warns.
+- [x] 7.5 Add `e2e.validation_summary` (key column `toStartOfDay(reqTimeSec)`, identity alias `reqTimeSec`) to `testdata/containers/initdb.sql`.
+- [x] 7.6 E2E in `tests/queryValidation.spec.ts`: `$__timeFilter(reqTimeSec)` on `e2e.validation_summary` shows "Query is valid"; filtering only `hits` warns naming `toStartOfDay(reqTimeSec)`. Run via the `e2e-dev` skill.

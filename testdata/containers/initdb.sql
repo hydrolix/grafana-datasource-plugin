@@ -142,3 +142,18 @@ INSERT INTO e2e.adhoc_keyless (ts, status, attrs) VALUES
 -- $__adHocFilter(e2e.`adhoc_topk#view`) has to accept and re-quote it.
 DROP VIEW IF EXISTS e2e.`adhoc_topk#view`;
 CREATE VIEW e2e.`adhoc_topk#view` AS SELECT ts, status FROM e2e.adhoc_topk;
+
+-- Summary-table fixture (tests/queryValidation.spec.ts). A Hydrolix summary
+-- table names its key column after its expression and exposes it under the
+-- source column's name through an identity ALIAS, so $__timeFilter(reqTimeSec)
+-- filters the key column without naming it.
+DROP TABLE IF EXISTS e2e.validation_summary;
+CREATE TABLE e2e.validation_summary
+(
+    `toStartOfDay(reqTimeSec)` DateTime,
+    reqTimeSec DateTime ALIAS `toStartOfDay(reqTimeSec)`,
+    hits UInt64
+) ENGINE = MergeTree() ORDER BY `toStartOfDay(reqTimeSec)`;
+
+INSERT INTO e2e.validation_summary (`toStartOfDay(reqTimeSec)`, hits) VALUES
+    ('2025-04-10 00:00:00', 3);
