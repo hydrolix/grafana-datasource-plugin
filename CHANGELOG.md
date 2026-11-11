@@ -21,6 +21,10 @@
 - **Docs**: Drop the installation section from the README. The plugin catalog shows its own installation
   instructions next to the README, so the section was a duplicate; Grafana's plugin review of 0.13.1 asked for its
   removal. Configuration and usage stay
+- **Chore**: Build with Go 1.27.4. Aikido reported twelve CVEs in the 1.27.3 standard library and toolchain
+  (CVE-2026-97033, CVE-2026-97037, CVE-2026-97038, CVE-2026-97039, CVE-2026-97040 and others), all fixed in 1.27.4.
+  The go directive, CI, release and nightly workflows, the pre-commit hooks, the dev container and the e2e exchange
+  stub move together
 
 ## 0.13.1
 
