@@ -271,6 +271,84 @@ describe("ConfigEditor", () => {
     );
   });
 
+  describe("query settings", () => {
+    const querySettingsLabels = allLabels.components.querySettings;
+    const maxRows = querySettingsLabels.values.find(
+      (v) => v.setting === "hdx_query_max_rows"
+    )!;
+    const unknown = { setting: "hdx_query_unknown", value: "10" };
+    const known = { setting: "hdx_query_max_rows", value: "5" };
+
+    it("renders an unknown setting with its value and the warning, without a validation error", () => {
+      render(
+        <ConfigEditor {...getDefaultProps({ querySettings: [unknown] })} />
+      );
+      expandAdditionalSettings();
+      expect(screen.getByLabelText(unknown.setting)).toHaveValue("10");
+      expect(
+        screen.getByText(querySettingsLabels.unknownSettingWarning)
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("renders known and unknown settings together", () => {
+      render(
+        <ConfigEditor
+          {...getDefaultProps({ querySettings: [known, unknown] })}
+        />
+      );
+      expandAdditionalSettings();
+      expect(screen.getByLabelText(known.setting)).toHaveValue("5");
+      expect(screen.getByLabelText(unknown.setting)).toHaveValue("10");
+      expect(
+        screen.getByText(
+          (_, el) => el?.textContent === maxRows.description && el.tagName !== "BODY"
+        )
+      ).toBeInTheDocument();
+      expect(
+        screen.getAllByText(querySettingsLabels.unknownSettingWarning)
+      ).toHaveLength(1);
+    });
+
+    it("writes an edited unknown setting to jsonData", () => {
+      const onOptionsChange = jest.fn();
+      render(
+        <ConfigEditor
+          {...getDefaultProps({ querySettings: [known, unknown] })}
+          onOptionsChange={onOptionsChange}
+        />
+      );
+      expandAdditionalSettings();
+      fireEvent.change(screen.getByLabelText(unknown.setting), {
+        target: { value: "20" },
+      });
+      expect(onOptionsChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          jsonData: expect.objectContaining({
+            querySettings: [known, { setting: unknown.setting, value: "20" }],
+          }),
+        })
+      );
+    });
+
+    it("removes an unknown setting and keeps the others", () => {
+      const onOptionsChange = jest.fn();
+      render(
+        <ConfigEditor
+          {...getDefaultProps({ querySettings: [known, unknown] })}
+          onOptionsChange={onOptionsChange}
+        />
+      );
+      expandAdditionalSettings();
+      fireEvent.click(screen.getByLabelText(`Remove ${unknown.setting}`));
+      expect(onOptionsChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          jsonData: expect.objectContaining({ querySettings: [known] }),
+        })
+      );
+    });
+  });
+
   // it('port input is enabled', () => {
   //     let component = render(<ConfigEditor {...getDefaultProps({})} />);
   //     expect(component.container.querySelector('#config-editor-port')?.getAttribute("disabled")).toBeNull();

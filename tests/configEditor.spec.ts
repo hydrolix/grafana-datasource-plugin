@@ -1,6 +1,6 @@
 import { test, expect } from "@grafana/plugin-e2e";
 // @ts-ignore
-import { ConfigPageSteps } from "./helpers";
+import { ConfigPageSteps, closeWhatsNewDialog } from "./helpers";
 // @ts-ignore
 import allLabels from "../src/labels";
 
@@ -290,4 +290,40 @@ test("an invalid ad hoc lookback clears on blur and a valid one survives", async
   await page.reload();
   await configPage.additionalSettingsExpandable().click({ force: true });
   await expect(configPage.adHocTimeRangeLookback()).toHaveValue("7d");
+});
+
+test("renders a stored query setting the plugin does not know", async ({
+  createDataSource,
+  gotoDataSourceConfigPage,
+  page,
+}) => {
+  const configPage = ConfigPageSteps.getLocator(page);
+  const unknown = "hdx_query_unknown";
+  const ds = await createDataSource({
+    type: "hydrolix-hydrolix-datasource",
+    name: "unknown query setting",
+    jsonData: {
+      host: "localhost",
+      port: 9000,
+      protocol: "native",
+      querySettings: [
+        { setting: "hdx_query_max_rows", value: "5" },
+        { setting: unknown, value: "10" },
+      ],
+    },
+  });
+  await gotoDataSourceConfigPage(ds.uid);
+  await closeWhatsNewDialog(page);
+
+  await configPage.additionalSettingsExpandable().click({ force: true });
+  await expect(page.getByLabel(unknown, { exact: true })).toHaveValue("10");
+  await expect(
+    page.getByText(allLabels.components.querySettings.unknownSettingWarning)
+  ).toBeVisible();
+  await expect(
+    page.getByLabel("hdx_query_max_rows", { exact: true })
+  ).toHaveValue("5");
+
+  await page.getByLabel(`Remove ${unknown}`).click();
+  await expect(page.getByLabel(unknown, { exact: true })).toHaveCount(0);
 });

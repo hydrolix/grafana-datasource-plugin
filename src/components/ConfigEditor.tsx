@@ -84,7 +84,7 @@ export function ConfigEditor(props: Props) {
     return querySettings.values.reduce((acc, cur) => {
       acc[cur.setting] = cur;
       return acc;
-    }, {} as { [setting: string]: any });
+    }, {} as Partial<Record<string, (typeof querySettings.values)[number]>>);
   }, [querySettings]);
 
   const existingSettings = (jsonData?.querySettings ?? []).map(
@@ -264,7 +264,7 @@ export function ConfigEditor(props: Props) {
 
   const addQuerySetting = (setting: string) => {
     let defaultValue = querySettingDefinitions[setting]?.default;
-    let type: string = querySettingDefinitions[setting]?.type;
+    let type = querySettingDefinitions[setting]?.type ?? "";
     let querySettings = [
       ...(jsonData?.querySettings ?? []),
       { setting, value: getDefaultValue(defaultValue, type) },
@@ -374,7 +374,7 @@ export function ConfigEditor(props: Props) {
     }
   };
   const settingInput = (key: string, value: string) => {
-    let type = querySettingDefinitions[key].type;
+    let type = querySettingDefinitions[key]?.type;
     if (type === "boolean") {
       return (
         <Select
@@ -410,7 +410,7 @@ export function ConfigEditor(props: Props) {
           width={80}
           value={value ?? ""}
           //type={querySettingDefinitions[key].type}
-          min={querySettingDefinitions[key].min}
+          min={querySettingDefinitions[key]?.min}
           onChange={(e) => onQuerySettingsChange(key)(e.currentTarget.value)}
           label={key}
           aria-label={key}
@@ -894,12 +894,15 @@ export function ConfigEditor(props: Props) {
                   required
                   error={settingErrors[s.setting]}
                   invalid={!!settingErrors[s.setting]}
-                  description={querySettingDefinitions[s.setting].description}
+                  description={
+                    querySettingDefinitions[s.setting]?.description ??
+                    querySettings.unknownSettingWarning
+                  }
                 >
                   <Stack direction={"row"}>
                     {settingInput(s.setting, s.value)}
                     <Button
-                      aria-label={""}
+                      aria-label={`Remove ${s.setting}`}
                       style={{ marginTop: "4.5px" }}
                       variant="destructive"
                       icon="times"
