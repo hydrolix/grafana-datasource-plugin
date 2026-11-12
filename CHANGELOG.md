@@ -18,6 +18,8 @@
   a cluster, or whatever answers at its address, sends was logged and shown in the panel error verbatim, so userinfo,
   a query string and a fragment, any of which can carry a credential or a token, are now dropped before the value
   reaches Grafana's log or a dashboard. Flagged by Grafana's plugin review of 0.13.1
+- **Security**: Bump the transitive Go dependency `klauspost/compress` to 1.20.2 (GO-2026-6865, CVE-2026-116591, panic
+  on two-block frames)
 - **Docs**: Drop the installation section from the README. The plugin catalog shows its own installation
   instructions next to the README, so the section was a duplicate; Grafana's plugin review of 0.13.1 asked for its
   removal. Configuration and usage stay
