@@ -1,6 +1,6 @@
-import { CredentialsType, Protocol } from "./types";
+import { CredentialsType, ExposeErrorsOptions, Protocol } from "./types";
 
-export default {
+const defaultConfigs = {
   username: "default",
   protocol: Protocol.Native,
   port: 9440,
@@ -18,3 +18,19 @@ export default {
   credentialsType: CredentialsType.UserAccount,
   oauthPassThru: false,
 };
+
+export default defaultConfigs;
+
+/**
+ * The error-exposure configuration the plugin acts on: each key missing from
+ * the stored block takes its default. The runtime and the config editor both
+ * use it, so the editor shows what actually runs.
+ */
+export function resolveExposeErrors(
+  exposeErrors?: ExposeErrorsOptions
+): Required<ExposeErrorsOptions> {
+  const stored = Object.fromEntries(
+    Object.entries(exposeErrors ?? {}).filter(([, v]) => v !== undefined)
+  );
+  return { ...defaultConfigs.exposeErrors, ...stored };
+}
