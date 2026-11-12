@@ -1,4 +1,4 @@
-import { locationService, TemplateSrv } from "@grafana/runtime";
+import { locationService, logError, TemplateSrv } from "@grafana/runtime";
 import { ErrorMessageBeautifier } from "./errorBeautifier";
 import { ErrorFixSuggestion, ExposeErrorsOptions } from "../types";
 import { matchSolutionTemplate } from "./errorSolution";
@@ -46,7 +46,10 @@ export class ErrorExposer {
         errors = [];
       }
     } catch (e) {
-      console.error(e);
+      logError(e instanceof Error ? e : new Error(String(e)), {
+        source: "error-exposure",
+        variableName: this.settings.variableName,
+      });
     }
     let error: ErrorFixSuggestion = {
       time: new Date().toISOString(),
