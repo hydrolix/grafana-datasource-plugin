@@ -183,6 +183,8 @@ export default {
         },
       },
     },
+    // When adding, removing or renaming a setting in `values`, update the list of supported query settings
+    // under "Query Settings subsection" in README.md.
     querySettings: {
       testId: "data-testid hdx_querySettings",
       label: "Query Settings",
