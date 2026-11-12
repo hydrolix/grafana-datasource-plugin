@@ -386,6 +386,13 @@ func TestExchangeMode_ConnectSucceedsWithoutReachingACluster(t *testing.T) {
 	_ = db.Close()
 }
 
+func newExchanger(t *testing.T, cfg exchange.Config) *exchange.HTTPExchanger {
+	t.Helper()
+	ex, err := exchange.NewHTTPExchanger(cfg)
+	require.NoError(t, err)
+	return ex
+}
+
 func healthOf(t *testing.T, settings models.PluginSettings, configure func(*Hydrolix)) *backend.CheckHealthResult {
 	t.Helper()
 	jsonData, err := json.Marshal(settings)
@@ -428,7 +435,7 @@ func TestHealth_DoesNotSayWhetherThisClusterHasACredential(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			res := healthOf(t, exchangingSettings(), func(h *Hydrolix) {
 				cfg := exchange.Config{URL: "https://console/api/v1/auth/token-exchange", Credentials: credentials}
-				h.exchangeSource = exchange.NewSource(exchange.NewHTTPExchanger(cfg), nil, nil)
+				h.exchangeSource = exchange.NewSource(newExchanger(t, cfg), nil, nil)
 				h.exchangePrincipals = exchange.NewPrincipals(0, nil)
 			})
 			assert.Equal(t, backend.HealthStatusOk, res.Status)
@@ -449,7 +456,7 @@ func TestHealth_IsHonestThatItCannotTestAnyonesAccess(t *testing.T) {
 				"cluster.example.hydrolix.net": {ClientID: "grafana-cluster", ClientSecret: "s"},
 			},
 		}
-		h.exchangeSource = exchange.NewSource(exchange.NewHTTPExchanger(cfg), nil, nil)
+		h.exchangeSource = exchange.NewSource(newExchanger(t, cfg), nil, nil)
 		h.exchangePrincipals = exchange.NewPrincipals(0, nil)
 	})
 	assert.Equal(t, backend.HealthStatusOk, res.Status)
@@ -567,7 +574,7 @@ func TestExchangeMode_AnExchangeFailureReachesThePanelAsItsReason(t *testing.T) 
 	t.Run("a host with no delegate reads as the configuration, not the driver", func(t *testing.T) {
 		// The exchanger answers without a round trip, and the panel reads its
 		// detail, which names neither the host nor the credential.
-		_, _, hookErr := exchange.NewHTTPExchanger(exchange.Config{URL: "https://console.example/token"}).
+		_, _, hookErr := newExchanger(t, exchange.Config{URL: "https://console.example/token"}).
 			Exchange(context.Background(), "cluster.example.hydrolix.net", "sign-in-token")
 		require.ErrorIs(t, hookErr, exchange.ErrMisconfigured)
 		res := h.MutateQueryError(driverWrap(hookErr))

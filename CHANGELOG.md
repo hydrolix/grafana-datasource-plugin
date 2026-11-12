@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.13.4
+
+- **Security**: Removed the unused `token` field from the data source's clear-text `jsonData` type. The service account
+  token was, and is, stored only in `secureJsonData`; with the field gone, code that tried to save it unencrypted no
+  longer compiles
+- **Fix**: The token exchange client no longer falls back to a plain HTTP client without Grafana's tracing, metrics and
+  error-source middlewares when the SDK client cannot be built. The error is reported instead, and a data source set to
+  "Forward OAuth with a console token exchange" then reads as misconfigured in queries and in the connection test
+
 ## 0.13.3
 
 - **Feature**: New datasource option "Ad hoc filter keys prefer aliases" (additional settings, off by default). When on,
