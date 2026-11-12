@@ -206,10 +206,6 @@ Below are some provisioning examples. When writing your own:
 
 - Put the password and the service account token under `secureJsonData`. The plugin reads them only from there; a
   password under `jsonData` is ignored (the connection fails to authenticate) and stored in plain text.
-- Keys the plugin reads as strings must be YAML strings: quote any value YAML would read as a number or boolean, such
-  as `dialTimeout`, `queryTimeout`, every `querySettings[].value`, or a numeric `username` (for example
-  `dialTimeout: "10"`). An unquoted number in one of these keys makes the data source fail every health check and
-  query.
 - Leave numbers and booleans unquoted: `port`, `secure`, `skipTlsVerify`, `useDefaultPort`, `oauthPassThru` and
   `exposeErrors.enabled`, `maxCount` and `ttl`.
 - Boolean query settings take `"1"` (yes) or `"0"` (no), the values the config editor stores.
