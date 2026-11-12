@@ -37,6 +37,9 @@ var ErrParseMacroArgs = errors.New("failed to parse macro arguments (missing clo
 type HdxInterpolator struct {
 	md     *MetadataProvider
 	macros map[string]MacroFunc
+	// defaultRound is the data source's Default round, used when a query
+	// carries no round of its own. Set by NewHdxSqlDatasource.
+	defaultRound string
 }
 
 // Compile-time assertion that the Interpolate method value conforms to the
@@ -102,8 +105,12 @@ func (i *HdxInterpolator) Interpolate(
 // SQL. Port of the fork's Interpolator.Interpolate (hydrolix/sqlds@v5.0.1
 // interpolator.go:122).
 func (i *HdxInterpolator) interpolate(ctx context.Context, query *models.HdxQuery) (string, error) {
-	if query.Round != "" && query.Round != "0" {
-		query.TimeRange = roundTimeRange(query.TimeRange, query.Round)
+	round := query.Round
+	if round == "" {
+		round = i.defaultRound
+	}
+	if round != "" && round != "0" {
+		query.TimeRange = roundTimeRange(query.TimeRange, round)
 	}
 
 	// Sort macros so longer names match first; prevents "timeFilter" from

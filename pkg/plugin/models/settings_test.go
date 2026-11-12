@@ -206,3 +206,30 @@ func getField(v any, field string) any {
 	f := reflect.Indirect(r).FieldByName(field)
 	return f.Interface()
 }
+
+func TestPluginSettingsDefaultRound(t *testing.T) {
+	parse := func(t *testing.T, defaultRound any) (PluginSettings, error) {
+		t.Helper()
+		jsonData, err := json.Marshal(map[string]any{
+			"host": "localhost", "port": 80, "protocol": "native", "defaultRound": defaultRound,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return NewPluginSettings(context.Background(), backend.DataSourceInstanceSettings{JSONData: jsonData})
+	}
+
+	t.Run("a string is read", func(t *testing.T) {
+		settings, err := parse(t, "5m")
+		assert.NoError(t, err)
+		assert.Equal(t, "5m", settings.DefaultRound)
+	})
+
+	t.Run("other types are ignored without an error", func(t *testing.T) {
+		for _, val := range []any{60, true, map[string]any{"m": 5}, []any{"5m"}} {
+			settings, err := parse(t, val)
+			assert.NoError(t, err)
+			assert.Empty(t, settings.DefaultRound)
+		}
+	})
+}
