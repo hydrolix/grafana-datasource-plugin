@@ -21,6 +21,17 @@ export class ErrorExposer {
     ) {
       return;
     }
+    const variable = this.templateSrv
+      .getVariables()
+      .find(
+        (v) => v.name === this.settings.variableName
+      ) as VariableWithOptions;
+    // Nothing on the dashboard reads the parameter without the variable;
+    // writing it would only put error text into the URL.
+    if (!variable) {
+      return;
+    }
+
     const json = this.beautifier.parseJson(message);
     if (json) {
       message = json.error;
@@ -28,21 +39,14 @@ export class ErrorExposer {
 
     const beautifiedMessage = this.beautifier.beautify(message);
 
-    const variable = this.templateSrv
-      .getVariables()
-      .find(
-        (v) => v.name === this.settings.variableName
-      ) as VariableWithOptions;
     let errors: ErrorFixSuggestion[] = [];
-    if (variable) {
-      try {
-        errors = JSON.parse(variable?.current?.value.toString());
-        if (!errors.length) {
-          errors = [];
-        }
-      } catch (e) {
-        console.error(e);
+    try {
+      errors = JSON.parse(variable?.current?.value.toString());
+      if (!errors.length) {
+        errors = [];
       }
+    } catch (e) {
+      console.error(e);
     }
     let error: ErrorFixSuggestion = {
       time: new Date().toISOString(),

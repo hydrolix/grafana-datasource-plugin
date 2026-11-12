@@ -271,6 +271,95 @@ describe("ConfigEditor", () => {
     );
   });
 
+  describe("error exposure", () => {
+    const enabledSwitch = () =>
+      screen
+        .getByTestId(labels.exposeErrorsEnabled.testId)
+        .querySelector("input")!;
+
+    it("shows the runtime defaults when exposeErrors is not stored, without writing", () => {
+      const onOptionsChange = jest.fn();
+      render(
+        <ConfigEditor {...getDefaultProps({})} onOptionsChange={onOptionsChange} />
+      );
+      expandAdditionalSettings();
+      expect(enabledSwitch()).toBeChecked();
+      expect(
+        screen.getByLabelText(labels.exposeErrorsVariableName.label)
+      ).toHaveValue("hdx_query_errors");
+      expect(screen.getByLabelText(labels.exposeErrorsMaxCount.label)).toHaveValue(5);
+      expect(screen.getByLabelText(labels.exposeErrorsTtl.label)).toHaveValue(300);
+      expect(onOptionsChange).not.toHaveBeenCalled();
+    });
+
+    it("writes the complete block when turned off", () => {
+      const onOptionsChange = jest.fn();
+      render(
+        <ConfigEditor {...getDefaultProps({})} onOptionsChange={onOptionsChange} />
+      );
+      expandAdditionalSettings();
+      fireEvent.click(enabledSwitch());
+      expect(onOptionsChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          jsonData: expect.objectContaining({
+            exposeErrors: {
+              enabled: false,
+              variableName: "hdx_query_errors",
+              maxCount: 5,
+              ttl: 300,
+            },
+          }),
+        })
+      );
+    });
+
+    it("fills the missing keys of a partial block when a field is edited", () => {
+      const onOptionsChange = jest.fn();
+      render(
+        <ConfigEditor
+          {...getDefaultProps({ exposeErrors: { enabled: true } })}
+          onOptionsChange={onOptionsChange}
+        />
+      );
+      expandAdditionalSettings();
+      fireEvent.change(screen.getByLabelText(labels.exposeErrorsTtl.label), {
+        target: { value: "60" },
+      });
+      expect(onOptionsChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          jsonData: expect.objectContaining({
+            exposeErrors: {
+              enabled: true,
+              variableName: "hdx_query_errors",
+              maxCount: 5,
+              ttl: 60,
+            },
+          }),
+        })
+      );
+    });
+
+    it("keeps a stored off block off with its fields hidden", () => {
+      render(
+        <ConfigEditor
+          {...getDefaultProps({
+            exposeErrors: {
+              enabled: false,
+              variableName: "hdx_query_errors",
+              maxCount: 5,
+              ttl: 300,
+            },
+          })}
+        />
+      );
+      expandAdditionalSettings();
+      expect(enabledSwitch()).not.toBeChecked();
+      expect(
+        screen.queryByLabelText(labels.exposeErrorsVariableName.label)
+      ).not.toBeInTheDocument();
+    });
+  });
+
   // it('port input is enabled', () => {
   //     let component = render(<ConfigEditor {...getDefaultProps({})} />);
   //     expect(component.container.querySelector('#config-editor-port')?.getAttribute("disabled")).toBeNull();
