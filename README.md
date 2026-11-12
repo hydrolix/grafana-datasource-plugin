@@ -217,8 +217,6 @@ Below are some provisioning examples. When writing your own:
 - Leave real numbers and booleans unquoted: `port`, `secure`, `skipTlsVerify`, `useDefaultPort`, `oauthPassThru` and
   `exposeErrors.enabled`, `maxCount` and `ttl`. A quoted value can be misread: `enabled: "false"` reads as on, and
   `oauthPassThru: "true"` reads as off.
-- Use only the setting names listed under [Query Settings](#configure-the-data-source) in `querySettings`. Any other
-  name breaks the data source's config page.
 - Boolean query settings take `"1"` (yes) or `"0"` (no), the values the config editor stores.
 - Write a literal `$` as `$$`. Grafana replaces `$NAME` and `${NAME}` in provisioning files with environment variables,
   so a template such as `${__user.login}` must be written `$${__user.login}`.
