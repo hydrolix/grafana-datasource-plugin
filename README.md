@@ -587,14 +587,9 @@ To apply a wildcard filter:
 To control how time ranges are aligned, `$from` and `$to` timestamps can be rounded to the nearest multiple of the round
 value, set in the query editor or in the data source settings.
 
-When a round value is set in the query editor, it takes precedence and is always used. If no round is set in the query
-editor, the data source is meant to fall back to the default round, if it is configured and non-zero (see the known issue
-below). If neither is set, or if the round value in the query editor is explicitly set to `0`, no rounding is applied and
-the original timestamps are used as-is.
-
-> **Known issue:** since plugin 0.7.0 the data source's default round is not applied, so a query without its own round
-> value is not rounded (the first example row below currently returns `10:07:20`). Set the round in the query editor
-> until this is fixed.
+When a round value is set in the query editor, it takes precedence and is always used. If no round is set in the query editor,
+the data source falls back to the default round, if it is configured and non-zero. If neither is set, or if the round value
+in the query editor is explicitly set to `0`, no rounding is applied and the original timestamps are used as-is.
 
 The supported time units for rounding are: `s` (seconds), `m` (minutes), and `h` (hours), as a
 whole number followed by the unit (for example `30s`, `5m`, `1h`). The editors reject other formats, and `0s` is
