@@ -696,6 +696,40 @@ describe("HdxDataSource", () => {
     expect(a.errors![0].message).toBe("error message");
   });
 
+  describe("error exposure", () => {
+    const exposerSettings = (datasource: DataSource) =>
+      (datasource as unknown as { errorExposer: { settings: unknown } })
+        .errorExposer.settings;
+
+    it("uses the defaults when exposeErrors is not stored", () => {
+      const { datasource } = setupDataSourceMock({});
+      expect(exposerSettings(datasource)).toEqual({
+        enabled: true,
+        variableName: "hdx_query_errors",
+        maxCount: 5,
+        ttl: 300,
+      });
+    });
+
+    it("fills the missing keys of a partial block", () => {
+      const { datasource } = setupDataSourceMock({
+        customInstanceSettings: {
+          ...MockDataSourceInstanceSettings,
+          jsonData: {
+            ...MockDataSourceInstanceSettings.jsonData,
+            exposeErrors: { enabled: false },
+          },
+        },
+      });
+      expect(exposerSettings(datasource)).toEqual({
+        enabled: false,
+        variableName: "hdx_query_errors",
+        maxCount: 5,
+        ttl: 300,
+      });
+    });
+  });
+
   describe("query settings", () => {
     it("should merge datasource-level and query-level settings", async () => {
       const { datasource, queryMock } = setupDataSourceMock({

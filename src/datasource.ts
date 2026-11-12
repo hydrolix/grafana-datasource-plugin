@@ -57,7 +57,7 @@ import {
 import { replace } from "./syntheticVariables";
 import { applyConditionalAll } from "./macros/macrosApplier";
 import { ErrorExposer } from "./errors/errorExposer";
-import defaultConfigs from "./defaultConfigs";
+import { resolveExposeErrors } from "./defaultConfigs";
 import {
   getDefaultQuery,
   isAnnotationRequest,
@@ -134,8 +134,7 @@ export class DataSource extends DataSourceWithBackend<
     this.errorExposer = new ErrorExposer(
       this.beautifier,
       this.templateSrv,
-      this.instanceSettings.jsonData?.exposeErrors ||
-        defaultConfigs.exposeErrors
+      resolveExposeErrors(this.instanceSettings.jsonData?.exposeErrors)
     );
     this.annotations = { prepareQuery, getDefaultQuery };
   }

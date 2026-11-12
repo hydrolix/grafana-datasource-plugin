@@ -1,6 +1,6 @@
 import { test, expect } from "@grafana/plugin-e2e";
 // @ts-ignore
-import { ConfigPageSteps } from "./helpers";
+import { ConfigPageSteps, closeWhatsNewDialog } from "./helpers";
 // @ts-ignore
 import allLabels from "../src/labels";
 
@@ -290,4 +290,25 @@ test("an invalid ad hoc lookback clears on blur and a valid one survives", async
   await page.reload();
   await configPage.additionalSettingsExpandable().click({ force: true });
   await expect(configPage.adHocTimeRangeLookback()).toHaveValue("7d");
+});
+
+test("an API-created data source without exposeErrors shows error exposure on with its defaults", async ({
+  createDataSource,
+  gotoDataSourceConfigPage,
+  page,
+}) => {
+  const configPage = ConfigPageSteps.getLocator(page);
+  const ds = await createDataSource({
+    type: "hydrolix-hydrolix-datasource",
+    name: "no exposeErrors",
+    jsonData: { host: "localhost", port: 9000, protocol: "native" },
+  });
+  await gotoDataSourceConfigPage(ds.uid);
+  await closeWhatsNewDialog(page);
+
+  await configPage.additionalSettingsExpandable().click({ force: true });
+  await expect(configPage.exposeErrorsEnabledSwitch()).toBeChecked();
+  await expect(configPage.exposeErrorsVariableName()).toHaveValue("hdx_query_errors");
+  await expect(configPage.exposeErrorsMaxCount()).toHaveValue("5");
+  await expect(configPage.exposeErrorsTtl()).toHaveValue("300");
 });
