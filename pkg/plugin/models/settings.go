@@ -41,6 +41,7 @@ type PluginSettings struct {
 	DialTimeout     string         `json:"dialTimeout,omitempty"`
 	QueryTimeout    string         `json:"queryTimeout,omitempty"`
 	DefaultDatabase string         `json:"defaultDatabase,omitempty"`
+	DefaultRound    string         `json:"defaultRound,omitempty"`
 	QuerySettings   []QuerySetting `json:"querySettings,omitempty"`
 	Other           map[string]any `json:"-"`
 }
@@ -164,6 +165,12 @@ func NewPluginSettings(_ context.Context, source backend.DataSourceInstanceSetti
 
 	if token, ok := source.DecryptedSecureJSONData["token"]; ok {
 		settings.Token = token
+	}
+
+	// A round needs a unit ("30s", "5m"), so a non-string has no meaning here;
+	// ignore it rather than fail the data source.
+	if defaultRound, ok := jsonData["defaultRound"].(string); ok {
+		settings.DefaultRound = defaultRound
 	}
 
 	settings.SetDefaults()

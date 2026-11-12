@@ -216,3 +216,61 @@ func TestErrParseMacroArgs(t *testing.T) {
 		assert.ErrorIs(t, err, ErrParseMacroArgs)
 	}
 }
+
+// HDX-12840: the data source's Default round is the fallback for a query
+// without its own round; the query's round wins, and "0" opts out.
+func TestInterpolate_DefaultRoundPrecedence(t *testing.T) {
+	macros := map[string]MacroFunc{
+		"fromUnix": func(_ context.Context, q *models.HdxQuery, _ []string, _ parser.Pos, _ *MetadataProvider) (string, error) {
+			return q.TimeRange.From.Format(time.RFC3339), nil
+		},
+	}
+	at := func(min, sec int) time.Time { return time.Date(2026, 6, 13, 12, min, sec, 0, time.UTC) }
+	tests := []struct {
+		name         string
+		defaultRound string
+		queryRound   string
+		from         time.Time
+		want         time.Time
+	}{
+		{"default only", "1m", "", at(0, 20), at(0, 0)},
+		{"query round wins", "5m", "1m", at(2, 30), at(3, 0)},
+		{"query 0 opts out", "1m", "0", at(0, 30), at(0, 30)},
+		{"default 0", "0", "", at(0, 30), at(0, 30)},
+		{"neither set", "", "", at(0, 30), at(0, 30)},
+		{"invalid default is a no-op", "soon", "", at(0, 30), at(0, 30)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			i := NewHdxInterpolator(NewMetadataProvider(nopMetadataDS{}), macros)
+			i.defaultRound = test.defaultRound
+			query := &models.HdxQuery{
+				RawSQL:    "SELECT $__fromUnix() FROM t",
+				Round:     test.queryRound,
+				TimeRange: backend.TimeRange{From: test.from, To: test.from.Add(time.Hour)},
+			}
+			out, err := i.interpolate(context.Background(), query)
+			assert.NoError(t, err)
+			assert.Equal(t, "SELECT "+test.want.Format(time.RFC3339)+" FROM t", out)
+			assert.Equal(t, test.queryRound, query.Round, "the query's own round is left as sent")
+		})
+	}
+}
+
+func TestNewHdxSqlDatasource_WiresDefaultRound(t *testing.T) {
+	jsonData, err := json.Marshal(map[string]any{
+		"host": "localhost", "port": 9000, "protocol": "native", "defaultRound": "1m",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds := NewHdxSqlDatasource(NewHydrolix(), backend.DataSourceInstanceSettings{UID: "round", JSONData: jsonData})
+
+	from := time.Date(2026, 6, 13, 12, 0, 30, 0, time.UTC)
+	out, err := ds.Interpolator(context.Background(), &sqlutil.Query{
+		RawSQL:    "SELECT $__fromTime FROM t",
+		TimeRange: backend.TimeRange{From: from, To: from.Add(time.Hour)},
+	}, json.RawMessage(`{}`))
+	assert.NoError(t, err)
+	assert.Equal(t, "SELECT "+timeToDateTime(from.Round(time.Minute))+" FROM t", out)
+}
