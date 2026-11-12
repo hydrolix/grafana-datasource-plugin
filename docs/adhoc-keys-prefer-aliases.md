@@ -12,11 +12,23 @@ A column is hidden only when some other column is an `ALIAS` whose
 expression is exactly that column's name and whose declared type is the
 same. Both `DESCRIBE` spellings of the expression are recognized: the bare
 form (`cliIP`, emitted by plain ClickHouse and by the metadata-only Hydrolix
-`DESCRIBE`) and the backtick-wrapped form (`` `cliIP` ``). Computed aliases
-(`lower(cliIP)`), type-changing aliases (`IPv4 ALIAS cliIP` over a `String`),
-aliases of a missing column and alias-to-alias chains collapse nothing: every
-such column, and its target, stays visible. If several identity aliases
-target one base, all of the aliases remain; the policy does not rank them.
+`DESCRIBE`) and the backtick-wrapped form (`` `cliIP` ``).
+
+Other `ALIAS` columns are handled the same with the option on or off:
+
+- A computed alias, whose expression is anything other than one column name
+  (`lower(cliIP)`, ``lower(`cliIP`)``, ``countMerge(`count()`)``), is not an
+  ad-hoc filter key and gets no value suggestions. Before 0.14.0 the plugin
+  listed one whose expression contained a backticked column, under that
+  column's type; it no longer does. A saved filter on such a column still
+  executes, because the backend's ad-hoc filter reads its own `DESCRIBE`.
+- An alias of a missing column is not listed.
+- A type-changing alias (`IPv4 ALIAS cliIP` over a `String`) and an
+  alias-to-alias chain are listed when the column they name has a supported
+  type, but they collapse nothing: that column stays listed as well.
+
+If several identity aliases target one base, all of the aliases remain; the
+policy does not rank them.
 
 ## Opt-in
 
@@ -35,29 +47,15 @@ editor's schema browser and query-variable results are unchanged.
 
 ## Field-choice variables
 
-The option does not change query-variable results. A dashboard variable that
-offers column names for use in panel SQL (`SELECT $field, count() ... GROUP BY
-$field`) is a plain Query variable over `system.columns`. To apply the same
-identity-alias rule there, hide every column that is the same-type target of an
-`ALIAS` column; `trim` removes the backticks Hydrolix puts around the alias
-expression, and the `type` join keeps type-changing aliases from hiding their
-base:
-
-```sql
-SELECT c.name
-FROM system.columns AS c
-LEFT JOIN (
-    SELECT trim(BOTH '`' FROM default_expression) AS base, type
-    FROM system.columns
-    WHERE database = 'akamai' AND table = 'logs' AND default_kind = 'ALIAS'
-) AS a ON a.base = c.name AND a.type = c.type
-WHERE c.database = 'akamai' AND c.table = 'logs' AND a.base = ''
-ORDER BY c.position
-```
-
-For `cliIP String` plus `client_ip String ALIAS cliIP` this lists `client_ip`
-and not `cliIP`, matching the ad-hoc key list. Substitute a table variable for
-the literal names if the dashboard switches tables.
+The option does not change query-variable results, and there is no documented
+field-choice recipe for Hydrolix. A dashboard variable that offers column names
+for use in panel SQL (`SELECT $field, count() ... GROUP BY $field`) is usually a
+Query variable over `system.columns`. Hydrolix lists `ALIAS` columns in
+`DESCRIBE` only, not in `system.columns` (see `QueryAliases` in
+`pkg/plugin/metadata.go`). A `system.columns` query on Hydrolix therefore cannot
+offer the aliases, and cannot tell which base an alias stands for. A
+field-choice variable that reads `DESCRIBE` is deferred until a dashboard needs
+it.
 
 ## What never changes
 

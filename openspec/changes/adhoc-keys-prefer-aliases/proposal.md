@@ -6,9 +6,9 @@ Identity aliases also mislead the validation bar: on Hydrolix summary tables `$_
 
 ## What Changes
 
-- Alias resolution in the metadata provider's ad-hoc key parsing accepts both bare and backtick-quoted identity expressions, so a bare identity alias is no longer silently dropped. Non-breaking: computed aliases stay excluded as today.
+- Alias resolution in the metadata provider's ad-hoc key parsing accepts both bare and backtick-quoted identity expressions, so a bare identity alias is no longer silently dropped. Only an expression that is exactly one column name resolves a target. **Behavior change:** a computed alias whose expression contains a backticked column (``lower(`cliIP`)``) was listed before, under the inner column's type; it is now excluded, with or without the option, and gets no value suggestions. A saved filter on it still executes through the backend's own DESCRIBE key map.
 - Ad-hoc filter keys carry which physical column an identity alias stands for, so a presentation policy can be applied without re-reading the schema.
-- A pure "prefer identity aliases" policy helper hides a physical base from new choices when a same-type identity alias exists; computed, type-changing, unresolved and chained aliases stay visible.
+- A pure "prefer identity aliases" policy helper hides a physical base from new choices when a same-type identity alias exists. Type-changing and chained aliases collapse nothing and stay listed; computed and unresolved aliases are not keys at all, so the policy never sees them.
 - `getTagKeys` applies that policy over the already-fetched key list when the datasource option `adHocKeysPreferAliases` is on. Map columns and their key enumeration are preserved; quoted view names keep working. `getTagValues` is unchanged, so an existing filter on a hidden base still loads values.
 - PR #249's `preferredColumns` query-variable opt-in is dropped: it returned the same ad-hoc key list under a second name and required the table to be spelled a second time in dashboard JSON. `HdxQuery` and `metricFindQuery` return to their pre-PR shape.
 - The parallel `describeColumns` / `preferredColumnsFromResponse` DESCRIBE path introduced by PR #249 is removed from `DataSource`.
