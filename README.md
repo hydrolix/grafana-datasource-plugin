@@ -214,9 +214,8 @@ Below are some provisioning examples. When writing your own:
   as `dialTimeout`, `queryTimeout`, every `querySettings[].value`, or a numeric `username` (for example
   `dialTimeout: "10"`). An unquoted number in one of these keys makes the data source fail every health check and
   query.
-- Leave real numbers and booleans unquoted: `port`, `secure`, `skipTlsVerify`, `useDefaultPort`, `oauthPassThru` and
-  `exposeErrors.enabled`, `maxCount` and `ttl`. A quoted value can be misread: `enabled: "false"` reads as on, and
-  `oauthPassThru: "true"` reads as off.
+- Leave numbers and booleans unquoted: `port`, `secure`, `skipTlsVerify`, `useDefaultPort`, `oauthPassThru` and
+  `exposeErrors.enabled`, `maxCount` and `ttl`.
 - Boolean query settings take `"1"` (yes) or `"0"` (no), the values the config editor stores.
 - Write a literal `$` as `$$`. Grafana replaces `$NAME` and `${NAME}` in provisioning files with environment variables,
   so a template such as `${__user.login}` must be written `$${__user.login}`.
