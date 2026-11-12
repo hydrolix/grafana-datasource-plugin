@@ -83,7 +83,7 @@ setting configured on the data source.
 
 Selecting `hdx_query_comment` or `hdx_query_admin_comment` pre-fills a query attribution template, which you can edit:
 
-```
+```text
 grafana_user_email=${__user.email} grafana_user_login=${__user.login} grafana_panel_id=${__hydrolix.panel.id} grafana_panel_name=${__hydrolix.panel.name} grafana_dashboard_uid=${__dashboard.uid} grafana_dashboard_title=${__dashboard} grafana_app=${__hydrolix.app} grafana_ref_id=${__hydrolix.ref_id}
 ```
 
