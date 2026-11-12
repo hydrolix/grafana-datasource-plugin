@@ -52,7 +52,6 @@ export interface HdxDataSourceOptions extends DataSourceJsonData {
   credentialsType?: CredentialsType;
   username?: string;
   protocol?: Protocol;
-  token?: string;
   secure?: boolean;
   path?: string;
   skipTlsVerify?: boolean;
