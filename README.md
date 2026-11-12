@@ -3,22 +3,6 @@
 The Hydrolix data source plugin integrates Hydrolix with Grafana, enabling seamless querying, analysis, and
 visualization of Hydrolix data.
 
-## Install the plugin
-
-To install the Hydrolix data source plugin:
-
-1. Open the [Grafana Plugin Catalog](https://grafana.com/grafana/plugins/).
-2. Search for **Hydrolix Data Source**.
-3. Select the plugin and click **Install Plugin**.
-
-After installation:
-
-1. In Grafana, go to **Connections > Data Sources > Add new data source**.
-2. Select **Hydrolix** from the list.
-
-> For more details about installation, see
-> Grafana’s [Plugin management documentation](https://grafana.com/docs/grafana/latest/administration/plugin-management/).
-
 ## Configure the data source
 
 You can configure the Hydrolix data source directly within Grafana or via configuration files.

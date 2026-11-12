@@ -87,6 +87,14 @@ copy outside `.config/` to fall back on.
   - `npm run build` — webpack production bundle (`dist/module.js*`)
   - `npm run e2e` — Playwright (prefer `e2e-dev` skill)
 
+Git hooks are managed by `pre-commit` (`.pre-commit-config.yaml`; run
+`pre-commit install` once per clone). Commit stage: gofmt, golangci-lint on
+changed code, eslint. Push stage: full golangci-lint, `go test -race`,
+typecheck, jest. CI runs golangci-lint (with gosec) and govulncheck. Keep the
+golangci-lint version in `.pre-commit-config.yaml` and
+`.github/workflows/lint-backend.yml` in step, and bump the hooks'
+`language_version` with go.mod's Go version.
+
 Go is built via `mage` **inside the dev container**, not on the host.
 Host Go picks up the wrong toolchain. See `build-plugin`.
 
@@ -152,6 +160,20 @@ Host Go picks up the wrong toolchain. See `build-plugin`.
   table's leading primary-key column. Query problems go in the response
   `data`; the envelope `error` is only for failing to validate. The frontend
   expands template variables, including the panel's `scopedVars`, first.
+- The HTTP transport chain (`transportFor`, `pkg/plugin/transport.go`) wraps
+  clickhouse-go's own `*http.Transport`, bottom up: `refuseRedirects` (on the
+  raw transport, so a 3xx is refused before any middleware wraps the body),
+  the hand-picked SDK middlewares (`sdkMiddlewares`: tracing, datasource
+  metrics, user-agent, contextual, error-source, `ResponseLimitMiddleware(0)`),
+  `idleConnCloser` (puts `CloseIdleConnections` back; the SDK middlewares are
+  `RoundTripperFunc`s and the fork's `httpConnect.close()` needs it), then the
+  exchange mode's 401 watch. Never add `BasicAuthenticationMiddleware` or
+  `CustomHeadersMiddleware`: they overwrite the Bearer. The response limit is
+  resolved per request from `GF_RESPONSE_LIMIT` in the context's Grafana
+  config, which the SDK puts on every handler context; the fallback is 0, no
+  limit. `MutateQueryError` maps `httpclient.ErrResponseBodyTooLarge` to
+  `responseLimitError`. Metrics are a silent no-op without `datasource_type`,
+  so `sdkOptions` always sets the labels.
 - `pkg/plugin/driver.go:421-467` attributes queries by `panelId` /
   `panelName` with an `"unknown"` fallback. Annotation queries arrive
   without these — the fallback is expected.

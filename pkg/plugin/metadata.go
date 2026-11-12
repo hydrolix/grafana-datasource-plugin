@@ -38,6 +38,11 @@ var (
 	// sentinel would make errors.Is match every error of that source. The
 	// downstream classification is added on the wrapper at the return site.
 	ErrPrimaryKeyEmpty = errors.New("table has no primary key")
+	// ErrPKNotExposed is raised by getPK when a WITH alias or subquery
+	// between the macro and its table does not select the primary-key column
+	// under its own name, so the expanded macro would name a column the
+	// macro's SELECT cannot see.
+	ErrPKNotExposed = errors.New("primary key column is not selected")
 	// ErrAdHocKeysNotFound is returned by QueryKeys when DESCRIBE yields
 	// fewer than two columns (name + type) — the ad-hoc filter macro
 	// needs both to operate.
@@ -420,15 +425,9 @@ func GetStringSafe(v any) (string, error) {
 }
 
 // getPK is the macro-facing helper. It parses rawSQL, finds the CTE entry
-// at pos, and delegates to MetadataProvider.GetPK. Used by C6's PK-lookup
-// macros (`TimeFilter`, `TimeFilterMs`, `TimeInterval`, `TimeIntervalMs`)
-// when their column argument is omitted.
-//
-// This is the one place that turns an empty primary key into an error: the
-// lookup treats "" as a legitimate result, but a macro cannot expand against
-// an empty column name — the cluster would reject the SQL with a parse error
-// naming neither the table nor the cause. A keyless table is a fact about
-// the user's schema, hence downstream.
+// at pos, and hands its PKSource to pkColumn. Used by C6's PK-lookup macros
+// (`TimeFilter`, `TimeFilterMs`, `TimeInterval`, `TimeIntervalMs`) when their
+// column argument is omitted.
 func getPK(ctx context.Context, rawSQL string, pos parser.Pos, mdProvider *MetadataProvider, headers http.Header) (string, error) {
 	exprs, err := parser.NewParser(rawSQL).ParseStmts()
 	if err != nil {
@@ -440,25 +439,66 @@ func getPK(ctx context.Context, rawSQL string, pos parser.Pos, mdProvider *Metad
 	}
 	for _, c := range macroCTEs {
 		if c.MacroPos == pos {
-			pk, err := mdProvider.GetPK(ctx, headers, c.Database, c.Table)
-			if err != nil {
-				return "", err
-			}
-			if pk == "" {
-				// An unqualified FROM resolved against the default database
-				// inside GetPK; name that database so the message points at
-				// the table the lookup actually hit.
-				db := c.Database
-				if db == "" {
-					db = mdProvider.ds.DefaultDatabase()
-				}
-				return "", backend.DownstreamError(fmt.Errorf(
-					"%w: %s.%s; pass the time column as the macro argument, e.g. $__timeFilter(<column>)",
-					ErrPrimaryKeyEmpty, db, c.Table,
-				))
-			}
-			return pk, nil
+			return pkColumn(ctx, c.Source, mdProvider, headers)
 		}
 	}
 	return rawSQL, fmt.Errorf("no CTE found for macro at pos %d", pos)
+}
+
+// pkHint ends the errors pkColumn raises itself, all of which a column
+// argument would avoid.
+const pkHint = "pass the time column as the macro argument, e.g. $__timeFilter(<column>)"
+
+// pkColumn looks up the primary key of the table under source and checks that
+// every alias or subquery between it and the macro still selects that column.
+//
+// This is the one place that turns an empty primary key into an error: the
+// lookup treats "" as a legitimate result, but a macro cannot expand against
+// an empty column name — the cluster would reject the SQL with a parse error
+// naming neither the table nor the cause. A keyless table is a fact about
+// the user's schema, hence downstream.
+func pkColumn(ctx context.Context, source cte.PKSource, mdProvider *MetadataProvider, headers http.Header) (string, error) {
+	if source.Err != nil {
+		return "", backend.DownstreamError(fmt.Errorf("%w; %s", source.Err, pkHint))
+	}
+	pk, err := mdProvider.GetPK(ctx, headers, source.Database, source.Table)
+	if err != nil {
+		return "", err
+	}
+	if pk == "" {
+		// An unqualified FROM resolved against the default database
+		// inside GetPK; name that database so the message points at
+		// the table the lookup actually hit.
+		db := source.Database
+		if db == "" {
+			db = mdProvider.ds.DefaultDatabase()
+		}
+		return "", backend.DownstreamError(fmt.Errorf(
+			"%w: %s.%s; %s", ErrPrimaryKeyEmpty, db, source.Table, pkHint,
+		))
+	}
+	// Only a single plain column can be matched against a SELECT list by
+	// name; expression and multi-column keys are expanded unchecked.
+	if column, ok := plainColumn(pk); ok {
+		if hiddenBy := source.HiddenBy(column); hiddenBy != "" {
+			return "", backend.DownstreamError(fmt.Errorf(
+				"%w: `%s` is not selected by %s; %s", ErrPKNotExposed, column, hiddenBy, pkHint,
+			))
+		}
+	}
+	return pk, nil
+}
+
+// plainColumn returns the column name when primaryKey is a single bare
+// column, and false for an expression or a multi-column key.
+func plainColumn(primaryKey string) (string, bool) {
+	stmts, err := parser.NewParser("SELECT " + primaryKey).ParseStmts()
+	if err != nil || len(stmts) != 1 {
+		return "", false
+	}
+	sel, ok := stmts[0].(*parser.SelectQuery)
+	if !ok || len(sel.SelectItems) != 1 || sel.SelectItems[0].Alias != nil {
+		return "", false
+	}
+	return cte.IdentName(sel.SelectItems[0].Expr)
 }

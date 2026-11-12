@@ -17,6 +17,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/httpclient"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/useragent"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
@@ -136,7 +137,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 	var tlsConfig *tls.Config
 	if settings.Secure {
 		tlsConfig = &tls.Config{
-			InsecureSkipVerify: settings.SkipTlsVerify,
+			InsecureSkipVerify: settings.SkipTlsVerify, //nolint:gosec // opt-in "Skip TLS verify" datasource setting
 		}
 	}
 
@@ -161,7 +162,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		BlockBufferSize: 2,
 	}
 
-	opts.TransportFunc = transportFor(nil)
+	opts.TransportFunc = transportFor(sdkOptions(config), nil)
 
 	if settings.CredentialsType == "userAccount" || settings.CredentialsType == "" {
 		opts.Auth = clickhouse.Auth{
@@ -292,7 +293,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 			// The watch only observes: a cluster's 401 drops the refused
 			// token, and sqlds retries the query once (see Settings) with a
 			// fresh mint.
-			opts.TransportFunc = transportFor(binding.Watch)
+			opts.TransportFunc = transportFor(sdkOptions(config), binding.Watch)
 		}
 	}
 
@@ -602,6 +603,20 @@ type exchangeQueryError struct {
 func (e *exchangeQueryError) Error() string { return e.reason.Error() }
 func (e *exchangeQueryError) Unwrap() error { return e.cause }
 
+// responseLimitError is the panel's reason when Grafana's response limit cut
+// the cluster's answer short. The limit is enforced on the transport
+// (transportFor), so the fork sees it as a read error part-way through the
+// body and reports it in its stream plumbing; the chain stays underneath for
+// errors.Is. The limit itself is in Grafana's log, where the SDK writes it.
+type responseLimitError struct {
+	cause error
+}
+
+func (e *responseLimitError) Error() string {
+	return "the cluster's answer exceeds Grafana's response limit (dataproxy.response_limit), so the query was cut short: narrow the query or raise the limit"
+}
+func (e *responseLimitError) Unwrap() error { return e.cause }
+
 // jsonSet update raw message's root object by applying a value to a key property.
 // A nil value removes the key.
 func jsonSet(jmsg json.RawMessage, val map[string]any) (json.RawMessage, error) {
@@ -735,6 +750,13 @@ func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
 	var redirect *RedirectError
 	if errors.As(err, &redirect) {
 		return backend.NewErrorWithSource(backend.DownstreamError(redirect), backend.ErrorSourceDownstream)
+	}
+
+	if errors.Is(err, httpclient.ErrResponseBodyTooLarge) {
+		return backend.NewErrorWithSource(
+			backend.DownstreamError(&responseLimitError{cause: err}),
+			backend.ErrorSourceDownstream,
+		)
 	}
 
 	if uw, ok := err.(interface{ Unwrap() []error }); ok {
