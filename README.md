@@ -56,9 +56,8 @@ Following is the list of Hydrolix configuration options.
 **Additional Settings section:**
 
 - **Default database** (optional) - Used when no database is explicitly included in the query.
-- **Default round** (optional) - Meant to be used when a query does not specify a round value, aligning `$from` and
-  `$to` to the nearest multiple of this value. **Known issue:** since plugin 0.7.0 this setting is saved but not
-  applied; set the round on each query instead. For more details, see [Round timestamps](#round-timestamps).
+- **Default round** (optional) - Used when a query does not specify a round value. Aligns `$from` and `$to` to the
+  nearest multiple of this value. For more details, see [Round timestamps](#round-timestamps).
 - **Ad hoc filter table variable name** (optional) - Variable defines which table to use for retrieving ad hoc filter
   columns and values.
 - **Ad hoc filter suggestion lookback** (optional) - Trailing window for ad hoc filter key and value suggestions (for
