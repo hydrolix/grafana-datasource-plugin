@@ -107,11 +107,7 @@ The plugin also supports several synthetic variables specific to query settings:
 The Error Exposure feature allows you to expose query errors to Grafana dashboard variables, enabling error tracking,
 monitoring, and custom error handling within your dashboards.
 
-- **Enable Error Exposure** - Toggle to enable exposing query errors to dashboard variables. On for a data source
-  created in the config editor. **Known issue:** when a provisioned data source omits `exposeErrors`, error exposure is
-  on at runtime but the toggle shows it off. When provisioning, set the whole `exposeErrors` block (`enabled`,
-  `variableName`, `maxCount`, `ttl`): the defaults below apply only when the block is omitted entirely, and a block
-  missing any of the four, or with `maxCount` or `ttl` set to `0`, records no errors.
+- **Enable Error Exposure** - Toggle to enable exposing query errors to dashboard variables. On by default.
 - **Variable Name** - Name of the dashboard variable where error information will be stored (default: `hdx_query_errors`).
 - **Max Error Count** - Maximum number of errors to store in the variable (default: `5`).
 - **Error TTL (seconds)** - Time to live for stored errors in seconds. Errors older than this value will be automatically
