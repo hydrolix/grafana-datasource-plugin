@@ -8,8 +8,9 @@ The data source config page crashes with a `TypeError` when `jsonData.querySetti
 - Such a setting shows as a plain text input with a warning that the plugin does not know it and sends it as-is.
 - An unknown setting can be edited and removed like a known one.
 - Known settings render and validate exactly as before.
-- The catalog lookup in the config editor is typed so the compiler rejects an unguarded dereference.
-- Frontend unit coverage for the config editor with an unknown setting.
+- The section also renders when `jsonData.querySettings` is not a list or holds entries that are not objects.
+- Editing or removing a row affects that row only, including when two stored entries share a name.
+- Frontend unit and Playwright e2e coverage for the config editor with an unknown setting.
 
 No backend change. Not breaking: stored `jsonData` is read and written unchanged.
 
@@ -28,4 +29,5 @@ None.
 - `src/components/ConfigEditor.tsx`: the Query Settings section and its catalog lookup.
 - `src/labels.ts`: the warning text for an unknown setting.
 - `src/components/ConfigEditor.test.tsx`: new cases.
+- `tests/configEditor.spec.ts`: new e2e case.
 - The per-query QuerySettings editor in the query editor already tolerates unknown names and is not changed.

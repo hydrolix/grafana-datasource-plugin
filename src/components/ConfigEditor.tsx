@@ -26,6 +26,7 @@ import {
   HdxDataSourceOptions,
   HdxSecureJsonData,
   Protocol,
+  QuerySetting,
 } from "../types";
 import allLabels from "labels";
 import defaultConfigs from "defaultConfigs";
@@ -41,6 +42,12 @@ export interface Props
     HdxDataSourceOptions,
     HdxSecureJsonData
   > {}
+
+type QuerySettingDefinition =
+  (typeof allLabels.components.querySettings.values)[number];
+
+const isQuerySetting = (entry: unknown): entry is QuerySetting =>
+  typeof entry === "object" && entry !== null;
 
 export function ConfigEditor(props: Props) {
   const { onOptionsChange, options } = props;
@@ -80,16 +87,39 @@ export function ConfigEditor(props: Props) {
       value: CredentialsType.ForwardOAuthExchange,
     },
   ];
-  let querySettingDefinitions = useMemo(() => {
-    return querySettings.values.reduce((acc, cur) => {
-      acc[cur.setting] = cur;
-      return acc;
-    }, {} as Partial<Record<string, (typeof querySettings.values)[number]>>);
-  }, [querySettings]);
-
-  const existingSettings = (jsonData?.querySettings ?? []).map(
-    (v) => v.setting
+  // A Map, not an object: a stored name such as "constructor" must not
+  // resolve to an Object.prototype member.
+  let querySettingDefinitions = useMemo(
+    () =>
+      new Map<string, QuerySettingDefinition>(
+        querySettings.values.map((v) => [v.setting, v])
+      ),
+    [querySettings]
   );
+
+  // jsonData comes from provisioning or the HTTP API as well as this editor,
+  // so it can hold anything: a non-array, or entries that are not objects.
+  // Such entries are skipped when rendering and written back untouched.
+  const rawQuerySettings: unknown = jsonData?.querySettings;
+  const storedSettings = useMemo<unknown[]>(
+    () => (Array.isArray(rawQuerySettings) ? rawQuerySettings : []),
+    [rawQuerySettings]
+  );
+  const writeQuerySettings = (
+    querySettings: unknown[]
+  ) => {
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...jsonData,
+        querySettings: querySettings as QuerySetting[],
+      },
+    });
+  };
+
+  const existingSettings = storedSettings
+    .filter(isQuerySetting)
+    .map((v) => v.setting);
   let queryOptions = querySettings.values
     .filter((v) => !existingSettings.includes(v.setting))
     .map((v) => ({
@@ -99,9 +129,14 @@ export function ConfigEditor(props: Props) {
     }));
 
   const settingErrors = useMemo(() => {
-    const errors: { [setting: string]: string } = {};
-    for (const querySettings of jsonData?.querySettings ?? []) {
-      const option = querySettingDefinitions[querySettings.setting];
+    // Indexed like storedSettings, so two entries with one name keep
+    // separate errors.
+    const errors: Array<string | undefined> = [];
+    for (const [index, querySettings] of storedSettings.entries()) {
+      if (!isQuerySetting(querySettings)) {
+        continue;
+      }
+      const option = querySettingDefinitions.get(querySettings.setting);
 
       const type = option?.type;
       const min = option?.min;
@@ -110,20 +145,20 @@ export function ConfigEditor(props: Props) {
         ["number", "text", "duration"].includes(type) &&
         (querySettings.value === "" || querySettings.value === undefined)
       ) {
-        errors[querySettings.setting] = "setting value is required";
+        errors[index] = "setting value is required";
       } else if (
         type &&
         type === "number" &&
         isNaN(querySettings.value as any)
       ) {
-        errors[querySettings.setting] = `value is not a valid number`;
+        errors[index] = `value is not a valid number`;
       } else if (
         type &&
         type === "duration" &&
         isNaN(querySettings.value as any) &&
         !QUERY_DURATION_REGEX.test(querySettings.value)
       ) {
-        errors[querySettings.setting] = `value is not a valid duration`;
+        errors[index] = `value is not a valid duration`;
       } else if (
         type &&
         type === "number" &&
@@ -131,11 +166,11 @@ export function ConfigEditor(props: Props) {
         min > +querySettings.value &&
         +querySettings.value !== option.default
       ) {
-        errors[querySettings.setting] = `value cannot be less than ${min}`;
+        errors[index] = `value cannot be less than ${min}`;
       }
     }
     return errors;
-  }, [jsonData, querySettingDefinitions]);
+  }, [storedSettings, querySettingDefinitions]);
 
   const getDefaultPort = (protocol: Protocol, secure: boolean) =>
     secure
@@ -247,48 +282,31 @@ export function ConfigEditor(props: Props) {
     });
   };
 
-  const onQuerySettingsChange = (key: string) => {
+  // Entries are addressed by position: names are not unique in a
+  // provisioned data source.
+  const onQuerySettingsChange = (index: number) => {
     return (value: string) => {
-      const querySettings = (jsonData?.querySettings ?? []).map((s) =>
-        s.setting === key ? { ...s, value } : s
+      writeQuerySettings(
+        storedSettings.map((s, i) =>
+          isQuerySetting(s) && i === index ? { ...s, value } : s
+        )
       );
-      onOptionsChange({
-        ...options,
-        jsonData: {
-          ...jsonData,
-          querySettings,
-        },
-      });
     };
   };
 
   const addQuerySetting = (setting: string) => {
-    let defaultValue = querySettingDefinitions[setting]?.default;
-    let type = querySettingDefinitions[setting]?.type ?? "";
-    let querySettings = [
-      ...(jsonData?.querySettings ?? []),
-      { setting, value: getDefaultValue(defaultValue, type) },
-    ];
-    onOptionsChange({
-      ...options,
-      jsonData: {
-        ...jsonData,
-        querySettings,
+    const definition = querySettingDefinitions.get(setting);
+    writeQuerySettings([
+      ...storedSettings,
+      {
+        setting,
+        value: getDefaultValue(definition?.default, definition?.type ?? ""),
       },
-    });
+    ]);
   };
 
-  const deleteQuerySetting = (setting: string) => {
-    let querySettings = (jsonData?.querySettings ?? []).filter(
-      (s) => s.setting !== setting
-    );
-    onOptionsChange({
-      ...options,
-      jsonData: {
-        ...jsonData,
-        querySettings,
-      },
-    });
+  const deleteQuerySetting = (index: number) => {
+    writeQuerySettings(storedSettings.filter((_, i) => i !== index));
   };
 
   const downloadSolutionTemplates = () => {
@@ -373,8 +391,9 @@ export function ConfigEditor(props: Props) {
       });
     }
   };
-  const settingInput = (key: string, value: string) => {
-    let type = querySettingDefinitions[key]?.type;
+  const settingInput = (key: string, value: string, index: number) => {
+    const definition = querySettingDefinitions.get(key);
+    let type = definition?.type;
     if (type === "boolean") {
       return (
         <Select
@@ -384,7 +403,7 @@ export function ConfigEditor(props: Props) {
             { value: "no", label: "No" },
           ]}
           onChange={(v) =>
-            onQuerySettingsChange(key)(v.value === "yes" ? "1" : "0")
+            onQuerySettingsChange(index)(v.value === "yes" ? "1" : "0")
           }
           value={value === "1" ? "yes" : "no"}
         ></Select>
@@ -397,7 +416,7 @@ export function ConfigEditor(props: Props) {
             cols={40}
             rows={2}
             value={value ?? ""}
-            onChange={(e) => onQuerySettingsChange(key)(e.currentTarget.value)}
+            onChange={(e) => onQuerySettingsChange(index)(e.currentTarget.value)}
             label={key}
             aria-label={key}
           />
@@ -410,8 +429,8 @@ export function ConfigEditor(props: Props) {
           width={80}
           value={value ?? ""}
           //type={querySettingDefinitions[key].type}
-          min={querySettingDefinitions[key]?.min}
-          onChange={(e) => onQuerySettingsChange(key)(e.currentTarget.value)}
+          min={definition?.min}
+          onChange={(e) => onQuerySettingsChange(index)(e.currentTarget.value)}
           label={key}
           aria-label={key}
         />
@@ -886,28 +905,32 @@ export function ConfigEditor(props: Props) {
                 value={null}
               ></Select>
             </div>
-            {(jsonData?.querySettings ?? []).map((s) => {
+            {storedSettings.map((s, index) => {
+              if (!isQuerySetting(s)) {
+                return null;
+              }
+              const definition = querySettingDefinitions.get(s.setting);
               return (
                 <Field
-                  key={s.setting}
+                  key={`${index}-${s.setting}`}
                   label={s.setting}
-                  required
-                  error={settingErrors[s.setting]}
-                  invalid={!!settingErrors[s.setting]}
+                  required={!!definition}
+                  error={settingErrors[index]}
+                  invalid={!!settingErrors[index]}
                   description={
-                    querySettingDefinitions[s.setting]?.description ??
+                    definition?.description ??
                     querySettings.unknownSettingWarning
                   }
                 >
                   <Stack direction={"row"}>
-                    {settingInput(s.setting, s.value)}
+                    {settingInput(s.setting, s.value, index)}
                     <Button
-                      aria-label={`Remove ${s.setting}`}
+                      aria-label={querySettings.removeLabel(s.setting)}
                       style={{ marginTop: "4.5px" }}
                       variant="destructive"
                       icon="times"
                       size={"sm"}
-                      onClick={() => deleteQuerySetting(s.setting)}
+                      onClick={() => deleteQuerySetting(index)}
                     />
                   </Stack>
                 </Field>

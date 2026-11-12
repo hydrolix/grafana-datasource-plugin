@@ -188,6 +188,7 @@ export default {
       label: "Query Settings",
       unknownSettingWarning:
         "This plugin version does not know this setting. It is sent to Hydrolix as-is.",
+      removeLabel: (setting: string) => `Remove ${setting}`,
       values: [
         {
           setting: "hdx_query_max_rows",

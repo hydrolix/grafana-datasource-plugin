@@ -30,14 +30,25 @@ The entry is not marked invalid and has no value validation: the plugin cannot k
 
 ### D2. Type the catalog lookup so a missing entry is `undefined`
 
-`querySettingDefinitions` becomes `Partial<Record<string, QuerySettingDefinition>>`, where `QuerySettingDefinition` is the catalog element type inferred from `labels.ts`. Every read then has type `QuerySettingDefinition | undefined`, so `tsc` fails on an unguarded dereference. This replaces an `any`.
+`querySettingDefinitions` becomes a `Map<string, QuerySettingDefinition>`, where `QuerySettingDefinition` is the catalog element type inferred from `labels.ts`. Every `get` has type `QuerySettingDefinition | undefined`, so `tsc` fails on an unguarded dereference. This replaces an `any`.
 
-### D3. Removal and edit reuse the existing handlers
+A `Map` rather than a plain object: a stored name such as `constructor` or `toString` would otherwise resolve to an `Object.prototype` member and read as a known setting. The validation errors are held by row position for the same reason.
 
-`onQuerySettingsChange` and `deleteQuerySetting` match by name and never consult the catalog, so they already work for unknown entries. No change is needed beyond rendering the row. The row's remove button gets the accessible name `Remove <setting>` in place of an empty `aria-label`, so screen readers and tests can tell the rows' buttons apart.
+### D3. Edit and removal address a row by position
+
+`onQuerySettingsChange` and `deleteQuerySetting` take the row's index in `jsonData.querySettings`, not its name. Names are not unique in a provisioned data source, and matching by name edited or removed every entry that shared one. Neither handler consults the catalog, so unknown entries need nothing more. The row's remove button gets the accessible name `Remove <setting>` (from `src/labels.ts`) in place of an empty `aria-label`, so screen readers and tests can tell the rows' buttons apart.
+
+### D4. Tolerate malformed `querySettings`
+
+A `querySettings` that is not an array is read as empty. An entry that is not an object (`null`, a string) gets no row. Both are left as they are in `jsonData`: the editor writes entries back by position and does not drop or rewrite what it cannot show. A non-array value is replaced by an array only when the user adds a setting.
+
+**Alternative considered:** strip malformed entries on the first edit. Rejected for the same reason as dropping unknown entries in D1: the editor should not silently change what is stored.
+
+An unknown row is also not marked `required`: its value is not validated, so the asterisk would promise a check that never runs.
 
 ## Risks / Trade-offs
 
 - [The inferred catalog type may not expose `min` / `default` on every element, breaking existing reads] → `npm run typecheck`; fall back to an explicit interface in `types.ts` if inference is too narrow.
-- [A stored entry with an empty `setting` name renders an empty row] → Unchanged from today (`addQuerySetting` never writes one); covered by the existing behaviour, not by this change.
+- [A stored entry with an empty or missing `setting` name renders a row with no label] → The row still renders and can be removed, which is the way out; `addQuerySetting` never writes one. The unit test for entries that are not objects proves the section renders.
+- [Rows keyed by position remount when an earlier row is removed] → Acceptable: a row holds no local state, its value comes from `jsonData`. The duplicate-name unit tests prove edit and removal hit one row.
 - [The warning is easy to miss in a description line] → Acceptable for a non-blocking state; the unit test and e2e assert the text is shown.

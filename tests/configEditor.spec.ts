@@ -299,6 +299,9 @@ test("renders a stored query setting the plugin does not know", async ({
 }) => {
   const configPage = ConfigPageSteps.getLocator(page);
   const unknown = "hdx_query_unknown";
+  const querySettingsLabels = allLabels.components.querySettings;
+  // createDataSource, not createDatasourceConfigPage: the unknown setting has
+  // to be in jsonData before the page first renders, and the UI cannot add one.
   const ds = await createDataSource({
     type: "hydrolix-hydrolix-datasource",
     name: "unknown query setting",
@@ -316,14 +319,21 @@ test("renders a stored query setting the plugin does not know", async ({
   await closeWhatsNewDialog(page);
 
   await configPage.additionalSettingsExpandable().click({ force: true });
-  await expect(page.getByLabel(unknown, { exact: true })).toHaveValue("10");
+  const editor = page.getByTestId("data-testid hydrolix_config_page");
+  const unknownInput = editor.getByRole("textbox", {
+    name: unknown,
+    exact: true,
+  });
+  await expect(unknownInput).toHaveValue("10");
   await expect(
-    page.getByText(allLabels.components.querySettings.unknownSettingWarning)
+    editor.getByText(querySettingsLabels.unknownSettingWarning)
   ).toBeVisible();
   await expect(
-    page.getByLabel("hdx_query_max_rows", { exact: true })
+    editor.getByRole("textbox", { name: "hdx_query_max_rows", exact: true })
   ).toHaveValue("5");
 
-  await page.getByLabel(`Remove ${unknown}`).click();
-  await expect(page.getByLabel(unknown, { exact: true })).toHaveCount(0);
+  await editor
+    .getByRole("button", { name: querySettingsLabels.removeLabel(unknown) })
+    .click();
+  await expect(unknownInput).toHaveCount(0);
 });

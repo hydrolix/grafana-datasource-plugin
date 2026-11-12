@@ -1,8 +1,11 @@
 ## 1. Implementation
 
 - [x] 1.1 Add the unknown-setting warning text to `components.querySettings` in `src/labels.ts`
-- [x] 1.2 Type `querySettingDefinitions` in `ConfigEditor.tsx` as `Partial<Record<string, QuerySettingDefinition>>` (catalog element type) and fix the reads `tsc` then flags
-- [x] 1.3 Render an unknown setting's row with the warning as its description and a plain text input (no `min`)
+- [x] 1.2 Type `querySettingDefinitions` in `ConfigEditor.tsx` as `Map<string, QuerySettingDefinition>` (catalog element type) and fix the reads `tsc` then flags
+- [x] 1.3 Render an unknown setting's row with the warning as its description and a plain text input (no `min`, not `required`)
+- [x] 1.4 Address rows by position in `onQuerySettingsChange`, `deleteQuerySetting` and `settingErrors`
+- [x] 1.5 Read a non-array `querySettings` as empty and skip entries that are not objects, leaving them in `jsonData`
+- [x] 1.6 Move the remove button's accessible name to `src/labels.ts`
 
 ## 2. Unit tests
 
@@ -10,6 +13,10 @@
 - [x] 2.2 `ConfigEditor.test.tsx`: known and unknown settings render together; the known row keeps its catalog description
 - [x] 2.3 `ConfigEditor.test.tsx`: editing an unknown setting calls `onOptionsChange` with the new value
 - [x] 2.4 `ConfigEditor.test.tsx`: removing an unknown setting leaves only the other entries
+- [x] 2.5 `ConfigEditor.test.tsx`: a bad value of a known setting shows a validation error (positive control for 2.1)
+- [x] 2.6 `ConfigEditor.test.tsx`: an unknown setting named `constructor` is not marked invalid
+- [x] 2.7 `ConfigEditor.test.tsx`: a non-array `querySettings` and entries that are not objects render; an edit keeps those entries
+- [x] 2.8 `ConfigEditor.test.tsx`: with two entries of one name, edit and removal affect one row
 
 ## 3. E2E
 
