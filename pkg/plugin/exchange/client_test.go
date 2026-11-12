@@ -20,6 +20,15 @@ func testConfig(serverURL string) Config {
 	}
 }
 
+func newExchanger(t *testing.T, cfg Config) *HTTPExchanger {
+	t.Helper()
+	ex, err := NewHTTPExchanger(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ex
+}
+
 func TestTheExchangeSendsTheStandardForm(t *testing.T) {
 	var got url.Values
 	var authUser, authPass string
@@ -33,7 +42,7 @@ func TestTheExchangeSendsTheStandardForm(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	token, lifetime, err := NewHTTPExchanger(testConfig(srv.URL)).Exchange(context.Background(), aud, stok)
+	token, lifetime, err := newExchanger(t, testConfig(srv.URL)).Exchange(context.Background(), aud, stok)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +70,7 @@ func TestTheExchangeSendsTheStandardForm(t *testing.T) {
 func TestAnUnknownClusterIsMisconfiguredRatherThanRefused(t *testing.T) {
 	// No credential for this audience: an operator has not finished configuring
 	// this instance, which is not a statement about anyone's access.
-	_, _, err := NewHTTPExchanger(testConfig("http://unused.invalid")).
+	_, _, err := newExchanger(t, testConfig("http://unused.invalid")).
 		Exchange(context.Background(), "some-other-cluster", stok)
 	if !errors.Is(err, ErrMisconfigured) {
 		t.Fatalf("expected misconfigured, got %v", err)
@@ -93,7 +102,7 @@ func TestTheFacadeVocabularyMapsOntoTheThreeOutcomes(t *testing.T) {
 				_, _ = w.Write([]byte(c.body))
 			}))
 			defer srv.Close()
-			_, _, err := NewHTTPExchanger(testConfig(srv.URL)).Exchange(context.Background(), aud, stok)
+			_, _, err := newExchanger(t, testConfig(srv.URL)).Exchange(context.Background(), aud, stok)
 			if !errors.Is(err, c.want) {
 				t.Fatalf("got %v, want %v", err, c.want)
 			}
@@ -104,7 +113,7 @@ func TestTheFacadeVocabularyMapsOntoTheThreeOutcomes(t *testing.T) {
 func TestAnUnreachableConsoleIsUnavailable(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	srv.Close() // nothing is listening
-	_, _, err := NewHTTPExchanger(testConfig(srv.URL)).Exchange(context.Background(), aud, stok)
+	_, _, err := newExchanger(t, testConfig(srv.URL)).Exchange(context.Background(), aud, stok)
 	if !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("expected unavailable, got %v", err)
 	}
@@ -116,7 +125,7 @@ func TestNoErrorTextCarriesTheSecretOrTheToken(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"invalid_target","error_description":"access_denied"}`))
 	}))
 	defer srv.Close()
-	_, _, err := NewHTTPExchanger(testConfig(srv.URL)).Exchange(context.Background(), aud, stok)
+	_, _, err := newExchanger(t, testConfig(srv.URL)).Exchange(context.Background(), aud, stok)
 	msg := err.Error()
 	for _, forbidden := range []string{"delegate-secret", stok} {
 		if contains(msg, forbidden) {
@@ -294,7 +303,7 @@ func TestARedirectIsNotFollowed(t *testing.T) {
 			}))
 			defer endpoint.Close()
 
-			_, _, err := NewHTTPExchanger(testConfig(endpoint.URL)).Exchange(context.Background(), aud, stok)
+			_, _, err := newExchanger(t, testConfig(endpoint.URL)).Exchange(context.Background(), aud, stok)
 			if atomic.LoadInt32(&reached) != 0 {
 				t.Fatal("the exchange followed the redirect")
 			}
