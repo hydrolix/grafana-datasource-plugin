@@ -1,6 +1,6 @@
 ## Context
 
-The frontend already has one schema pipeline for ad-hoc filters: `MetadataProvider.tableKeys(table)` issues `DESCRIBE <table>`, parses it with `getKeyMap`, memoizes the result per table, and both `getTagKeys` and `getTagValues` read from it. `getKeyMap` resolves an alias's type through its target (`getType`), but only recognizes a target when the `default_expression` is backtick-wrapped, which is the Hydrolix DESCRIBE spelling. The bare spelling, which plain ClickHouse and the metadata-only Hydrolix DESCRIBE emit for `ALIAS cliIP`, yields an empty target and the alias is filtered out as untyped.
+The frontend already has one schema pipeline for ad-hoc filters: `MetadataProvider.tableKeys(table)` issues `DESCRIBE <table>`, parses it with `getKeyMap`, memoizes the result per table, and both `getTagKeys` and `getTagValues` read from it. `getKeyMap` resolves an alias's type through its target (`getType`), but only recognizes a target inside backticks, which is the Hydrolix DESCRIBE spelling. Its unanchored regex takes the text between the first and last backtick anywhere in the expression, so it also gave a computed alias such as ``lower(`cliIP`)`` the inner column's type and listed it. The bare spelling, which plain ClickHouse and the metadata-only Hydrolix DESCRIBE emit for `ALIAS cliIP`, yields an empty target and the alias is filtered out as untyped.
 
 PR #249 (already on this branch) layered the alias preference on a second pipeline: `DataSource.describeColumns` validates the table with its own regex, calls `executeQuery("DESCRIBE …")` directly, and `preferredColumnsFromResponse` re-parses the frame. That path bypasses the memoized key list, has no Map handling, rejects the backticked names `adHocFilterTableName` produces for views like ``akamai.`logs#redacted` ``, and leaves `getKeyMap`'s spelling gap unfixed. The `preferredColumns` variable opt-in also lives on `HdxQuery`, the shape every panel query sends to the backend, and returns the same key list the ad-hoc path produces under a second name.
 
@@ -26,7 +26,7 @@ Constraints: no plugin-side caching beyond the metadata provider's existing per-
 
 ## Decisions
 
-**D1. Fix alias target parsing in `getKeyMap`.** The alias target is the backtick content when the expression is wrapped, otherwise the trimmed expression. A target that is not a column name still resolves to type `""` and is filtered out, so computed aliases (`lower(cliIP)`, `toStartOfHour(datetime)`) behave exactly as today in both spellings. Rationale: the bug is in the parser; fixing it there makes stock behavior consistent across Hydrolix and ClickHouse and lets the new policy reuse the result. *Alternative considered:* leave `getKeyMap` alone and parse again in the policy (PR #249). Rejected: two parsers for one frame drift, and stock keeps dropping bare aliases.
+**D1. Fix alias target parsing in `getKeyMap`.** The alias target is the backtick content when the expression is wrapped, otherwise the trimmed expression. A target that is not a column name resolves to type `""` and is filtered out, so computed aliases (`lower(cliIP)`, ``lower(`cliIP`)``, `` `toStartOfHour(datetime)` `` with no such column) are excluded in both spellings. This is a deliberate behavior change: before, a computed alias whose expression contained a backticked column was listed under that column's type, which is wrong for any computation that changes the type. Computed aliases are not ad-hoc keys; no compatibility fallback is kept. Rationale: the bug is in the parser; fixing it there makes stock behavior consistent across Hydrolix and ClickHouse and lets the new policy reuse the result. *Alternative considered:* leave `getKeyMap` alone and parse again in the policy (PR #249). Rejected: two parsers for one frame drift, and stock keeps dropping bare aliases.
 
 **D2. Expose the identity-alias relation on the key.** `AdHocFilterKeys` gains optional `aliasFor?: string`, set only when the key is an alias whose target is an existing non-alias column with the same declared type. Everything else (computed, cast, missing target, alias-to-alias) leaves it unset. Rationale: the policy needs exactly this relation and nothing else from DESCRIBE; a `string | undefined` field is the smallest surface. The field is internal to the frontend; Grafana ignores extra properties on `MetricFindValue`.
 
@@ -44,16 +44,17 @@ Constraints: no plugin-side caching beyond the metadata provider's existing per-
 
 ## Risks / Trade-offs
 
-- [Stock behavior change: bare-spelled identity aliases now appear as ad-hoc keys where they were previously dropped] → Unit test on `getKeyMap` for both spellings; e2e over the ClickHouse fixture (bare spelling) asserts stock shows both names. The addition is a strict superset of today's keys.
+- [Stock behavior change: bare-spelled identity aliases now appear as ad-hoc keys where they were previously dropped] → Unit test on `getKeyMap` for both spellings; e2e over the ClickHouse fixture (bare spelling) asserts stock shows both names.
+- [Stock behavior change: a computed alias whose expression contains a backticked column is no longer an ad-hoc key, and an existing filter on it gets no value suggestions] → Deliberate (D1); recorded in the changelog; a unit case asserts the exclusion in both spellings. Saved filters on such a column still execute, because the backend's ad-hoc filter reads its own DESCRIBE. So the stock key list is not a superset of the previous one.
 - [Existing e2e key-list assertions over `e2e.adhoc_topk` break once the fixture gains an alias column] → Grep the ad-hoc specs for exact key lists before adding the column; add the alias to the fixture and update assertions in the same task.
-- [`aliasFor` leaks into `MetricFindValue` objects Grafana receives] → Grafana already receives `type` on these keys; unit test asserts `getTagKeys` output shape with the flag off is byte-for-byte unchanged.
+- [`aliasFor` leaks into `MetricFindValue` objects Grafana receives] → Grafana already receives `type` on these keys and ignores extra properties. A same-type identity alias carries `aliasFor` whether or not the option is on, so the key objects are not byte-for-byte the previous ones; the option changes only which keys are returned.
 - [Two identity aliases on one base both stay visible] → By design (no ranking); covered by a unit case.
 - [One extra DESCRIBE per validation of a query that leaves the key column unfiltered] → Issued only on that path and bounded by the validation timeout; a unit test asserts no DESCRIBE when the column is filtered.
 - [A computed alias over the key column (`toDate(...)`) still draws the warning] → Deliberate: only an exact identity is known to restrict the scan; covered by a unit case.
 
 ## Migration Plan
 
-No data migration. PR #249 was a local prototype; a variable saved with its `preferredColumns` JSON returns no options after this change. Rollback is reverting the commit; the option defaults off, so stock users see only the alias-parsing fix.
+No data migration. PR #249 was a local prototype; a variable saved with its `preferredColumns` JSON returns no options after this change. Rollback is reverting the commit. The option defaults off, so stock users see only the alias-parsing change: bare identity aliases are listed, and computed aliases with a backticked column are no longer listed.
 
 ## Open Questions
 

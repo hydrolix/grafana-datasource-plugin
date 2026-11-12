@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Ad-hoc key discovery resolves identity aliases in both DESCRIBE spellings
-The metadata provider's ad-hoc key parsing SHALL resolve an `ALIAS` column's target from `default_expression` whether the expression is backtick-wrapped (`` `cliIP` ``) or bare (`cliIP`). An alias whose target is an existing column SHALL take that column's type; an alias whose expression is not a column name SHALL be excluded, as today.
+The metadata provider's ad-hoc key parsing SHALL resolve an `ALIAS` column's target from `default_expression` whether the expression is backtick-wrapped (`` `cliIP` ``) or bare (`cliIP`). An alias whose target is an existing column SHALL take that column's type. An alias whose whole expression is not a column name (a computed alias) SHALL be excluded in either spelling. This includes a computed alias whose expression contains a backticked column (``lower(`cliIP`)``), which the previous parser listed under the inner column's type.
 
 #### Scenario: Bare identity alias is listed with its target's type
 - **WHEN** DESCRIBE returns `cliIP String` and `client_ip String ALIAS` with expression `cliIP`
@@ -11,8 +11,8 @@ The metadata provider's ad-hoc key parsing SHALL resolve an `ALIAS` column's tar
 - **WHEN** DESCRIBE returns `cliIP String` and `client_ip String ALIAS` with expression `` `cliIP` ``
 - **THEN** the key list contains both `cliIP` and `client_ip`, each with type `String`
 
-#### Scenario: Computed alias stays excluded in either spelling
-- **WHEN** DESCRIBE returns an `ALIAS` column whose expression is `lower(cliIP)` or `` `toStartOfHour(datetime)` ``
+#### Scenario: Computed alias is excluded in either spelling
+- **WHEN** DESCRIBE returns an `ALIAS` column whose expression is `lower(cliIP)`, ``lower(`cliIP`)`` or `` `toStartOfHour(datetime)` `` (with no column of that name)
 - **THEN** that column is absent from the key list
 
 ### Requirement: Keys expose the identity-alias relation
@@ -42,7 +42,7 @@ A pure helper SHALL return the key list minus every key named by some other key'
 - **THEN** the result equals the input
 
 ### Requirement: Opt-in ad-hoc keys prefer identity aliases without losing Map or quoted-table support
-When the datasource option `adHocKeysPreferAliases` is `true`, `getTagKeys` SHALL apply the preference policy to the memoized key list of the ad-hoc table and SHALL then enumerate Map keys exactly as when the option is off. When the option is absent or `false`, `getTagKeys` output SHALL be identical to the current behavior. `getTagValues` SHALL resolve values for a hidden base exactly as for any other key.
+When the datasource option `adHocKeysPreferAliases` is `true`, `getTagKeys` SHALL apply the preference policy to the memoized key list of the ad-hoc table and SHALL then enumerate Map keys exactly as when the option is off. When the option is absent or `false`, `getTagKeys` SHALL apply no preference: it SHALL offer every key the parsing requirement above produces, with Map keys enumerated the same way. `getTagValues` SHALL resolve values for a hidden base exactly as for any other key.
 
 #### Scenario: Alias offered instead of base, Map keys still enumerated
 - **WHEN** the option is on and the ad-hoc table has `cliIP`, `client_ip ALIAS cliIP`, `customerField`, and `attrs Map(String, String)` with keys `env`
@@ -60,9 +60,9 @@ When the datasource option `adHocKeysPreferAliases` is `true`, `getTagKeys` SHAL
 - **WHEN** the option is on and `getTagValues` is called for `cliIP`
 - **THEN** the value preload statement selects `cliIP` from the table with the standard time window, filters and guardrails
 
-#### Scenario: Option off is unchanged
+#### Scenario: Option off hides nothing
 - **WHEN** the option is absent
-- **THEN** `getTagKeys` returns the same keys, in the same order and shape, as before this change
+- **THEN** `getTagKeys` returns every key of the parsed key list, in DESCRIBE order, including both an identity alias and its base
 
 ### Requirement: The option is exposed as a switch in the datasource config editor
 The datasource configuration editor SHALL show an "Ad hoc filter keys prefer aliases" switch in the additional settings section, next to the ad-hoc table variable. The switch SHALL reflect `jsonData.adHocKeysPreferAliases`, SHALL be off for a datasource that has never set it, and toggling it SHALL write the boolean to `jsonData` without touching other options.

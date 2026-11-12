@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.0
+
+- **Behaviour change**: An ad hoc filter no longer offers a computed alias column as a key, with or without the new
+  *Ad hoc filter keys prefer aliases* option (CFB-4004). Up to 0.13.2 the plugin listed an `ALIAS` column whose
+  expression contained a backticked column, such as ``lower(`UA`)`` or a summary-table calculation over an
+  expression-named key, and gave it that inner column's type. Only an alias whose whole expression is one column name
+  is a key now. An existing filter on such a column gets no value suggestions, but saved filters still execute: the
+  backend's ad hoc filter reads its own `DESCRIBE`
+
 ## 0.13.2
 
 - **Fix**: `$__timeFilter()`, `$__timeFilter_ms()`, `$__timeInterval()` and `$__timeInterval_ms()` without a column
