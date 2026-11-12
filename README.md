@@ -604,7 +604,7 @@ treated as no rounding.
 
 | Default round | Query round | Effective round | Input timestamp | Rounded timestamp |
 | ------------- | ----------- | --------------- | --------------- | ----------------- |
-| `5m`          | _not set_   | `5m` (currently not applied) | `10:07:20` | `10:05:00` (currently `10:07:20`) |
+| `5m`          | _not set_   | `5m`            | `10:07:20`      | `10:05:00`        |
 | `5m`          | `1m`        | `1m`            | `09:02:30`      | `09:03:00`        |
 | _not set_     | _not set_   | _not applied_   | `08:01:23`      | `08:01:23`        |
 | `5m`          | `0`         | _not applied_   | `07:45:50`      | `07:45:50`        |
