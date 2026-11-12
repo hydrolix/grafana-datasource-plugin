@@ -202,6 +202,55 @@ func (p *MetadataProvider) QueryPK(ctx context.Context, headers http.Header, dat
 	return GetStringSafe(frame.Fields[0].At(0))
 }
 
+// QueryAliases returns the ALIAS columns of (database, table) mapped to their
+// expressions, as DESCRIBE spells them. Hydrolix lists ALIAS columns in
+// DESCRIBE only, not in system.columns. If database is empty, the wrapper's
+// configured default database is used.
+func (p *MetadataProvider) QueryAliases(ctx context.Context, headers http.Header, database, table string) (map[string]string, error) {
+	if database == "" {
+		defaultDB, err := p.getDefaultDatabase()
+		if err != nil {
+			return nil, err
+		}
+		database = defaultDB
+	}
+	sql, err := describeTableIdentifier(&parser.TableIdentifier{
+		Database: &parser.Ident{Name: database},
+		Table:    &parser.Ident{Name: table},
+	})
+	if err != nil {
+		return nil, err
+	}
+	frame, err := p.executeQuery(ctx, headers, sql, "alias_query")
+	if err != nil {
+		return nil, err
+	}
+	aliases := map[string]string{}
+	// DESCRIBE columns: name, type, default_type, default_expression, ...
+	if len(frame.Fields) < 4 {
+		return aliases, nil
+	}
+	for i := 0; i < frame.Fields[0].Len(); i++ {
+		kind, err := GetStringSafe(frame.Fields[2].At(i))
+		if err != nil {
+			return nil, err
+		}
+		if kind != "ALIAS" {
+			continue
+		}
+		name, err := GetStringSafe(frame.Fields[0].At(i))
+		if err != nil {
+			return nil, err
+		}
+		expression, err := GetStringSafe(frame.Fields[3].At(i))
+		if err != nil {
+			return nil, err
+		}
+		aliases[name] = expression
+	}
+	return aliases, nil
+}
+
 // QueryKeys issues a DESCRIBE for the given table reference or subquery and
 // assembles the column-name → column-type map. The DESCRIBE target is built
 // by buildDescribeSQL from validated, quoted AST shapes — never by string

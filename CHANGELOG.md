@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.13.3
+
+- **Feature**: New datasource option "Ad hoc filter keys prefer aliases" (additional settings, off by default). When on,
+  the ad hoc filter key picker hides a physical column that has a same-type identity alias (`client_ip String ALIAS
+  cliIP`) and offers the alias alone, so dashboards can present canonical names (CFB-4004). Computed, type-changing and
+  chained aliases stay visible, Map columns keep their key enumeration, and an existing filter on a hidden column still
+  loads values. See `docs/adhoc-keys-prefer-aliases.md`
+- **Fix**: An identity alias whose DESCRIBE expression is a bare column name (not backtick-quoted) was dropped from the
+  ad hoc filter keys; it is now listed like a backtick-quoted one
+- **Fix**: The query editor's validation bar warned about an unfiltered primary key on Hydrolix summary tables when the
+  key column (`toStartOfDay(reqTimeSec)`) was filtered through its identity alias, e.g. `$__timeFilter(reqTimeSec)`. A
+  filter on an alias whose expression is exactly the key column now counts; computed aliases still warn
+
 ## 0.13.2
 
 - **Fix**: `$__timeFilter()`, `$__timeFilter_ms()`, `$__timeInterval()` and `$__timeInterval_ms()` without a column
