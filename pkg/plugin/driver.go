@@ -463,7 +463,10 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 			RawSql        string                `json:"rawSql"`
 			QuerySettings []models.QuerySetting `json:"querySettings,omitempty"`
 		}
-		_ = json.Unmarshal(q.JSON, &dataQuery)
+		if err := json.Unmarshal(q.JSON, &dataQuery); err != nil {
+			// The query still runs, with the settings read before the bad entry.
+			log.DefaultLogger.Warn("failed to read query settings", "err", err, "refId", q.RefID)
+		}
 		mergedSettings := make(map[string]string)
 		for _, setting := range pluginSettings.QuerySettings {
 			mergedSettings[setting.Setting] = setting.Value

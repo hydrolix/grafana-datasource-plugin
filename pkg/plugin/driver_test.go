@@ -769,3 +769,25 @@ func TestMutateQuerySkipsEmptyQuerySettings(t *testing.T) {
 		map[string]any{"hdx_query_max_rows": clickhouse.CustomSetting{Value: "100"}},
 		ctx.Value("querySettings"))
 }
+
+// A per-query value written by hand as a JSON number, the way an alert rule or
+// the query API can carry it, overrides the data source's value as text.
+func TestMutateQueryData_NumericQuerySettingValue(t *testing.T) {
+	h := &Hydrolix{querySettingsContextHandler: testContextHandler}
+	req := makeQueryDataReq(t, "", nil, `{"rawSql":"select 1","querySettings":[
+		{"setting":"hdx_query_max_execution_time","value":30},
+		{"setting":"hdx_query_streaming_result","value":true}
+	]}`)
+	req.PluginContext.DataSourceInstanceSettings.JSONData = []byte(`{"host":"localhost","port":80,"protocol":"http",
+		"querySettings":[{"setting":"hdx_query_max_execution_time","value":"60"}]}`)
+
+	_, out := h.MutateQueryData(context.Background(), req)
+	ctx, _ := h.MutateQuery(context.Background(), out.Queries[0])
+
+	assert.Equal(t,
+		map[string]any{
+			"hdx_query_max_execution_time": clickhouse.CustomSetting{Value: "30"},
+			"hdx_query_streaming_result":   clickhouse.CustomSetting{Value: "true"},
+		},
+		ctx.Value("querySettings"))
+}

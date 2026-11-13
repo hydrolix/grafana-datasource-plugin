@@ -94,6 +94,12 @@ When the text input of a query setting, known or unknown, loses focus while empt
 - **WHEN** the backend builds the query context
 - **THEN** the context SHALL carry `hdx_query_max_rows` only
 
+#### Scenario: Stored entry with no value is sent to the backend as empty
+
+- **GIVEN** `jsonData.querySettings` holds `{"setting": "hdx_query_max_rows"}` with no `value`, or with `value: null`
+- **WHEN** the frontend merges the query settings into a query
+- **THEN** the query SHALL carry `hdx_query_max_rows` with the value `""`, not the text `undefined` or `null`
+
 ### Requirement: Boolean query setting shows the stored state
 
 The select of a boolean query setting SHALL show "Yes" when the stored value is `"1"`, the number `1`, the boolean `true` or `"true"`, and "No" otherwise.

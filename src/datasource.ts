@@ -257,7 +257,8 @@ export class DataSource extends DataSourceWithBackend<
           .filter((s) => s?.setting)
           .reduce((acc: { [key: string]: any }, s) => {
             acc[s.setting] = replace(
-              this.templateSrv.replace(`${s.value}`),
+              // A missing value is an empty one, which the backend leaves out.
+              this.templateSrv.replace(`${s.value ?? ""}`),
               vars
             );
             return acc;

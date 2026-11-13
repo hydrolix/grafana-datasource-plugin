@@ -124,11 +124,11 @@ func TestPluginSettings(t *testing.T) {
 
 				switch test.res.(type) {
 				case bool:
-					v, err := parseBool(test.val)
+					v, err := parseBool(test.name, test.val)
 					assert.NoError(t, err)
 					assert.Equal(t, test.res, v)
 				default:
-					v, err := parseUint(test.val)
+					v, err := parseUint(test.name, test.val)
 					assert.NoError(t, err)
 					assert.Equal(t, test.res, v)
 				}
@@ -331,6 +331,16 @@ func TestPluginSettingsQuerySettings(t *testing.T) {
 		assert.Contains(t, err.Error(), "querySettings[0].value")
 	})
 
+	t.Run("an array setting name returns an error naming the entry field", func(t *testing.T) {
+		_, err := newSettingsFromJSON(t, map[string]any{"querySettings": []any{
+			map[string]any{"setting": []any{"s3cr3t"}, "value": 1},
+		}})
+		assert.ErrorIs(t, err, ErrorMessageInvalidSettingType)
+		assert.True(t, backend.IsDownstreamError(err))
+		assert.Contains(t, err.Error(), "querySettings[0].setting")
+		assert.NotContains(t, err.Error(), "s3cr3t")
+	})
+
 	t.Run("a querySettings value that is not an array returns an error naming the field", func(t *testing.T) {
 		for name, value := range map[string]any{
 			"object": map[string]any{"setting": "hdx_query_max_rows", "value": "1"},
@@ -346,6 +356,107 @@ func TestPluginSettingsQuerySettings(t *testing.T) {
 				assert.NotContains(t, err.Error(), "hdx_query_max_rows")
 			})
 		}
+	})
+}
+
+func TestPluginSettingsPortAndBoolFields(t *testing.T) {
+	secret := map[string]any{"secret": "s3cr3t"}
+
+	t.Run("an unsupported type returns an error naming the field", func(t *testing.T) {
+		for _, key := range []string{"port", "secure", "skipTlsVerify"} {
+			for _, val := range []any{secret, []any{"s3cr3t"}} {
+				t.Run(fmt.Sprintf("%s-%T", key, val), func(t *testing.T) {
+					_, err := newSettingsFromJSON(t, map[string]any{key: val})
+					assert.ErrorIs(t, err, ErrorMessageInvalidSettingType)
+					assert.True(t, backend.IsDownstreamError(err))
+					assert.Contains(t, err.Error(), key)
+					assert.NotContains(t, err.Error(), "s3cr3t")
+				})
+			}
+		}
+	})
+
+	t.Run("a value out of range returns an error naming the field", func(t *testing.T) {
+		tests := []struct {
+			key string
+			val any
+		}{
+			{"port", "s3cr3t"},
+			{"port", 70000},
+			{"port", 65536},
+			{"port", -1},
+			{"port", 80.5},
+			{"port", "80.5"},
+			{"port", true},
+			{"secure", "s3cr3t"},
+			{"secure", 2},
+			{"secure", 0.5},
+			{"skipTlsVerify", "s3cr3t"},
+			{"skipTlsVerify", -1},
+		}
+		for _, test := range tests {
+			t.Run(fmt.Sprintf("%s-%v", test.key, test.val), func(t *testing.T) {
+				_, err := newSettingsFromJSON(t, map[string]any{test.key: test.val})
+				if test.key == "port" && test.val == true {
+					assert.ErrorIs(t, err, ErrorMessageInvalidSettingType)
+				} else {
+					assert.ErrorIs(t, err, ErrorMessageInvalidSettingValue)
+				}
+				assert.True(t, backend.IsDownstreamError(err))
+				assert.Contains(t, err.Error(), test.key)
+				assert.NotContains(t, err.Error(), "s3cr3t")
+			})
+		}
+	})
+
+	t.Run("the largest port is kept", func(t *testing.T) {
+		settings, err := newSettingsFromJSON(t, map[string]any{"port": 65535})
+		assert.NoError(t, err)
+		assert.Equal(t, uint16(65535), settings.Port)
+	})
+}
+
+func TestQuerySettingUnmarshalJSON(t *testing.T) {
+	t.Run("numbers and booleans are read as text", func(t *testing.T) {
+		var got []QuerySetting
+		err := json.Unmarshal([]byte(`[
+			{"setting": "hdx_query_max_execution_time", "value": 30},
+			{"setting": "hdx_query_streaming_result", "value": true},
+			{"setting": "x", "value": 0.5},
+			{"setting": "hdx_query_pool_name", "value": "pool"},
+			{"setting": "hdx_query_max_rows"},
+			{"setting": "hdx_query_max_columns", "value": null}
+		]`), &got)
+		assert.NoError(t, err)
+		assert.Equal(t, []QuerySetting{
+			{Setting: "hdx_query_max_execution_time", Value: "30"},
+			{Setting: "hdx_query_streaming_result", Value: "true"},
+			{Setting: "x", Value: "0.5"},
+			{Setting: "hdx_query_pool_name", Value: "pool"},
+			{Setting: "hdx_query_max_rows", Value: ""},
+			{Setting: "hdx_query_max_columns", Value: ""},
+		}, got)
+	})
+
+	t.Run("an unsupported type returns an error naming the field", func(t *testing.T) {
+		for name, entry := range map[string]string{
+			"value":   `{"setting": "hdx_query_max_rows", "value": {"secret": "s3cr3t"}}`,
+			"setting": `{"setting": ["s3cr3t"], "value": "1"}`,
+			"entry":   `"s3cr3t"`,
+		} {
+			t.Run(name, func(t *testing.T) {
+				var got QuerySetting
+				err := json.Unmarshal([]byte(entry), &got)
+				assert.ErrorIs(t, err, ErrorMessageInvalidSettingType)
+				assert.NotContains(t, err.Error(), "s3cr3t")
+			})
+		}
+	})
+
+	t.Run("marshalling is unchanged", func(t *testing.T) {
+		out, err := json.Marshal(QuerySetting{Setting: "hdx_query_max_rows", Value: "1"})
+		assert.NoError(t, err)
+		assert.JSONEq(t, `{"setting": "hdx_query_max_rows", "value": "1"}`, string(out))
 	})
 }
 

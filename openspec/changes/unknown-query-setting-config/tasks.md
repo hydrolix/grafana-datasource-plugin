@@ -11,6 +11,8 @@
 - [x] 1.9 `pkg/plugin/driver.go`: `MutateQuery` leaves empty-valued settings out of the query context
 
 - [x] 1.10 Show a boolean setting stored as `true`, `"true"` or `1` as "Yes"
+- [x] 1.11 `pkg/plugin/models/settings.go`: `QuerySetting.UnmarshalJSON` reads a per-query number or boolean as text; `MutateQueryData` logs a decode error instead of discarding it
+- [x] 1.12 `src/datasource.ts`: the query settings merge sends a missing or `null` value as `""`
 
 ## 2. Unit tests
 
@@ -28,6 +30,8 @@
 - [x] 2.11 `driver_test.go`: `MutateQuery` leaves an empty-valued setting out of the context
 
 - [x] 2.12 `ConfigEditor.test.tsx`: a boolean setting stored as `"1"`, `1`, `true` or `"true"` shows "Yes"; `"0"`, `0` or `false` shows "No"
+- [x] 2.13 `settings_test.go`: `QuerySetting` unmarshals numbers, booleans and missing values as text and rejects other types; `driver_test.go`: a per-query numeric value overrides the data source's
+- [x] 2.14 `datasource.test.ts`: a data-source-level entry with no value is sent as `""`
 
 ## 3. E2E
 

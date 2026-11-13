@@ -720,6 +720,32 @@ describe("HdxDataSource", () => {
       ]);
     });
 
+    it("should send a datasource-level entry with no value as an empty value", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({
+        customInstanceSettings: {
+          ...MockDataSourceInstanceSettings,
+          jsonData: {
+            ...MockDataSourceInstanceSettings.jsonData,
+            querySettings: [
+              { setting: "hdx_query_max_rows" },
+              { setting: "hdx_query_max_columns", value: null },
+              { setting: "hdx_query_max_execution_time", value: 30 },
+            ] as any,
+          },
+        },
+      });
+      queryMock.mockReturnValue(of({ data: [] }));
+      const req = {
+        targets: [{ rawSql: "select 1", refId: "A" }],
+      } as DataQueryRequest<HdxQuery>;
+      await firstValueFrom(datasource.query(req));
+      expect(queryMock.mock.calls[0][0].targets[0].querySettings).toEqual([
+        { setting: "hdx_query_max_rows", value: "" },
+        { setting: "hdx_query_max_columns", value: "" },
+        { setting: "hdx_query_max_execution_time", value: "30" },
+      ]);
+    });
+
     it("should merge datasource-level and query-level settings", async () => {
       const { datasource, queryMock } = setupDataSourceMock({
         customInstanceSettings: {
