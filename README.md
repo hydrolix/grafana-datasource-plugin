@@ -337,6 +337,10 @@ ORDER BY time
 
 The plugin ensures filters are applied only when valid for the selected table.
 
+The plugin reads a table's column names again a minute after it last read them. A column or alias added to the table
+while a dashboard is open appears in the filter key list, and a filter on it applies, within a minute, without
+reloading the page or saving the data source.
+
 #### Configure ad hoc filters
 
 To enable ad hoc filters, both the data source and the dashboard must be configured properly:
