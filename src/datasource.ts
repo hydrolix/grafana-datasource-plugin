@@ -252,12 +252,14 @@ export class DataSource extends DataSourceWithBackend<
     const accumulator: { [v: string]: string } = {};
     return {
       addSettings: (querySettings: QuerySetting[]) =>
-        querySettings &&
+        // Anything that is not an array has no entries to merge.
+        Array.isArray(querySettings) &&
         querySettings
-          .filter((s) => s.setting)
+          .filter((s) => s?.setting)
           .reduce((acc: { [key: string]: any }, s) => {
             acc[s.setting] = replace(
-              this.templateSrv.replace(`${s.value}`),
+              // A missing value is an empty one, which the backend leaves out.
+              this.templateSrv.replace(`${s.value ?? ""}`),
               vars
             );
             return acc;

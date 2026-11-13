@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.13.5
+
+- **Security**: A data source that cannot connect now reports one fixed sentence per kind of failure ("Host name could
+  not be resolved", "Connection refused", "Connection timed out", "TLS handshake failed", "Authentication failed", "The
+  server answered HTTP n", ...) in "Save & test", in the health check and in the panel error of a query that never
+  reached the cluster. The driver's raw error, which named the dialled address, the resolver and the body another HTTP
+  service answered with, goes to the Grafana server log only. A refused redirect is reported by status alone; its
+  redacted target is logged, not shown. Answers from the cluster to a query, SQL errors included, are unchanged. Flagged
+  by Grafana's plugin review of 0.13.4
+- **Fix**: A number or boolean in a string setting (`dialTimeout: 10`, an unquoted query setting `value` in
+  provisioning YAML, Pulumi or the HTTP API) panicked the backend, and the data source failed every health check and
+  query with a generic error (HDX-12842). Numbers and booleans are now read as their text. An object or array fails with
+  an error naming the field; this includes a `querySettings` value that is not a list, which was silently ignored before
+- **Fix**: The data source config page crashed and could not be opened when `querySettings` held a setting name this
+  plugin version does not know (HDX-12858). Such a setting is now shown as a plain text row with a warning, is sent to
+  Hydrolix as-is, and can be edited or removed. Entries that are not objects no longer break the page or the query, rows
+  that share a name are edited one at a time, and a boolean setting stored as `1`, `true` or `"true"` shows "Yes"
+- **Fix**: A query setting with an empty value was sent to Hydrolix as an empty value; it is now left out of the query,
+  as is an entry with no setting name. In the config editor, a row left empty is removed
+
 ## 0.13.4
 
 - **Security**: Removed the unused `token` field from the data source's clear-text `jsonData` type. The service account

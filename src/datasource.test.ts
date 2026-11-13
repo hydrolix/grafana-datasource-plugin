@@ -697,6 +697,55 @@ describe("HdxDataSource", () => {
   });
 
   describe("query settings", () => {
+    it("should skip datasource-level entries that are not objects", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({
+        customInstanceSettings: {
+          ...MockDataSourceInstanceSettings,
+          jsonData: {
+            ...MockDataSourceInstanceSettings.jsonData,
+            querySettings: [
+              null,
+              { setting: "hdx_query_max_rows", value: "1000" },
+            ] as any,
+          },
+        },
+      });
+      queryMock.mockReturnValue(of({ data: [] }));
+      const req = {
+        targets: [{ rawSql: "select 1", refId: "A" }],
+      } as DataQueryRequest<HdxQuery>;
+      await firstValueFrom(datasource.query(req));
+      expect(queryMock.mock.calls[0][0].targets[0].querySettings).toEqual([
+        { setting: "hdx_query_max_rows", value: "1000" },
+      ]);
+    });
+
+    it("should send a datasource-level entry with no value as an empty value", async () => {
+      const { datasource, queryMock } = setupDataSourceMock({
+        customInstanceSettings: {
+          ...MockDataSourceInstanceSettings,
+          jsonData: {
+            ...MockDataSourceInstanceSettings.jsonData,
+            querySettings: [
+              { setting: "hdx_query_max_rows" },
+              { setting: "hdx_query_max_columns", value: null },
+              { setting: "hdx_query_max_execution_time", value: 30 },
+            ] as any,
+          },
+        },
+      });
+      queryMock.mockReturnValue(of({ data: [] }));
+      const req = {
+        targets: [{ rawSql: "select 1", refId: "A" }],
+      } as DataQueryRequest<HdxQuery>;
+      await firstValueFrom(datasource.query(req));
+      expect(queryMock.mock.calls[0][0].targets[0].querySettings).toEqual([
+        { setting: "hdx_query_max_rows", value: "" },
+        { setting: "hdx_query_max_columns", value: "" },
+        { setting: "hdx_query_max_execution_time", value: "30" },
+      ]);
+    });
+
     it("should merge datasource-level and query-level settings", async () => {
       const { datasource, queryMock } = setupDataSourceMock({
         customInstanceSettings: {
@@ -788,6 +837,30 @@ describe("HdxDataSource", () => {
         sentTarget.querySettings.find((s: any) => s.setting === "")
       ).toBeUndefined();
     });
+
+    it.each([
+      ["datasource-level", { hdx_query_max_rows: "10" }, undefined],
+      ["per-query", undefined, { hdx_query_max_rows: "10" }],
+    ])(
+      "should send the query when the %s querySettings is not an array",
+      async (_, stored, perQuery) => {
+        const { datasource, queryMock } = setupDataSourceMock({
+          customInstanceSettings: {
+            ...MockDataSourceInstanceSettings,
+            jsonData: {
+              ...MockDataSourceInstanceSettings.jsonData,
+              querySettings: stored as any,
+            },
+          },
+        });
+        queryMock.mockReturnValue(of({ data: [] }));
+        const req = {
+          targets: [{ rawSql: "select 1", refId: "A", querySettings: perQuery }],
+        } as any as DataQueryRequest<HdxQuery>;
+        await firstValueFrom(datasource.query(req));
+        expect(queryMock.mock.calls[0][0].targets[0].querySettings).toEqual([]);
+      }
+    );
 
     it("should handle empty querySettings arrays", async () => {
       const { datasource, queryMock } = setupDataSourceMock({});

@@ -124,11 +124,11 @@ func TestPluginSettings(t *testing.T) {
 
 				switch test.res.(type) {
 				case bool:
-					v, err := parseBool(test.val)
+					v, err := parseBool(test.name, test.val)
 					assert.NoError(t, err)
 					assert.Equal(t, test.res, v)
 				default:
-					v, err := parseUint(test.val)
+					v, err := parseUint(test.name, test.val)
 					assert.NoError(t, err)
 					assert.Equal(t, test.res, v)
 				}
@@ -199,6 +199,283 @@ func TestPluginSettings(t *testing.T) {
 		assert.Error(t, errSettings.IsValid(), ErrorMessageInvalidQueryTimeout)
 
 	})
+}
+
+// newSettingsFromJSON parses a minimal valid config with overrides applied,
+// the way Grafana hands provisioned or API-created jsonData to the plugin.
+func newSettingsFromJSON(t *testing.T, overrides map[string]any) (PluginSettings, error) {
+	t.Helper()
+	raw := map[string]any{"host": "localhost", "port": 80, "protocol": "native"}
+	for k, v := range overrides {
+		raw[k] = v
+	}
+	jsonData, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewPluginSettings(context.Background(), backend.DataSourceInstanceSettings{JSONData: jsonData})
+}
+
+func TestPluginSettingsStringFields(t *testing.T) {
+	t.Run("numbers and booleans are read as text", func(t *testing.T) {
+		tests := []struct {
+			key   string
+			val   any
+			field string
+			want  string
+		}{
+			{"dialTimeout", 10, "DialTimeout", "10"},
+			{"queryTimeout", 120, "QueryTimeout", "120"},
+			{"username", 12345, "UserName", "12345"},
+			{"defaultDatabase", 2024, "DefaultDatabase", "2024"},
+			{"path", 1, "Path", "1"},
+			{"credentialsType", true, "CredentialsType", "true"},
+			{"host", 10, "Host", "10"},
+			{"username", 1e21, "UserName", "1000000000000000000000"},
+			{"username", 1.5, "UserName", "1.5"},
+			{"username", false, "UserName", "false"},
+			{"username", "default", "UserName", "default"},
+		}
+		for _, test := range tests {
+			t.Run(fmt.Sprintf("%s-%v", test.key, test.val), func(t *testing.T) {
+				settings, err := newSettingsFromJSON(t, map[string]any{test.key: test.val})
+				assert.NoError(t, err)
+				assert.Equal(t, test.want, getField(settings, test.field))
+			})
+		}
+	})
+
+	t.Run("protocol given as a number reaches protocol validation", func(t *testing.T) {
+		_, err := newSettingsFromJSON(t, map[string]any{"protocol": 1})
+		assert.ErrorIs(t, err, ErrorMessageInvalidProtocol)
+	})
+
+	t.Run("fractional timeouts fail the existing timeout validation", func(t *testing.T) {
+		_, err := newSettingsFromJSON(t, map[string]any{"dialTimeout": 10.5})
+		assert.ErrorIs(t, err, ErrorMessageInvalidDialTimeout)
+		_, err = newSettingsFromJSON(t, map[string]any{"queryTimeout": 60.5})
+		assert.ErrorIs(t, err, ErrorMessageInvalidQueryTimeout)
+	})
+
+	t.Run("objects and arrays return an error naming the field", func(t *testing.T) {
+		for _, key := range []string{"host", "protocol", "credentialsType", "path", "username", "defaultDatabase", "dialTimeout", "queryTimeout"} {
+			for _, val := range []any{map[string]any{"secret": "s3cr3t"}, []any{"s3cr3t"}} {
+				t.Run(fmt.Sprintf("%s-%T", key, val), func(t *testing.T) {
+					_, err := newSettingsFromJSON(t, map[string]any{key: val})
+					assert.ErrorIs(t, err, ErrorMessageInvalidSettingType)
+					assert.True(t, backend.IsDownstreamError(err))
+					assert.Contains(t, err.Error(), key)
+					assert.NotContains(t, err.Error(), "s3cr3t")
+				})
+			}
+		}
+	})
+}
+
+func TestPluginSettingsQuerySettings(t *testing.T) {
+	t.Run("numeric and boolean values are read as text", func(t *testing.T) {
+		settings, err := newSettingsFromJSON(t, map[string]any{"querySettings": []any{
+			map[string]any{"setting": "hdx_query_max_execution_time", "value": 30},
+			map[string]any{"setting": "hdx_query_streaming_result", "value": true},
+			map[string]any{"setting": "x", "value": 0.5},
+			map[string]any{"setting": "hdx_query_pool_name", "value": "pool"},
+		}})
+		assert.NoError(t, err)
+		assert.Equal(t, []QuerySetting{
+			{Setting: "hdx_query_max_execution_time", Value: "30"},
+			{Setting: "hdx_query_streaming_result", Value: "true"},
+			{Setting: "x", Value: "0.5"},
+			{Setting: "hdx_query_pool_name", Value: "pool"},
+		}, settings.QuerySettings)
+	})
+
+	t.Run("numeric and boolean setting names are read as text", func(t *testing.T) {
+		settings, err := newSettingsFromJSON(t, map[string]any{"querySettings": []any{
+			map[string]any{"setting": 42, "value": "a"},
+			map[string]any{"setting": 0.5, "value": "b"},
+			map[string]any{"setting": true, "value": "c"},
+		}})
+		assert.NoError(t, err)
+		assert.Equal(t, []QuerySetting{
+			{Setting: "42", Value: "a"},
+			{Setting: "0.5", Value: "b"},
+			{Setting: "true", Value: "c"},
+		}, settings.QuerySettings)
+	})
+
+	t.Run("nameless entries are skipped and a missing value is empty", func(t *testing.T) {
+		settings, err := newSettingsFromJSON(t, map[string]any{"querySettings": []any{
+			map[string]any{"value": "1"},
+			map[string]any{"setting": ""},
+			map[string]any{"setting": "hdx_query_max_rows"},
+		}})
+		assert.NoError(t, err)
+		assert.Equal(t, []QuerySetting{{Setting: "hdx_query_max_rows", Value: ""}}, settings.QuerySettings)
+	})
+
+	t.Run("an entry that is not an object returns an error naming its index", func(t *testing.T) {
+		_, err := newSettingsFromJSON(t, map[string]any{"querySettings": []any{
+			map[string]any{"setting": "hdx_query_max_rows", "value": "1"},
+			"hdx_query_max_rows",
+		}})
+		assert.ErrorIs(t, err, ErrorMessageInvalidSettingType)
+		assert.True(t, backend.IsDownstreamError(err))
+		assert.Contains(t, err.Error(), "querySettings[1]")
+	})
+
+	t.Run("an object value returns an error naming the entry field", func(t *testing.T) {
+		_, err := newSettingsFromJSON(t, map[string]any{"querySettings": []any{
+			map[string]any{"setting": "hdx_query_max_rows", "value": map[string]any{"n": 1}},
+		}})
+		assert.ErrorIs(t, err, ErrorMessageInvalidSettingType)
+		assert.Contains(t, err.Error(), "querySettings[0].value")
+	})
+
+	t.Run("an array setting name returns an error naming the entry field", func(t *testing.T) {
+		_, err := newSettingsFromJSON(t, map[string]any{"querySettings": []any{
+			map[string]any{"setting": []any{"s3cr3t"}, "value": 1},
+		}})
+		assert.ErrorIs(t, err, ErrorMessageInvalidSettingType)
+		assert.True(t, backend.IsDownstreamError(err))
+		assert.Contains(t, err.Error(), "querySettings[0].setting")
+		assert.NotContains(t, err.Error(), "s3cr3t")
+	})
+
+	t.Run("a querySettings value that is not an array returns an error naming the field", func(t *testing.T) {
+		for name, value := range map[string]any{
+			"object": map[string]any{"setting": "hdx_query_max_rows", "value": "1"},
+			"string": "hdx_query_max_rows=1",
+			"number": 1,
+			"bool":   true,
+		} {
+			t.Run(name, func(t *testing.T) {
+				_, err := newSettingsFromJSON(t, map[string]any{"querySettings": value})
+				assert.ErrorIs(t, err, ErrorMessageInvalidSettingType)
+				assert.True(t, backend.IsDownstreamError(err))
+				assert.Contains(t, err.Error(), "querySettings:")
+				assert.NotContains(t, err.Error(), "hdx_query_max_rows")
+			})
+		}
+	})
+}
+
+func TestPluginSettingsPortAndBoolFields(t *testing.T) {
+	secret := map[string]any{"secret": "s3cr3t"}
+
+	t.Run("an unsupported type returns an error naming the field", func(t *testing.T) {
+		for _, key := range []string{"port", "secure", "skipTlsVerify"} {
+			for _, val := range []any{secret, []any{"s3cr3t"}} {
+				t.Run(fmt.Sprintf("%s-%T", key, val), func(t *testing.T) {
+					_, err := newSettingsFromJSON(t, map[string]any{key: val})
+					assert.ErrorIs(t, err, ErrorMessageInvalidSettingType)
+					assert.True(t, backend.IsDownstreamError(err))
+					assert.Contains(t, err.Error(), key)
+					assert.NotContains(t, err.Error(), "s3cr3t")
+				})
+			}
+		}
+	})
+
+	t.Run("a value out of range returns an error naming the field", func(t *testing.T) {
+		tests := []struct {
+			key string
+			val any
+		}{
+			{"port", "s3cr3t"},
+			{"port", 70000},
+			{"port", 65536},
+			{"port", -1},
+			{"port", 80.5},
+			{"port", "80.5"},
+			{"port", true},
+			{"secure", "s3cr3t"},
+			{"secure", 2},
+			{"secure", 0.5},
+			{"skipTlsVerify", "s3cr3t"},
+			{"skipTlsVerify", -1},
+		}
+		for _, test := range tests {
+			t.Run(fmt.Sprintf("%s-%v", test.key, test.val), func(t *testing.T) {
+				_, err := newSettingsFromJSON(t, map[string]any{test.key: test.val})
+				if test.key == "port" && test.val == true {
+					assert.ErrorIs(t, err, ErrorMessageInvalidSettingType)
+				} else {
+					assert.ErrorIs(t, err, ErrorMessageInvalidSettingValue)
+				}
+				assert.True(t, backend.IsDownstreamError(err))
+				assert.Contains(t, err.Error(), test.key)
+				assert.NotContains(t, err.Error(), "s3cr3t")
+			})
+		}
+	})
+
+	t.Run("the largest port is kept", func(t *testing.T) {
+		settings, err := newSettingsFromJSON(t, map[string]any{"port": 65535})
+		assert.NoError(t, err)
+		assert.Equal(t, uint16(65535), settings.Port)
+	})
+}
+
+func TestQuerySettingUnmarshalJSON(t *testing.T) {
+	t.Run("numbers and booleans are read as text", func(t *testing.T) {
+		var got []QuerySetting
+		err := json.Unmarshal([]byte(`[
+			{"setting": "hdx_query_max_execution_time", "value": 30},
+			{"setting": "hdx_query_streaming_result", "value": true},
+			{"setting": "x", "value": 0.5},
+			{"setting": "hdx_query_pool_name", "value": "pool"},
+			{"setting": "hdx_query_max_rows"},
+			{"setting": "hdx_query_max_columns", "value": null}
+		]`), &got)
+		assert.NoError(t, err)
+		assert.Equal(t, []QuerySetting{
+			{Setting: "hdx_query_max_execution_time", Value: "30"},
+			{Setting: "hdx_query_streaming_result", Value: "true"},
+			{Setting: "x", Value: "0.5"},
+			{Setting: "hdx_query_pool_name", Value: "pool"},
+			{Setting: "hdx_query_max_rows", Value: ""},
+			{Setting: "hdx_query_max_columns", Value: ""},
+		}, got)
+	})
+
+	t.Run("an unsupported type returns an error naming the field", func(t *testing.T) {
+		for name, entry := range map[string]string{
+			"value":   `{"setting": "hdx_query_max_rows", "value": {"secret": "s3cr3t"}}`,
+			"setting": `{"setting": ["s3cr3t"], "value": "1"}`,
+			"entry":   `"s3cr3t"`,
+		} {
+			t.Run(name, func(t *testing.T) {
+				var got QuerySetting
+				err := json.Unmarshal([]byte(entry), &got)
+				assert.ErrorIs(t, err, ErrorMessageInvalidSettingType)
+				assert.NotContains(t, err.Error(), "s3cr3t")
+			})
+		}
+	})
+
+	t.Run("marshalling is unchanged", func(t *testing.T) {
+		out, err := json.Marshal(QuerySetting{Setting: "hdx_query_max_rows", Value: "1"})
+		assert.NoError(t, err)
+		assert.JSONEq(t, `{"setting": "hdx_query_max_rows", "value": "1"}`, string(out))
+	})
+}
+
+// TestNewPluginSettingsNeverPanics sets each field the backend reads to every
+// JSON type; before HDX-12842 a number in a string field panicked.
+func TestNewPluginSettingsNeverPanics(t *testing.T) {
+	keys := []string{"host", "port", "protocol", "credentialsType", "secure", "path", "username",
+		"defaultDatabase", "dialTimeout", "queryTimeout", "skipTlsVerify", "querySettings"}
+	values := []any{nil, "s", 0, 1, 10.5, -1, true, false, map[string]any{"k": "v"}, []any{1, "s", nil},
+		[]any{map[string]any{"setting": 1, "value": nil}}, []any{map[string]any{"setting": []any{}, "value": 1}}}
+	for _, key := range keys {
+		for _, val := range values {
+			t.Run(fmt.Sprintf("%s-%v", key, val), func(t *testing.T) {
+				assert.NotPanics(t, func() {
+					_, _ = newSettingsFromJSON(t, map[string]any{key: val})
+				})
+			})
+		}
+	}
 }
 
 func getField(v any, field string) any {
