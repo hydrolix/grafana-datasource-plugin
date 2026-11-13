@@ -20,7 +20,7 @@ The config editor reads `jsonData.exposeErrors?.enabled ?? false` for the switch
 
 ### D1. Missing keys take their default: on, matching today's runtime
 
-`resolveExposeErrors(exposeErrors?)` in `src/defaultConfigs.ts` returns `{ ...defaultConfigs.exposeErrors, ...exposeErrors }` with `undefined` values dropped first, so an explicit `undefined` does not override a default. `DataSource` and `ConfigEditor` both call it.
+`resolveExposeErrors(exposeErrors?)` in `src/defaultConfigs.ts` returns `{ ...defaultConfigs.exposeErrors, ...exposeErrors }` with `undefined` and `null` values dropped first, so neither overrides a default. A `null` is what a blank provisioning key or an API payload stores; kept, it would show the switch on while the exposer's guard records nothing. `DataSource` and `ConfigEditor` both call it.
 
 **Alternative considered:** treat a missing block as disabled and leave the editor as it is. Rejected: it silently switches the feature off for every existing provisioned or pre-0.10.0 data source that uses it today.
 

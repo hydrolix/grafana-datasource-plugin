@@ -39,4 +39,18 @@ describe("resolveExposeErrors", () => {
   it("does not let an explicit undefined override a default", () => {
     expect(resolveExposeErrors({ ttl: undefined })).toEqual(DEFAULTS);
   });
+
+  it("treats a stored null as missing", () => {
+    expect(resolveExposeErrors(null)).toEqual(DEFAULTS);
+    expect(
+      resolveExposeErrors(
+        JSON.parse(
+          '{"enabled":null,"variableName":null,"maxCount":null,"ttl":null}'
+        )
+      )
+    ).toEqual(DEFAULTS);
+    expect(
+      resolveExposeErrors(JSON.parse('{"enabled":false,"ttl":null}'))
+    ).toEqual({ ...DEFAULTS, enabled: false });
+  });
 });
