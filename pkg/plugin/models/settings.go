@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,6 +23,7 @@ var (
 	ErrorMessageInvalidProtocol     = errors.New("protocol should be either native or http")
 	ErrorMessageInvalidQueryTimeout = errors.New("invalid query timeout")
 	ErrorMessageInvalidDialTimeout  = errors.New("invalid connect timeout")
+	ErrorMessageInvalidSettingType  = errors.New("unsupported value type")
 )
 
 // PluginSettings structure represent data source configuration options
@@ -91,8 +91,28 @@ func NewPluginSettings(_ context.Context, source backend.DataSourceInstanceSetti
 		return settings, fmt.Errorf("%s: %w", err.Error(), ErrorMessageInvalidJSON)
 	}
 
-	if jsonData["host"] != nil {
-		settings.Host = jsonData["host"].(string)
+	stringFields := []struct {
+		key string
+		dst *string
+	}{
+		{"host", &settings.Host},
+		{"protocol", &settings.Protocol},
+		{"credentialsType", &settings.CredentialsType},
+		{"path", &settings.Path},
+		{"username", &settings.UserName},
+		{"defaultDatabase", &settings.DefaultDatabase},
+		{"dialTimeout", &settings.DialTimeout},
+		{"queryTimeout", &settings.QueryTimeout},
+	}
+	for _, f := range stringFields {
+		if jsonData[f.key] == nil {
+			continue
+		}
+		v, err := parseString(f.key, jsonData[f.key])
+		if err != nil {
+			return settings, err
+		}
+		*f.dst = v
 	}
 
 	if jsonData["port"] != nil {
@@ -103,40 +123,12 @@ func NewPluginSettings(_ context.Context, source backend.DataSourceInstanceSetti
 		settings.Port = port
 	}
 
-	if jsonData["protocol"] != nil {
-		settings.Protocol = jsonData["protocol"].(string)
-	}
-
-	if jsonData["credentialsType"] != nil {
-		settings.CredentialsType = jsonData["credentialsType"].(string)
-	}
-
 	if jsonData["secure"] != nil {
 		secure, err := parseBool(jsonData["secure"])
 		if err != nil {
 			return settings, err
 		}
 		settings.Secure = secure
-	}
-
-	if jsonData["path"] != nil {
-		settings.Path = jsonData["path"].(string)
-	}
-
-	if jsonData["username"] != nil {
-		settings.UserName = jsonData["username"].(string)
-	}
-
-	if jsonData["defaultDatabase"] != nil {
-		settings.DefaultDatabase = jsonData["defaultDatabase"].(string)
-	}
-
-	if jsonData["dialTimeout"] != nil {
-		settings.DialTimeout = jsonData["dialTimeout"].(string)
-	}
-
-	if jsonData["queryTimeout"] != nil {
-		settings.QueryTimeout = jsonData["queryTimeout"].(string)
 	}
 
 	if jsonData["skipTlsVerify"] != nil {
@@ -149,11 +141,18 @@ func NewPluginSettings(_ context.Context, source backend.DataSourceInstanceSetti
 
 	if jsonData["querySettings"] != nil {
 		settings.QuerySettings = []QuerySetting{}
-		rv := reflect.ValueOf(jsonData["querySettings"])
-		if rv.Kind() == reflect.Slice {
-			for i := 0; i < rv.Len(); i++ {
-				qs := rv.Index(i).Interface().(map[string]interface{})
-				settings.QuerySettings = append(settings.QuerySettings, QuerySetting{Value: qs["value"].(string), Setting: qs["setting"].(string)})
+		entries, ok := jsonData["querySettings"].([]any)
+		if !ok {
+			return settings, backend.DownstreamError(fmt.Errorf("querySettings: %w (want an array)", ErrorMessageInvalidSettingType))
+		}
+		for i, entry := range entries {
+			qs, err := parseQuerySetting(fmt.Sprintf("querySettings[%d]", i), entry)
+			if err != nil {
+				return settings, err
+			}
+			// The frontend drops nameless entries too, so both send the same set.
+			if qs.Setting != "" {
+				settings.QuerySettings = append(settings.QuerySettings, qs)
 			}
 		}
 	}
@@ -169,6 +168,47 @@ func NewPluginSettings(_ context.Context, source backend.DataSourceInstanceSetti
 	settings.SetDefaults()
 
 	return settings, settings.IsValid()
+}
+
+// parseString reads a string field, also accepting the numbers and booleans
+// that an unquoted value in provisioning YAML, Pulumi or the API produces.
+func parseString(field string, in any) (string, error) {
+	switch v := in.(type) {
+	case string:
+		return v, nil
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64), nil
+	case bool:
+		return strconv.FormatBool(v), nil
+	default:
+		return "", backend.DownstreamError(fmt.Errorf("%s: %w (want a string, number or boolean)", field, ErrorMessageInvalidSettingType))
+	}
+}
+
+// parseQuerySetting reads one querySettings entry. A missing setting name
+// yields "", a missing value yields "" (what the config editor stores for an
+// empty field).
+func parseQuerySetting(field string, in any) (QuerySetting, error) {
+	entry, ok := in.(map[string]any)
+	if !ok {
+		return QuerySetting{}, backend.DownstreamError(fmt.Errorf("%s: %w (want an object with setting and value)", field, ErrorMessageInvalidSettingType))
+	}
+	var qs QuerySetting
+	if entry["setting"] != nil {
+		setting, err := parseString(field+".setting", entry["setting"])
+		if err != nil {
+			return QuerySetting{}, err
+		}
+		qs.Setting = setting
+	}
+	if entry["value"] != nil {
+		value, err := parseString(field+".value", entry["value"])
+		if err != nil {
+			return QuerySetting{}, err
+		}
+		qs.Value = value
+	}
+	return qs, nil
 }
 
 // parseBool parses boolean value
