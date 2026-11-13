@@ -466,7 +466,10 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 			RawSql        string                `json:"rawSql"`
 			QuerySettings []models.QuerySetting `json:"querySettings,omitempty"`
 		}
-		_ = json.Unmarshal(q.JSON, &dataQuery)
+		if err := json.Unmarshal(q.JSON, &dataQuery); err != nil {
+			// The query still runs, with the settings read before the bad entry.
+			log.DefaultLogger.Warn("failed to read query settings", "err", err, "refId", q.RefID)
+		}
 		mergedSettings := make(map[string]string)
 		for _, setting := range pluginSettings.QuerySettings {
 			mergedSettings[setting.Setting] = setting.Value
@@ -474,6 +477,11 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 		if dataQuery.QuerySettings != nil {
 
 			for _, setting := range dataQuery.QuerySettings {
+				// Nameless entries are dropped, as NewPluginSettings and the
+				// frontend merge drop them.
+				if setting.Setting == "" {
+					continue
+				}
 				mergedSettings[setting.Setting] = setting.Value
 			}
 		}
@@ -547,6 +555,10 @@ func (h *Hydrolix) MutateQuery(ctx context.Context, req backend.DataQuery) (cont
 		log.DefaultLogger.Debug("Update query context with settings info", "settings", dataQuery.QuerySettings)
 		customSettings := make(map[string]any, len(dataQuery.QuerySettings))
 		for _, v := range dataQuery.QuerySettings {
+			// An empty value is a setting left blank, not a value to send.
+			if v.Value == "" {
+				continue
+			}
 			customSettings[v.Setting] = clickhouse.CustomSetting{Value: fmt.Sprintf("%v", v.Value)}
 		}
 		ctx = h.querySettingsContextHandler(ctx, customSettings)

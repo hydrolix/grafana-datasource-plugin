@@ -3,6 +3,7 @@
 - [x] 1.1 Add the plain sentinel `ErrorMessageInvalidSettingType` and `parseString(field string, in any) (string, error)` beside `parseBool` / `parseUint` in `pkg/plugin/models/settings.go`
 - [x] 1.2 Read `host`, `protocol`, `credentialsType`, `path`, `username`, `defaultDatabase`, `dialTimeout` and `queryTimeout` through `parseString`
 - [x] 1.3 Rewrite the `querySettings` loop as a checked assertion to `[]any`: error on a non-array value and on a non-object element, skip a nameless one, `""` for a missing value, `parseString` for `setting` and `value`
+- [x] 1.4 `parseUint` / `parseBool` take the field name: a wrong type returns `ErrorMessageInvalidSettingType`, an unreadable or out-of-range value the new `ErrorMessageInvalidSettingValue`, both downstream and without the value
 
 ## 2. Go unit tests
 
@@ -11,6 +12,7 @@
 - [x] 2.3 `settings_test.go`: object / array values return `ErrorMessageInvalidSettingType` (via `errors.Is`), are downstream errors, and name the field without its value
 - [x] 2.4 `settings_test.go`: `querySettings` non-array value, non-object element, nameless entries and missing value
 - [x] 2.5 Fuzz-style guard: `NewPluginSettings` does not panic for each field set to every JSON type
+- [x] 2.6 `settings_test.go`: `port`, `secure` and `skipTlsVerify` errors name the field, are downstream and do not show the value; a port outside 0–65535 is an error
 
 ## 3. E2E
 

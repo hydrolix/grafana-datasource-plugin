@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,6 +23,7 @@ var (
 	ErrorMessageInvalidQueryTimeout = errors.New("invalid query timeout")
 	ErrorMessageInvalidDialTimeout  = errors.New("invalid connect timeout")
 	ErrorMessageInvalidSettingType  = errors.New("unsupported value type")
+	ErrorMessageInvalidSettingValue = errors.New("invalid value")
 )
 
 // PluginSettings structure represent data source configuration options
@@ -48,6 +48,22 @@ type PluginSettings struct {
 type QuerySetting struct {
 	Setting string `json:"setting"`
 	Value   string `json:"value"`
+}
+
+// UnmarshalJSON reads a per-query entry the way NewPluginSettings reads a
+// stored one, so a number or boolean written by hand into a dashboard or an
+// alert rule is kept as text instead of failing the decode.
+func (qs *QuerySetting) UnmarshalJSON(data []byte) error {
+	var entry any
+	if err := json.Unmarshal(data, &entry); err != nil {
+		return err
+	}
+	parsed, err := parseQuerySetting("querySettings entry", entry)
+	if err != nil {
+		return err
+	}
+	*qs = parsed
+	return nil
 }
 
 // IsValid validates configuration data correctness
@@ -116,7 +132,7 @@ func NewPluginSettings(_ context.Context, source backend.DataSourceInstanceSetti
 	}
 
 	if jsonData["port"] != nil {
-		port, err := parseUint(jsonData["port"])
+		port, err := parseUint("port", jsonData["port"])
 		if err != nil {
 			return settings, err
 		}
@@ -124,7 +140,7 @@ func NewPluginSettings(_ context.Context, source backend.DataSourceInstanceSetti
 	}
 
 	if jsonData["secure"] != nil {
-		secure, err := parseBool(jsonData["secure"])
+		secure, err := parseBool("secure", jsonData["secure"])
 		if err != nil {
 			return settings, err
 		}
@@ -132,7 +148,7 @@ func NewPluginSettings(_ context.Context, source backend.DataSourceInstanceSetti
 	}
 
 	if jsonData["skipTlsVerify"] != nil {
-		skipTlsVerify, err := parseBool(jsonData["skipTlsVerify"])
+		skipTlsVerify, err := parseBool("skipTlsVerify", jsonData["skipTlsVerify"])
 		if err != nil {
 			return settings, err
 		}
@@ -211,43 +227,49 @@ func parseQuerySetting(field string, in any) (QuerySetting, error) {
 	return qs, nil
 }
 
-// parseBool parses boolean value
-func parseBool(in any) (bool, error) {
+// parseBool reads a boolean field, also accepting "true" / "false" text and
+// the numbers 1 and 0.
+func parseBool(field string, in any) (bool, error) {
+	var text string
 	switch v := in.(type) {
 	case bool:
 		return v, nil
 	case string:
-		return strconv.ParseBool(v)
+		text = v
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		return strconv.ParseBool(fmt.Sprintf("%d", v))
-	case float32, float64:
-		v64, _ := strconv.ParseFloat(fmt.Sprintf("%f", v), 64)
-		if math.Trunc(v64) == v64 {
-			return strconv.ParseBool(strconv.FormatFloat(v64, 'f', -1, 64))
-		}
-		return false, backend.DownstreamError(fmt.Errorf("could not parse bool value: %s", in))
+		text = fmt.Sprintf("%d", v)
+	case float32:
+		text = strconv.FormatFloat(float64(v), 'f', -1, 32)
+	case float64:
+		text = strconv.FormatFloat(v, 'f', -1, 64)
 	default:
-		return false, backend.DownstreamError(fmt.Errorf("could not parse bool value: %s", in))
+		return false, backend.DownstreamError(fmt.Errorf("%s: %w (want a boolean)", field, ErrorMessageInvalidSettingType))
 	}
+	b, err := strconv.ParseBool(text)
+	if err != nil {
+		return false, backend.DownstreamError(fmt.Errorf("%s: %w (want true or false)", field, ErrorMessageInvalidSettingValue))
+	}
+	return b, nil
 }
 
-// parseUint parses unsigned integer value
-func parseUint(in any) (uint16, error) {
+// parseUint reads a port-sized field, also accepting a whole number as text.
+func parseUint(field string, in any) (uint16, error) {
+	var text string
 	switch v := in.(type) {
 	case string:
-		port, err := strconv.ParseUint(v, 10, 16)
-		return uint16(port), err
+		text = v
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		v64, err := strconv.ParseUint(fmt.Sprintf("%d", v), 10, 16)
-		return uint16(v64), err
-	case float32, float64:
-		v64, _ := strconv.ParseFloat(fmt.Sprintf("%f", v), 64)
-		if math.Trunc(v64) == v64 {
-			return uint16(v64), nil
-		}
-		return 0, backend.DownstreamError(fmt.Errorf("could not parse bool value: %s", in))
+		text = fmt.Sprintf("%d", v)
+	case float32:
+		text = strconv.FormatFloat(float64(v), 'f', -1, 32)
+	case float64:
+		text = strconv.FormatFloat(v, 'f', -1, 64)
 	default:
-		return 0, backend.DownstreamError(fmt.Errorf("could not parse uint value: %s", in))
+		return 0, backend.DownstreamError(fmt.Errorf("%s: %w (want a number)", field, ErrorMessageInvalidSettingType))
 	}
-
+	n, err := strconv.ParseUint(text, 10, 16)
+	if err != nil {
+		return 0, backend.DownstreamError(fmt.Errorf("%s: %w (want a whole number from 0 to 65535)", field, ErrorMessageInvalidSettingValue))
+	}
+	return uint16(n), nil
 }

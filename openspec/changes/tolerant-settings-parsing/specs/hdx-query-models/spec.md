@@ -8,6 +8,8 @@ The plugin SHALL define `NewPluginSettings(ctx context.Context, src backend.Data
 
 A `querySettings` value that is not a JSON array SHALL return that error with the field `querySettings`. In `querySettings`, an element that is not a JSON object SHALL return that error with the field `querySettings[<index>]`; an element whose `setting` is missing or empty SHALL be skipped; an element with no `value` SHALL get the value `""`.
 
+`port` SHALL accept a whole number from 0 to 65535, as a JSON number or as text. `secure` and `skipTlsVerify` SHALL accept a JSON boolean, the text forms `strconv.ParseBool` accepts, and the numbers `1` and `0`. Any other JSON type in one of these fields SHALL return a `backend.DownstreamError` that wraps `ErrorMessageInvalidSettingType`; a value of a supported type that is out of range or not readable SHALL return a `backend.DownstreamError` that wraps `ErrorMessageInvalidSettingValue`. Both SHALL name the field, without its value.
+
 #### Scenario: `NewPluginSettings` returns validated settings on a valid input
 
 - **GIVEN** a valid `DataSourceInstanceSettings` with `JSONData` containing the required fields
@@ -77,3 +79,18 @@ A `querySettings` value that is not a JSON array SHALL return that error with th
 - **WHEN** `NewPluginSettings` is invoked
 - **THEN** the returned error SHALL be nil
 - **AND** `QuerySettings` SHALL equal `[{Setting: "hdx_query_max_rows", Value: ""}]`
+
+#### Scenario: A port out of range returns an error naming the field
+
+- **GIVEN** `JSONData` with `port: 70000`
+- **WHEN** `NewPluginSettings` is invoked
+- **THEN** the returned error SHALL wrap `ErrorMessageInvalidSettingValue`
+- **AND** `backend.IsDownstreamError` SHALL be true for it
+- **AND** its message SHALL contain `port`
+
+#### Scenario: An unsupported type in a boolean field does not show its value
+
+- **GIVEN** `JSONData` with `secure: {"secret": "s3cr3t"}`
+- **WHEN** `NewPluginSettings` is invoked
+- **THEN** the returned error SHALL wrap `ErrorMessageInvalidSettingType`
+- **AND** its message SHALL contain `secure` and SHALL NOT contain `s3cr3t`
