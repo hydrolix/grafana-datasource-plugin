@@ -50,5 +50,6 @@ dashboard cannot be expected to know about it.
 ## Impact
 
 - `src/constants.ts`, `src/editor/metadataProvider.ts`; `pkg/plugin/metadata.go`.
-- At most one extra DESCRIBE per table per minute while dropdowns are opened, and
-  one per (identity, table) per minute while filtered panels refresh.
+- More DESCRIBE traffic: about one per table per minute while dropdowns are
+  opened, and one per (identity, table) per minute for each filtered panel whose
+  query misses at the moment the entry expires.

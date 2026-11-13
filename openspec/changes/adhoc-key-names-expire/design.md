@@ -48,13 +48,28 @@ when a name is published. Shortening it is outside this change.
 
 ## Risks / Trade-offs
 
-- [The browser and the backend refresh independently, so for up to a minute after
-  a name is published the dropdown can offer it while the backend still drops a
-  filter on it] → Bounded by the TTL; both sides use the same value. Go test
-  `TestAFilterOnANewlyPublishedNameAppliesOnABusyDashboard` proves the filter
-  applies after the TTL while panels keep querying.
-- [A cluster error when the key list is re-read now surfaces in the dropdown where
-  the old list was served before] → The dropdown's own retry re-reads; panels hit
-  the same cluster and show the same error.
-- [More DESCRIBE traffic] → At most one per table per minute while dropdowns open,
-  and one per (identity, table) per minute while filtered panels refresh.
+- [The browser and the backend refresh independently. If the backend read the
+  table less than a minute before a name was published and the browser read it
+  after, the dropdown offers the name while the backend still drops a filter on
+  it: a panel query in that window returns unfiltered rows, and a dashboard
+  without auto-refresh keeps showing them until its next query] → The window
+  closes when the backend entry expires, at most a minute after it was filled.
+  Waiting a minute after a publish before filtering on the new name avoids it.
+  Proving signal: Go test
+  `TestAFilterOnANewlyPublishedNameAppliesOnABusyDashboard` and the Playwright
+  spec `adHocKeyNamesExpire`, whose panel count goes from unfiltered to filtered
+  without a reload. Re-reading on a missing filter column would close the
+  window, but a dashboard whose panels read several tables misses by design on
+  every query, so it needs a per-key memory of what was already re-read: a
+  follow-up if the window matters.
+- [A cluster error when the key list is re-read now surfaces in the dropdown
+  ("An error has occurred fetching labels") where the old list was served
+  before] → The dropdown's own retry reads again; panels hit the same cluster
+  and show the same error. Proving signal: the scenes error text in the
+  dropdown, and the failed DESCRIBE in the Grafana server log.
+- [More DESCRIBE traffic] → At most one per table per minute per dropdown user,
+  and one per (identity, table) per minute while filtered panels refresh, times
+  the number of panels whose queries miss at the same moment (misses are not
+  coalesced; before this change that burst happened once per instance). Proving
+  signal: `MetadataProvider: keys cache miss` debug lines in the Grafana server
+  log, and DESCRIBE entries in the cluster's query log.

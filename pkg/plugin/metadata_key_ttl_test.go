@@ -70,6 +70,7 @@ func TestAKeyMapIsReReadWithinAMinute(t *testing.T) {
 
 	item := peekKeys(p, "hydro.logs")
 	require.NotNil(t, item)
+	assert.Positive(t, item.TTL(), "a zero TTL never expires")
 	assert.LessOrEqual(t, item.TTL(), time.Minute,
 		"a newly published name must be filterable within a minute, without a datasource save")
 }
