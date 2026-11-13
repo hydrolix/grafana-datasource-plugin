@@ -538,6 +538,10 @@ func (h *Hydrolix) MutateQuery(ctx context.Context, req backend.DataQuery) (cont
 		log.DefaultLogger.Debug("Update query context with settings info", "settings", dataQuery.QuerySettings)
 		customSettings := make(map[string]any, len(dataQuery.QuerySettings))
 		for _, v := range dataQuery.QuerySettings {
+			// An empty value is a setting left blank, not a value to send.
+			if v.Value == "" {
+				continue
+			}
 			customSettings[v.Setting] = clickhouse.CustomSetting{Value: fmt.Sprintf("%v", v.Value)}
 		}
 		ctx = h.querySettingsContextHandler(ctx, customSettings)

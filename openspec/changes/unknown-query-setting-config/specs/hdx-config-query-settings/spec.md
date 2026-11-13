@@ -25,11 +25,11 @@ The data source config editor SHALL render the Query Settings section for any co
 - **THEN** the Query Settings section SHALL render without throwing
 - **AND** an entry that is not an object SHALL have no row
 
-#### Scenario: Entries that are not objects survive an edit
+#### Scenario: Entries that are not objects are dropped on the first edit
 
 - **GIVEN** `jsonData.querySettings` is `[null, { setting: "hdx_query_unknown", value: "10" }]`
 - **WHEN** the user changes the `hdx_query_unknown` input to `20`
-- **THEN** `onOptionsChange` SHALL be called with `jsonData.querySettings` equal to `[null, { setting: "hdx_query_unknown", value: "20" }]`
+- **THEN** `onOptionsChange` SHALL be called with `jsonData.querySettings` equal to `[{ setting: "hdx_query_unknown", value: "20" }]`
 
 ### Requirement: Unknown query setting is shown as an editable text value with a warning
 
@@ -71,3 +71,25 @@ The remove button of an unknown query setting SHALL remove that entry from `json
 - **GIVEN** `jsonData.querySettings` holds two entries named `hdx_query_unknown`, with values `"1"` and `"2"`
 - **WHEN** the user clicks the remove button of the second row
 - **THEN** `onOptionsChange` SHALL be called with `jsonData.querySettings` equal to the first entry only
+
+### Requirement: A query setting left empty is removed and never sent
+
+When the text input of a query setting, known or unknown, loses focus while empty, the config editor SHALL remove that entry from `jsonData.querySettings`. A query setting whose value is the empty string SHALL NOT be sent to Hydrolix with a query.
+
+#### Scenario: Empty setting is removed on blur
+
+- **GIVEN** `jsonData.querySettings` holds `hdx_query_unknown` with value `""` and one other entry
+- **WHEN** the `hdx_query_unknown` input loses focus
+- **THEN** `onOptionsChange` SHALL be called with `jsonData.querySettings` equal to the other entry only
+
+#### Scenario: Setting with a value is kept on blur
+
+- **GIVEN** `jsonData.querySettings` holds `hdx_query_unknown` with value `"10"`
+- **WHEN** its input loses focus
+- **THEN** `onOptionsChange` SHALL NOT be called
+
+#### Scenario: Stored empty value is not sent
+
+- **GIVEN** a query whose merged settings are `hdx_query_max_rows` = `"100"` and `hdx_query_unknown` = `""`
+- **WHEN** the backend builds the query context
+- **THEN** the context SHALL carry `hdx_query_max_rows` only

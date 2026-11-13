@@ -397,7 +397,7 @@ describe("ConfigEditor", () => {
       ).toBeInTheDocument();
     });
 
-    it("edits an entry and keeps the entries that are not objects", () => {
+    it("drops the entries that are not objects on the first edit", () => {
       const onOptionsChange = jest.fn();
       render(
         <ConfigEditor
@@ -412,10 +412,46 @@ describe("ConfigEditor", () => {
       expect(onOptionsChange).toHaveBeenLastCalledWith(
         expect.objectContaining({
           jsonData: expect.objectContaining({
-            querySettings: [null, { setting: unknown.setting, value: "20" }],
+            querySettings: [{ setting: unknown.setting, value: "20" }],
           }),
         })
       );
+    });
+
+    it.each([
+      ["an unknown", unknown.setting],
+      ["a known", known.setting],
+    ])("removes %s setting left empty on blur", (_, setting) => {
+      const onOptionsChange = jest.fn();
+      const other = { setting: "hdx_query_other", value: "1" };
+      render(
+        <ConfigEditor
+          {...getDefaultProps({
+            querySettings: [{ setting, value: "" }, other],
+          })}
+          onOptionsChange={onOptionsChange}
+        />
+      );
+      expandAdditionalSettings();
+      fireEvent.blur(screen.getByLabelText(setting));
+      expect(onOptionsChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          jsonData: expect.objectContaining({ querySettings: [other] }),
+        })
+      );
+    });
+
+    it("keeps a setting with a value on blur", () => {
+      const onOptionsChange = jest.fn();
+      render(
+        <ConfigEditor
+          {...getDefaultProps({ querySettings: [unknown] })}
+          onOptionsChange={onOptionsChange}
+        />
+      );
+      expandAdditionalSettings();
+      fireEvent.blur(screen.getByLabelText(unknown.setting));
+      expect(onOptionsChange).not.toHaveBeenCalled();
     });
 
     it("removes only the clicked row when two entries share a name", () => {

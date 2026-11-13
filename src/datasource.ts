@@ -253,7 +253,7 @@ export class DataSource extends DataSourceWithBackend<
       addSettings: (querySettings: QuerySetting[]) =>
         querySettings &&
         querySettings
-          .filter((s) => s.setting)
+          .filter((s) => s?.setting)
           .reduce((acc: { [key: string]: any }, s) => {
             acc[s.setting] = replace(
               this.templateSrv.replace(`${s.value}`),

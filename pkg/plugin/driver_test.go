@@ -753,3 +753,19 @@ func TestMutateQueryData_CacheKeyShape(t *testing.T) {
 	assert.NotEqual(t, keyBoot, keyOrg3, "userAccount + orgId must NOT collapse to the bootstrap pool")
 	assert.NotSame(t, dbA1.DB(), dbOrg3.DB(), "userAccount-org3 pool must be distinct from forwardOAuth-tokenA-org1 pool")
 }
+
+// A setting stored with an empty value is left out of the query context, so
+// Hydrolix never receives `setting=` with nothing after it.
+func TestMutateQuerySkipsEmptyQuerySettings(t *testing.T) {
+	plugin := &Hydrolix{querySettingsContextHandler: testContextHandler}
+	query := backend.DataQuery{JSON: []byte(`{"querySettings":[
+		{"setting":"hdx_query_max_rows","value":"100"},
+		{"setting":"hdx_query_unknown","value":""}
+	]}`)}
+
+	ctx, _ := plugin.MutateQuery(context.Background(), query)
+
+	assert.Equal(t,
+		map[string]any{"hdx_query_max_rows": clickhouse.CustomSetting{Value: "100"}},
+		ctx.Value("querySettings"))
+}

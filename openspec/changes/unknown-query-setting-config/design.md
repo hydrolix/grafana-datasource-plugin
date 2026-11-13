@@ -12,7 +12,7 @@ Unknown names reach `jsonData` through provisioning, the HTTP API, or a catalog 
 - The compiler rejects a future unguarded lookup.
 
 **Non-Goals:**
-- Validating unknown values, or dropping unknown entries from `jsonData`.
+- Validating unknown values, or dropping unknown entries that hold a value from `jsonData`.
 - Changing the per-query QuerySettings editor, which already tolerates unknown names.
 - Backend validation of setting names.
 
@@ -40,15 +40,26 @@ A `Map` rather than a plain object: a stored name such as `constructor` or `toSt
 
 ### D4. Tolerate malformed `querySettings`
 
-A `querySettings` that is not an array is read as empty. An entry that is not an object (`null`, a string) gets no row. Both are left as they are in `jsonData`: the editor writes entries back by position and does not drop or rewrite what it cannot show. A non-array value is replaced by an array only when the user adds a setting.
+A `querySettings` that is not an array is read as empty. An entry that is not an object (`null`, a string) gets no row, and the first edit of any row (change, add, remove) writes the list without it. Opening the page changes nothing.
 
-**Alternative considered:** strip malformed entries on the first edit. Rejected for the same reason as dropping unknown entries in D1: the editor should not silently change what is stored.
+Such an entry cannot be shown as a row, since it has no name or value to show, and the backend settings parser rejects the whole data source for it. Leaving it in `jsonData` would keep the data source broken with nothing in the UI to remove. The frontend query settings merge skips these entries too, so a query fails with the backend's message and not a `TypeError` in the browser.
+
+**Alternative considered:** leave malformed entries untouched, as D1 does for unknown names. Rejected: an unknown name works and is visible; a malformed entry does neither.
 
 An unknown row is also not marked `required`: its value is not validated, so the asterisk would promise a check that never runs.
+
+### D5. An empty value means "not set"
+
+A text, number, duration or unknown row whose input loses focus while empty is removed from the list, the way the ad hoc lookback field clears itself on blur. On blur, not on change, so the field can be cleared and retyped.
+
+Blur only covers rows someone has touched, so `MutateQuery`, the one place every query's merged settings enter the ClickHouse context, also leaves out a setting whose value is `""`. It is done there and not in the frontend merge because `MutateQueryData` merges the data source's stored settings in again on the backend. A query-level empty value still overrides the data-source-level one in the merge, so the result is that the setting is not sent at all.
+
+**Alternative considered:** keep sending empty values and show "setting value is required". Rejected: nothing stops the save, and what Hydrolix does with `setting=` depends on the setting's type.
 
 ## Risks / Trade-offs
 
 - [The inferred catalog type may not expose `min` / `default` on every element, breaking existing reads] → `npm run typecheck`; fall back to an explicit interface in `types.ts` if inference is too narrow.
 - [A stored entry with an empty or missing `setting` name renders a row with no label] → The row still renders and can be removed, which is the way out; `addQuerySetting` never writes one. The unit test for entries that are not objects proves the section renders.
+- [An unknown row cleared by mistake and blurred cannot be re-added from the picker, which lists catalog names only] → Removal happens on blur, not while typing; the entry can be restored through provisioning or the API, where it came from.
 - [Rows keyed by position remount when an earlier row is removed] → Acceptable: a row holds no local state, its value comes from `jsonData`. The duplicate-name unit tests prove edit and removal hit one row.
 - [The warning is easy to miss in a description line] → Acceptable for a non-blocking state; the unit test and e2e assert the text is shown.

@@ -99,27 +99,27 @@ export function ConfigEditor(props: Props) {
 
   // jsonData comes from provisioning or the HTTP API as well as this editor,
   // so it can hold anything: a non-array, or entries that are not objects.
-  // Such entries are skipped when rendering and written back untouched.
+  // The backend rejects the data source for those and they cannot be shown
+  // as a row, so the first edit of any row writes the list without them.
   const rawQuerySettings: unknown = jsonData?.querySettings;
-  const storedSettings = useMemo<unknown[]>(
-    () => (Array.isArray(rawQuerySettings) ? rawQuerySettings : []),
+  const storedSettings = useMemo<QuerySetting[]>(
+    () =>
+      Array.isArray(rawQuerySettings)
+        ? rawQuerySettings.filter(isQuerySetting)
+        : [],
     [rawQuerySettings]
   );
-  const writeQuerySettings = (
-    querySettings: unknown[]
-  ) => {
+  const writeQuerySettings = (querySettings: QuerySetting[]) => {
     onOptionsChange({
       ...options,
       jsonData: {
         ...jsonData,
-        querySettings: querySettings as QuerySetting[],
+        querySettings,
       },
     });
   };
 
-  const existingSettings = storedSettings
-    .filter(isQuerySetting)
-    .map((v) => v.setting);
+  const existingSettings = storedSettings.map((v) => v.setting);
   let queryOptions = querySettings.values
     .filter((v) => !existingSettings.includes(v.setting))
     .map((v) => ({
@@ -133,9 +133,6 @@ export function ConfigEditor(props: Props) {
     // separate errors.
     const errors: Array<string | undefined> = [];
     for (const [index, querySettings] of storedSettings.entries()) {
-      if (!isQuerySetting(querySettings)) {
-        continue;
-      }
       const option = querySettingDefinitions.get(querySettings.setting);
 
       const type = option?.type;
@@ -287,9 +284,7 @@ export function ConfigEditor(props: Props) {
   const onQuerySettingsChange = (index: number) => {
     return (value: string) => {
       writeQuerySettings(
-        storedSettings.map((s, i) =>
-          isQuerySetting(s) && i === index ? { ...s, value } : s
-        )
+        storedSettings.map((s, i) => (i === index ? { ...s, value } : s))
       );
     };
   };
@@ -308,6 +303,15 @@ export function ConfigEditor(props: Props) {
   const deleteQuerySetting = (index: number) => {
     writeQuerySettings(storedSettings.filter((_, i) => i !== index));
   };
+
+  // A setting left empty has nothing to send, so its row goes away.
+  const onQuerySettingBlur =
+    (index: number) =>
+    (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      if (e.currentTarget.value === "") {
+        deleteQuerySetting(index);
+      }
+    };
 
   const downloadSolutionTemplates = () => {
     const dataStr = JSON.stringify(
@@ -417,6 +421,7 @@ export function ConfigEditor(props: Props) {
             rows={2}
             value={value ?? ""}
             onChange={(e) => onQuerySettingsChange(index)(e.currentTarget.value)}
+            onBlur={onQuerySettingBlur(index)}
             label={key}
             aria-label={key}
           />
@@ -431,6 +436,7 @@ export function ConfigEditor(props: Props) {
           //type={querySettingDefinitions[key].type}
           min={definition?.min}
           onChange={(e) => onQuerySettingsChange(index)(e.currentTarget.value)}
+          onBlur={onQuerySettingBlur(index)}
           label={key}
           aria-label={key}
         />
@@ -906,9 +912,6 @@ export function ConfigEditor(props: Props) {
               ></Select>
             </div>
             {storedSettings.map((s, index) => {
-              if (!isQuerySetting(s)) {
-                return null;
-              }
               const definition = querySettingDefinitions.get(s.setting);
               return (
                 <Field
