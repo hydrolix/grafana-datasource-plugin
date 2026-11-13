@@ -24,13 +24,16 @@ export default defaultConfigs;
 /**
  * The error-exposure configuration the plugin acts on: each key missing from
  * the stored block takes its default. The runtime and the config editor both
- * use it, so the editor shows what actually runs.
+ * use it, so the editor shows what actually runs. A stored `null` (a blank
+ * provisioning key, an API payload) counts as missing.
  */
 export function resolveExposeErrors(
-  exposeErrors?: ExposeErrorsOptions
+  exposeErrors?: ExposeErrorsOptions | null
 ): Required<ExposeErrorsOptions> {
   const stored = Object.fromEntries(
-    Object.entries(exposeErrors ?? {}).filter(([, v]) => v !== undefined)
+    Object.entries(exposeErrors ?? {}).filter(
+      ([, v]) => v !== undefined && v !== null
+    )
   );
   return { ...defaultConfigs.exposeErrors, ...stored };
 }

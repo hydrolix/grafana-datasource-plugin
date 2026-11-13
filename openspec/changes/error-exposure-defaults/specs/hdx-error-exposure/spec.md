@@ -2,7 +2,7 @@
 
 ### Requirement: One effective error-exposure configuration
 
-The plugin SHALL resolve the effective error-exposure configuration from `jsonData.exposeErrors` key by key: each key that is missing or `undefined` SHALL take its default (`enabled: true`, `variableName: "hdx_query_errors"`, `maxCount: 5`, `ttl: 300`), and each key that is present SHALL be kept, including `false`, `0` and `""`. The data source's error exposer and the config editor SHALL both use this resolution.
+The plugin SHALL resolve the effective error-exposure configuration from `jsonData.exposeErrors` key by key: each key that is missing, `undefined` or `null` SHALL take its default (`enabled: true`, `variableName: "hdx_query_errors"`, `maxCount: 5`, `ttl: 300`), and each other key SHALL be kept, including `false`, `0` and `""`. The data source's error exposer and the config editor SHALL both use this resolution.
 
 #### Scenario: Missing block resolves to the defaults
 
@@ -27,6 +27,12 @@ The plugin SHALL resolve the effective error-exposure configuration from `jsonDa
 - **GIVEN** `exposeErrors: {maxCount: 0}`
 - **WHEN** the configuration is resolved
 - **THEN** `maxCount` SHALL be `0`
+
+#### Scenario: Stored null takes the default
+
+- **GIVEN** `exposeErrors: {enabled: false, ttl: null}`
+- **WHEN** the configuration is resolved
+- **THEN** `ttl` SHALL be `300` and `enabled` SHALL be `false`
 
 #### Scenario: The data source's exposer uses the resolved configuration
 
