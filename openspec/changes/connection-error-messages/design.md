@@ -32,7 +32,7 @@ Grafana's review named path 1's symptom and suggested fixing it in `CheckHealth`
 
 ### D2. `CheckHealth` replaces an error result's message as well
 
-For path 2 the wrapper passes sqlds's message through the same classifier. Every error result is replaced, not only those that look like a connection error: an unrecognised message becomes the generic sentence, so nothing passes by not matching.
+For path 2 the wrapper passes sqlds's message through the same classifier. Every error result is replaced, not only those that look like a connection error: an unrecognised message becomes the generic sentence, so nothing passes by not matching. A refused redirect is the one message that is recognised and kept: it already names the status alone (D7).
 
 ### D3. `MutateQueryError` replaces transport failures only
 
@@ -47,15 +47,19 @@ sqlds decides whether to retry with `errors.Is(err, ErrorQuery)` and `errors.Is(
 
 ### D5. Recognise by type first, by text where no type exists
 
-Kinds are matched with `errors.As` / `errors.Is` (`net.DNSError`, `net.OpError`, `syscall.ECONNREFUSED`, the `crypto/tls` error types, `http.ErrSchemeMismatch`, `clickhouse.Exception`). Text matching is used in three places where there is no type to ask:
+Kinds are matched with `errors.As` / `errors.Is` (`net.DNSError`, `net.OpError`, `syscall.ECONNREFUSED`, the `crypto/tls` error types, `http.ErrSchemeMismatch`, `clickhouse.Exception`). Text matching is used in five places where there is no type to ask:
 
 - sqlds hands the health check a string, not an error;
 - the pinned clickhouse-go fork reports an HTTP failure as `[HTTP 403] response body: …`;
-- several TLS handshake failures are plain `errors.New("tls: …")`.
+- several TLS handshake failures are plain `errors.New("tls: …")`;
+- a ClickHouse exception that reached the health check as a string is read from `code: N, message:`;
+- a refused redirect that reached the health check as a string is read from the opening of `RedirectError`'s own message.
 
 This departs from the project rule against string matching for control flow. The departure is confined to choosing a message: a text that matches nothing gets the generic sentence, so a mismatch costs precision, never a leak.
 
-An HTTP status is read before the transport kinds, because the text after it is a body someone else wrote and could contain any of the phrases.
+An HTTP status is read before everything else that reads text, because the text after it is a body someone else wrote and could contain any of the phrases, or look like an exception or a redirect. At connect the order is: typed redirect, typed exception, HTTP status, exception text, redirect text, transport kinds. On a query, `[HTTP nnn] response body:` is never classified as transport; the fork's `[HTTP nnn] failed to read response: …` ends in a transport error and still is.
+
+A `net.DNSError` whose lookup timed out is a timeout, not an unresolved name: the name may be a good one.
 
 ### D6. At connect, an answer is reduced to its status or code
 

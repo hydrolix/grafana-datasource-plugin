@@ -4,14 +4,14 @@
 - [x] 1.2 `Connect` in `pkg/plugin/driver.go`: log the ping failure once and return the connect-failure conversion
 - [x] 1.3 `MutateQueryError` in `pkg/plugin/driver.go`: replace a transport failure with its fixed message after the exchange, redirect, response-limit and ClickHouse-exception branches; log the original; log a redirect on this path
 - [x] 1.4 `HdxSqlDatasource.CheckHealth` in `pkg/plugin/hdx_sqlds.go`: for a stored-credential mode, log and replace the message of an error result
-- [x] 1.5 `RedirectError` in `pkg/plugin/redirects.go`: message by status alone; keep the redacted `Location` field for the log
+- [x] 1.5 `RedirectError` in `pkg/plugin/redirects.go`: message by status alone; keep the redacted `Location` field for the log; recover the error from its message for the health check
 
 ## 2. Go unit tests
 
-- [x] 2.1 `connection_error_test.go`: table of typed and text errors for each transport kind, and errors that are an answer and must not be classified
-- [x] 2.2 `connection_error_test.go`: connect-failure conversion for auth codes, HTTP statuses, other exceptions, the generic fallback and a redirect; no network detail in any message; cause reachable with `errors.Is`
+- [x] 2.1 `connection_error_test.go`: table of typed and text errors for each transport kind, and errors that are an answer and must not be classified, an HTTP body that repeats a query full of transport phrases included; a resolver timeout, typed and as text
+- [x] 2.2 `connection_error_test.go`: connect-failure conversion for auth codes, HTTP statuses, other exceptions, the generic fallback and a redirect, typed and as text; a body shaped like an exception or quoting the redirect message, and a body that could not be read, reduced to the status; no network detail in any message; cause reachable with `errors.Is`
 - [x] 2.3 `connection_error_test.go`: instance build against a closed port (native, HTTP, TLS), a plain port behind TLS, and `httptest` servers answering 403 and 404
-- [x] 2.4 `connection_error_test.go`: `MutateQueryError` for a dial error, a deadline inside a URL error, and a SQL error that passes through
+- [x] 2.4 `connection_error_test.go`: `MutateQueryError` for a dial error, a deadline inside a URL error, a SQL error that passes through even when it repeats a query about connections, and an unreadable body
 - [x] 2.5 `datasource_test.go`: health check of an instance built through a TCP relay to the ClickHouse test container, before and after the relay closes, on both protocols
 - [x] 2.6 `redirects_test.go`: the message carries the status and no part of the location
 
@@ -25,4 +25,4 @@
 
 - [x] 4.1 `go vet ./...`, `golangci-lint run`, `go test -race ./...` pass
 - [x] 4.2 Dev stack on the rebuilt backend: health check and query messages for refused, unresolved, timed out, TLS, wrong password, redirect and a non-cluster HTTP service; original errors present in the Grafana log
-- [ ] 4.3 E2E spec passes in PR CI
+- [x] 4.3 E2E spec passes in PR CI
