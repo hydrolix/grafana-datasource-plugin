@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.13.3
+
+- **Feature**: New datasource option "Ad hoc filter keys prefer aliases" (additional settings, off by default). When on,
+  the ad hoc filter key picker hides a physical column that has a same-type identity alias (`client_ip String ALIAS
+  cliIP`) and offers the alias alone, so dashboards can present canonical names (CFB-4004). Computed, type-changing and
+  chained aliases stay visible, Map columns keep their key enumeration, and an existing filter on a hidden column still
+  loads values. See `docs/adhoc-keys-prefer-aliases.md`
+- **Fix**: An identity alias whose DESCRIBE expression is a bare column name (not backtick-quoted) was dropped from the
+  ad hoc filter keys; it is now listed like a backtick-quoted one
+- **Fix**: The query editor's validation bar warned about an unfiltered primary key on Hydrolix summary tables when the
+  key column (`toStartOfDay(reqTimeSec)`) was filtered through its identity alias, e.g. `$__timeFilter(reqTimeSec)`. A
+  filter on an alias whose expression is exactly the key column now counts; computed aliases still warn
+
 ## 0.13.2
 
 - **Fix**: `$__timeFilter()`, `$__timeFilter_ms()`, `$__timeInterval()` and `$__timeInterval_ms()` without a column
@@ -18,6 +31,8 @@
   a cluster, or whatever answers at its address, sends was logged and shown in the panel error verbatim, so userinfo,
   a query string and a fragment, any of which can carry a credential or a token, are now dropped before the value
   reaches Grafana's log or a dashboard. Flagged by Grafana's plugin review of 0.13.1
+- **Security**: Bump the transitive Go dependency `klauspost/compress` to 1.20.2 (GO-2026-6865, CVE-2026-116591, panic
+  on two-block frames)
 - **Docs**: Drop the installation section from the README. The plugin catalog shows its own installation
   instructions next to the README, so the section was a duplicate; Grafana's plugin review of 0.13.1 asked for its
   removal. Configuration and usage stay

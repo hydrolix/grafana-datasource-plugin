@@ -44,13 +44,14 @@ export interface DataSourceResponse {
  * These are options configured for each DataSource instance
  */
 export interface HdxDataSourceOptions extends DataSourceJsonData {
+  /** Opt-in ad-hoc key choices: prefer same-type identity aliases over their physical bases. */
+  adHocKeysPreferAliases?: boolean;
   host?: string;
   port?: number;
   useDefaultPort?: boolean;
   credentialsType?: CredentialsType;
   username?: string;
   protocol?: Protocol;
-  token?: string;
   secure?: boolean;
   path?: string;
   skipTlsVerify?: boolean;
@@ -112,6 +113,12 @@ export interface AdHocFilterKeys {
   value?: string | number;
   group?: string;
   type: string;
+  /**
+   * The physical column this key is a same-type identity alias of
+   * (`client_ip String ALIAS cliIP` → `"cliIP"`). Unset for physical columns
+   * and for computed, type-changing, unresolved or chained aliases.
+   */
+  aliasFor?: string;
 }
 
 export interface MacroCTEResponse extends ResourceResponse<MacroCTE[]> {}

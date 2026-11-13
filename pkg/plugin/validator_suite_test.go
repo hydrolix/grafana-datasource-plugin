@@ -36,6 +36,10 @@ func (s *ValidatorTestSuite) SetupSuite() {
 	// system.tables.primary_key is "" for this one (HDX-11399).
 	_, err = db.ExecContext(s.Ctx, "CREATE TABLE IF NOT EXISTS default.validate_keyless (ts DateTime, v Int32) ENGINE = MergeTree ORDER BY tuple()")
 	s.Require().NoError(err)
+	// Shaped like a Hydrolix summary table: the key column is named after its
+	// expression, and an ALIAS exposes it under the source column's name.
+	_, err = db.ExecContext(s.Ctx, "CREATE TABLE IF NOT EXISTS default.validate_summary (`toStartOfDay(ts)` DateTime, ts DateTime ALIAS `toStartOfDay(ts)`, v Int32) ENGINE = MergeTree ORDER BY `toStartOfDay(ts)`")
+	s.Require().NoError(err)
 	s.Require().NoError(db.Close())
 
 	instance, err := plugin.NewDatasource(s.Ctx, settings)
@@ -113,6 +117,13 @@ func (s *ValidatorTestSuite) TestKeylessTableArgumentlessMacroIsAnError() {
 	assert.Contains(s.T(), res.Error, "$__timeFilter(<column>)")
 	assert.Empty(s.T(), res.Warning)
 	assert.False(s.T(), res.Skipped)
+}
+
+func (s *ValidatorTestSuite) TestSummaryKeyFilteredThroughItsAliasIsValid() {
+	assert.Equal(s.T(), models.ValidationResult{}, s.validate("SELECT count() FROM validate_summary WHERE $__timeFilter(ts)"))
+	assert.Equal(s.T(),
+		models.ValidationResult{Warning: "Primary key `toStartOfDay(ts)` of `validate_summary` not filtered in WHERE; add $__timeFilter() to limit the scan."},
+		s.validate("SELECT count() FROM validate_summary WHERE v > 0"))
 }
 
 func (s *ValidatorTestSuite) TestQuerySettingsReachTheDriver() {
