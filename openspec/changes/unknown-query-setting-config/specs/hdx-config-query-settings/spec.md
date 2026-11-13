@@ -93,3 +93,19 @@ When the text input of a query setting, known or unknown, loses focus while empt
 - **GIVEN** a query whose merged settings are `hdx_query_max_rows` = `"100"` and `hdx_query_unknown` = `""`
 - **WHEN** the backend builds the query context
 - **THEN** the context SHALL carry `hdx_query_max_rows` only
+
+### Requirement: Boolean query setting shows the stored state
+
+The select of a boolean query setting SHALL show "Yes" when the stored value is `"1"`, the number `1`, the boolean `true` or `"true"`, and "No" otherwise.
+
+#### Scenario: Unquoted true from provisioning
+
+- **GIVEN** `jsonData.querySettings` is `[{ setting: "hdx_query_timerange_required", value: true }]`
+- **WHEN** the config editor renders
+- **THEN** the `hdx_query_timerange_required` row SHALL show "Yes"
+
+#### Scenario: Value written by the editor
+
+- **GIVEN** `jsonData.querySettings` is `[{ setting: "hdx_query_timerange_required", value: "0" }]`
+- **WHEN** the config editor renders
+- **THEN** the `hdx_query_timerange_required` row SHALL show "No"

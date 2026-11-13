@@ -383,6 +383,28 @@ describe("ConfigEditor", () => {
     });
 
     it.each([
+      ["1", "Yes"],
+      [1, "Yes"],
+      [true, "Yes"],
+      ["true", "Yes"],
+      ["0", "No"],
+      [0, "No"],
+      [false, "No"],
+    ])("shows a boolean setting stored as %p as %s", (value, shown) => {
+      render(
+        <ConfigEditor
+          {...getDefaultProps({
+            querySettings: [
+              { setting: "hdx_query_timerange_required", value },
+            ] as any,
+          })}
+        />
+      );
+      expandAdditionalSettings();
+      expect(screen.getByText(shown)).toBeInTheDocument();
+    });
+
+    it.each([
       ["a non-array", { hdx_query_unknown: "10" }],
       ["entries that are not objects", [null, "junk", unknown]],
     ])("renders when querySettings holds %s", (_, stored) => {

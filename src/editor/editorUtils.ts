@@ -49,6 +49,11 @@ export const updateOptions = (m: Monaco) => {
   }
 };
 
+// The editor stores "1" / "0", but provisioning or the API can leave an
+// unquoted `true` or `1` in jsonData, which the backend accepts too.
+export const isBooleanSettingOn = (value: unknown) =>
+  ["1", "true"].includes(`${value}`);
+
 export const getDefaultValue = (value: any, type: string) => {
   if (type === "boolean") {
     return value ? "1" : "0";

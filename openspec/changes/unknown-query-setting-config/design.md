@@ -56,6 +56,10 @@ Blur only covers rows someone has touched, so `MutateQuery`, the one place every
 
 **Alternative considered:** keep sending empty values and show "setting value is required". Rejected: nothing stops the save, and what Hydrolix does with `setting=` depends on the setting's type.
 
+### D6. A boolean setting reads `true` and `1` as on
+
+The editor stores a boolean setting as `"1"` / `"0"`, and its select compared the stored value to `"1"` only. Unquoted provisioning YAML leaves a JSON `true` or `1` instead; the backend settings parser turns those into `"true"` / `"1"` and sends them, so the query ran with the setting on while the editor showed "No". The select now reads `"1"`, `1`, `true` and `"true"` as on. The stored value is not rewritten until the user picks an option.
+
 ## Risks / Trade-offs
 
 - [The inferred catalog type may not expose `min` / `default` on every element, breaking existing reads] → `npm run typecheck`; fall back to an explicit interface in `types.ts` if inference is too narrow.

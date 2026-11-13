@@ -34,7 +34,7 @@ import {
   parseLookbackSeconds,
   QUERY_DURATION_REGEX,
 } from "../editor/timeRangeUtils";
-import { getDefaultValue } from "../editor/editorUtils";
+import { getDefaultValue, isBooleanSettingOn } from "../editor/editorUtils";
 import { SOLUTION_TEMPLATES } from "../errors/solutionTemplates";
 
 export interface Props
@@ -409,7 +409,7 @@ export function ConfigEditor(props: Props) {
           onChange={(v) =>
             onQuerySettingsChange(index)(v.value === "yes" ? "1" : "0")
           }
-          value={value === "1" ? "yes" : "no"}
+          value={isBooleanSettingOn(value) ? "yes" : "no"}
         ></Select>
       );
     } else if (type === "textarea") {

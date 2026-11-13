@@ -10,6 +10,8 @@
 - [x] 1.8 `src/datasource.ts`: the query settings merge skips entries that are not objects
 - [x] 1.9 `pkg/plugin/driver.go`: `MutateQuery` leaves empty-valued settings out of the query context
 
+- [x] 1.10 Show a boolean setting stored as `true`, `"true"` or `1` as "Yes"
+
 ## 2. Unit tests
 
 - [x] 2.1 `ConfigEditor.test.tsx`: an unknown setting renders without throwing, shows its value and the warning, and no validation error
@@ -24,6 +26,8 @@
 - [x] 2.9 `ConfigEditor.test.tsx`: an empty known or unknown setting is removed on blur; one with a value is kept
 - [x] 2.10 `datasource.test.ts`: a `null` data-source-level entry is skipped in the merge
 - [x] 2.11 `driver_test.go`: `MutateQuery` leaves an empty-valued setting out of the context
+
+- [x] 2.12 `ConfigEditor.test.tsx`: a boolean setting stored as `"1"`, `1`, `true` or `"true"` shows "Yes"; `"0"`, `0` or `false` shows "No"
 
 ## 3. E2E
 

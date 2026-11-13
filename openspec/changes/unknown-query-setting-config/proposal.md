@@ -9,6 +9,7 @@ The data source config page crashes with a `TypeError` when `jsonData.querySetti
 - An unknown setting can be edited and removed like a known one.
 - Known settings render and validate exactly as before.
 - The section also renders when `jsonData.querySettings` is not a list or holds entries that are not objects; the first edit stores the list without those entries.
+- A boolean setting stored as an unquoted `true` or `1` shows as "Yes".
 - A setting whose value is left empty is removed from the list when its input loses focus.
 - A setting stored with an empty value is not sent to Hydrolix.
 - Editing or removing a row affects that row only, including when two stored entries share a name.
