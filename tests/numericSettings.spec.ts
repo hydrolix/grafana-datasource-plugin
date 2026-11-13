@@ -44,8 +44,9 @@ test("a data source with unquoted numeric settings passes the health check and r
 
   const query = await request.post("/api/ds/query", {
     data: {
-      from: "now-5m",
-      to: "now",
+      // 2025-04-10 00:00:00 – 23:59:59 UTC, epoch ms
+      from: "1744243200000",
+      to: "1744329599000",
       queries: [
         {
           refId: "A",

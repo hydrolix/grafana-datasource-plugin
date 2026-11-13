@@ -289,6 +289,20 @@ func TestPluginSettingsQuerySettings(t *testing.T) {
 		}, settings.QuerySettings)
 	})
 
+	t.Run("numeric and boolean setting names are read as text", func(t *testing.T) {
+		settings, err := newSettingsFromJSON(t, map[string]any{"querySettings": []any{
+			map[string]any{"setting": 42, "value": "a"},
+			map[string]any{"setting": 0.5, "value": "b"},
+			map[string]any{"setting": true, "value": "c"},
+		}})
+		assert.NoError(t, err)
+		assert.Equal(t, []QuerySetting{
+			{Setting: "42", Value: "a"},
+			{Setting: "0.5", Value: "b"},
+			{Setting: "true", Value: "c"},
+		}, settings.QuerySettings)
+	})
+
 	t.Run("nameless entries are skipped and a missing value is empty", func(t *testing.T) {
 		settings, err := newSettingsFromJSON(t, map[string]any{"querySettings": []any{
 			map[string]any{"value": "1"},

@@ -6,11 +6,14 @@
 
 - The backend accepts a JSON number or boolean wherever the data source configuration holds a string (`host`, `protocol`, `credentialsType`, `path`, `username`, `defaultDatabase`, `dialTimeout`, `queryTimeout`, and each query setting's `setting` and `value`) and uses its text form.
 - A value of any other JSON type (object, array) returns a data source error naming the field instead of panicking.
-- A `querySettings` entry that is not an object returns the same kind of error; an entry with no setting name is skipped, as the frontend already does; an entry with no `value` gets an empty value.
+- A `querySettings` value that is not an array, or an entry in it that is not an object, returns the same kind of error; an entry with no setting name is skipped, as the frontend already does; an entry with no `value` gets an empty value.
 - Existing validation is unchanged: a timeout that is not a whole number still fails with the existing invalid-timeout error.
 - Go unit coverage for every field and type; Playwright e2e coverage for a provisioned data source with unquoted numbers.
 
-Not breaking: every configuration that works today parses to the same settings.
+Every configuration the config editor can save parses to the same settings. Two hand-written shapes that parsed before now behave differently:
+
+- **BREAKING**: a `querySettings` value that is not an array was ignored; the data source now fails with an error naming `querySettings`.
+- A `querySettings` entry with an empty setting name was sent to Hydrolix under an empty name; it is now skipped.
 
 ## Capabilities
 
