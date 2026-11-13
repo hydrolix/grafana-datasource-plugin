@@ -88,8 +88,10 @@ func transportMessage(err error) (string, bool) {
 		return false
 	}
 
+	// A resolver that did not answer in time is a timeout, below: the name may
+	// be a good one.
 	var dns *net.DNSError
-	if errors.As(err, &dns) || has("no such host") {
+	if (errors.As(err, &dns) && !dns.IsTimeout) || has("no such host") {
 		return msgHostUnresolved, true
 	}
 
@@ -156,6 +158,12 @@ func connectFailure(err error) error {
 		if code, convErr := strconv.ParseInt(m[1], 10, 32); convErr == nil {
 			return fixed(exceptionMessage(int32(code)))
 		}
+	}
+
+	// A redirect refused on a connection the instance already held reaches
+	// the health check as text, under the request URL.
+	if redirect, ok := redirectFromText(err.Error()); ok {
+		return redirect
 	}
 
 	if message, ok := transportMessage(err); ok {

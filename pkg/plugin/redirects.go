@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 )
 
 // RedirectError is the answer to the cluster, or whatever answers at its
@@ -30,6 +32,24 @@ type RedirectError struct {
 
 func (e *RedirectError) Error() string {
 	return fmt.Sprintf("the cluster answered HTTP %d, a redirect, which the plugin does not follow: a redirect would carry the credential off the configured host", e.Status)
+}
+
+// The opening of RedirectError's message, for an error that arrives as a
+// string: sqlds hands the health check a message, not an error.
+var redirectText = regexp.MustCompile(`the cluster answered HTTP (\d{3}), a redirect`)
+
+// redirectFromText recovers a RedirectError from its own message. The
+// Location is not in the message and stays empty.
+func redirectFromText(text string) (*RedirectError, bool) {
+	m := redirectText.FindStringSubmatch(text)
+	if m == nil {
+		return nil, false
+	}
+	status, err := strconv.Atoi(m[1])
+	if err != nil {
+		return nil, false
+	}
+	return &RedirectError{Status: status}, true
 }
 
 // refuseRedirects wraps a transport so that a response http.Client would

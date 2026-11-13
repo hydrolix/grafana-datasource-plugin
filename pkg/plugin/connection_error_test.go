@@ -56,11 +56,16 @@ func TestTransportMessageNamesTheKindOfFailureOnly(t *testing.T) {
 			err:  dialError(&net.DNSError{Err: "no such host", Name: "internal.example", Server: "127.0.0.11:53", IsNotFound: true}),
 			want: msgHostUnresolved,
 		},
-		"refused":                {err: dialError(syscall.ECONNREFUSED), want: msgRefused},
-		"refused over http":      {err: inURL(dialError(syscall.ECONNREFUSED)), want: msgRefused},
-		"dial timeout":           {err: dialError(timeoutError{}), want: msgConnectTimeout},
-		"deadline while dialing": {err: dialError(context.DeadlineExceeded), want: msgConnectTimeout},
-		"deadline on a request":  {err: inURL(context.DeadlineExceeded), want: msgRequestTimeout},
+		"resolver timed out": {
+			err:  dialError(&net.DNSError{Err: "i/o timeout", Name: "internal.example", Server: "127.0.0.11:53", IsTimeout: true}),
+			want: msgConnectTimeout,
+		},
+		"resolver timed out, as text": {err: errors.New("dial tcp: lookup internal.example on 127.0.0.11:53: read udp 127.0.0.1:5353->127.0.0.11:53: i/o timeout"), want: msgConnectTimeout},
+		"refused":                     {err: dialError(syscall.ECONNREFUSED), want: msgRefused},
+		"refused over http":           {err: inURL(dialError(syscall.ECONNREFUSED)), want: msgRefused},
+		"dial timeout":                {err: dialError(timeoutError{}), want: msgConnectTimeout},
+		"deadline while dialing":      {err: dialError(context.DeadlineExceeded), want: msgConnectTimeout},
+		"deadline on a request":       {err: inURL(context.DeadlineExceeded), want: msgRequestTimeout},
 		"read timeout": {
 			err:  &net.OpError{Op: "read", Net: "tcp", Addr: &net.TCPAddr{IP: net.ParseIP("10.0.0.5"), Port: 9440}, Err: timeoutError{}},
 			want: msgRequestTimeout,
@@ -150,6 +155,20 @@ func TestConnectFailureRepeatsNothingOfWhatAnswered(t *testing.T) {
 			assert.ErrorIs(t, got, c.err, "the cause stays underneath")
 		})
 	}
+
+	// What sqlds's health check hands over: the ping's error, already a string.
+	t.Run("a redirect that arrives as text keeps its message", func(t *testing.T) {
+		redirect := &RedirectError{Status: http.StatusFound, Location: "http://internal.example/admin/"}
+		raw := &url.Error{Op: "Post", URL: "http://internal.example:9440/?default_format=Native", Err: redirect}
+		got := connectFailure(errors.New(raw.Error()))
+		assert.Equal(t, redirect.Error(), got.Error())
+		assertNoNetworkDetails(t, got.Error())
+	})
+
+	t.Run("a body that quotes the redirect message is still a body", func(t *testing.T) {
+		got := connectFailure(errors.New(`sendQuery: [HTTP 500] response body: "the cluster answered HTTP 302, a redirect"`))
+		assert.Equal(t, "The server answered HTTP 500", got.Error())
+	})
 
 	t.Run("a redirect keeps its own message", func(t *testing.T) {
 		redirect := &RedirectError{Status: http.StatusFound, Location: "http://internal.example/admin/"}
