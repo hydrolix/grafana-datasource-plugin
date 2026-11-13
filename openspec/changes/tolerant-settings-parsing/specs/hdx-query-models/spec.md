@@ -6,7 +6,7 @@ The plugin SHALL define `NewPluginSettings(ctx context.Context, src backend.Data
 
 `NewPluginSettings` SHALL NOT panic for any `JSONData` that is valid JSON. Each string field (`host`, `protocol`, `credentialsType`, `path`, `username`, `defaultDatabase`, `dialTimeout`, `queryTimeout`, and each `querySettings` entry's `setting` and `value`) SHALL accept a JSON string as-is, a JSON number as its shortest plain decimal text (no exponent), and a JSON boolean as `"true"` or `"false"`. Any other JSON type in one of these fields SHALL return a `backend.DownstreamError` that wraps `ErrorMessageInvalidSettingType` and names the field, without its value.
 
-In `querySettings`, an element that is not a JSON object SHALL return that error with the field `querySettings[<index>]`; an element whose `setting` is missing or empty SHALL be skipped; an element with no `value` SHALL get the value `""`.
+A `querySettings` value that is not a JSON array SHALL return that error with the field `querySettings`. In `querySettings`, an element that is not a JSON object SHALL return that error with the field `querySettings[<index>]`; an element whose `setting` is missing or empty SHALL be skipped; an element with no `value` SHALL get the value `""`.
 
 #### Scenario: `NewPluginSettings` returns validated settings on a valid input
 
@@ -62,6 +62,14 @@ In `querySettings`, an element that is not a JSON object SHALL return that error
 - **THEN** it SHALL NOT panic
 - **AND** the returned error SHALL wrap `ErrorMessageInvalidSettingType`
 - **AND** its message SHALL contain `querySettings[0]`
+
+#### Scenario: A `querySettings` value that is not an array returns an error naming the field
+
+- **GIVEN** `JSONData` with `querySettings: {"setting": "hdx_query_max_rows", "value": "1"}`
+- **WHEN** `NewPluginSettings` is invoked
+- **THEN** it SHALL NOT panic
+- **AND** the returned error SHALL wrap `ErrorMessageInvalidSettingType`
+- **AND** its message SHALL contain `querySettings` and SHALL NOT contain the value
 
 #### Scenario: Nameless entries are skipped and a missing value is empty
 

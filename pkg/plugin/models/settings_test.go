@@ -317,10 +317,21 @@ func TestPluginSettingsQuerySettings(t *testing.T) {
 		assert.Contains(t, err.Error(), "querySettings[0].value")
 	})
 
-	t.Run("a querySettings value that is not an array is ignored", func(t *testing.T) {
-		settings, err := newSettingsFromJSON(t, map[string]any{"querySettings": map[string]any{"setting": "x"}})
-		assert.NoError(t, err)
-		assert.Empty(t, settings.QuerySettings)
+	t.Run("a querySettings value that is not an array returns an error naming the field", func(t *testing.T) {
+		for name, value := range map[string]any{
+			"object": map[string]any{"setting": "hdx_query_max_rows", "value": "1"},
+			"string": "hdx_query_max_rows=1",
+			"number": 1,
+			"bool":   true,
+		} {
+			t.Run(name, func(t *testing.T) {
+				_, err := newSettingsFromJSON(t, map[string]any{"querySettings": value})
+				assert.ErrorIs(t, err, ErrorMessageInvalidSettingType)
+				assert.True(t, backend.IsDownstreamError(err))
+				assert.Contains(t, err.Error(), "querySettings:")
+				assert.NotContains(t, err.Error(), "hdx_query_max_rows")
+			})
+		}
 	})
 }
 

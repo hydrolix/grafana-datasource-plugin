@@ -13,7 +13,6 @@
 
 **Non-Goals:**
 - Changing validation rules (`IsValid`), defaults, or the frontend.
-- Rejecting a `querySettings` value that is not an array; it stays ignored as today.
 - Checking that query setting names are known (HDX-12858 covers the editor side).
 
 ## Decisions
@@ -32,8 +31,9 @@ Booleans become `"true"` / `"false"`, the same text the frontend produces when i
 
 `errors.Is(err, ErrorMessageInvalidSettingType)` must identify this error and nothing else. A sentinel built with `backend.DownstreamError(...)` would match every downstream error, because the SDK's `ErrorWithSource.Is` compares only the source. The existing sentinels in `settings.go` follow the same pattern.
 
-### D3. `querySettings` entries: error on a non-object, skip a nameless entry, empty a missing value
+### D3. `querySettings`: error on a non-array and on a non-object entry, skip a nameless entry, empty a missing value
 
+- A `querySettings` value that is not an array returns the invalid-type error with field `querySettings`. It was ignored before, which dropped the operator's settings without a word; Grafana's plugin review asked for a validation error on a wrongly typed value.
 - A non-object element returns the invalid-type error with field `querySettings[i]`; it cannot be a setting.
 - An element whose `setting` is missing or empty is skipped. The frontend already drops it (`filter((s) => s.setting)`), so both sides send the same set.
 - A missing `value` becomes `""`, which is what the config editor stores for an empty field today.

@@ -141,7 +141,10 @@ func NewPluginSettings(_ context.Context, source backend.DataSourceInstanceSetti
 
 	if jsonData["querySettings"] != nil {
 		settings.QuerySettings = []QuerySetting{}
-		entries, _ := jsonData["querySettings"].([]any)
+		entries, ok := jsonData["querySettings"].([]any)
+		if !ok {
+			return settings, backend.DownstreamError(fmt.Errorf("querySettings: %w (want an array)", ErrorMessageInvalidSettingType))
+		}
 		for i, entry := range entries {
 			qs, err := parseQuerySetting(fmt.Sprintf("querySettings[%d]", i), entry)
 			if err != nil {
