@@ -64,12 +64,18 @@ func NewHydrolix() *Hydrolix {
 	// `[plugin.<id>]` configuration to a plugin process. Absent configuration is
 	// not an error: it only means this instance cannot serve the exchanging
 	// mode, which nothing else depends on.
-	if cfg, err := exchange.ConfigFromEnv(os.LookupEnv); err == nil {
-		h.exchangeSource = exchange.NewSource(exchange.NewHTTPExchanger(cfg), nil, log.DefaultLogger)
-		h.exchangePrincipals = exchange.NewPrincipals(0, nil)
-	} else {
+	cfg, err := exchange.ConfigFromEnv(os.LookupEnv)
+	if err != nil {
 		h.exchangeConfigErr = err
+		return h
 	}
+	exchanger, err := exchange.NewHTTPExchanger(cfg)
+	if err != nil {
+		h.exchangeConfigErr = err
+		return h
+	}
+	h.exchangeSource = exchange.NewSource(exchanger, nil, log.DefaultLogger)
+	h.exchangePrincipals = exchange.NewPrincipals(0, nil)
 	return h
 }
 

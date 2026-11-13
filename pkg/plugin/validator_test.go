@@ -18,23 +18,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLeadingPKColumn(t *testing.T) {
+func TestNamedColumn(t *testing.T) {
 	tests := []struct {
 		name   string
-		pk     string
+		exprs  string
 		want   string
 		wantOK bool
 	}{
 		{"single column", "datetime", "datetime", true},
 		{"backtick-quoted", "`event time`", "event time", true},
+		{"summary column named after its expression", "`toStartOfDay(reqTimeSec)`", "toStartOfDay(reqTimeSec)", true},
 		{"composite takes the leading column", "ts, id", "ts", true},
 		{"expression key has no single column", "toStartOfHour(ts)", "", false},
+		{"computed alias expression", "countMerge(`count()`)", "", false},
 		{"empty means the table has no key", "", "", false},
 		{"blank", "  ", "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := leadingPKColumn(tt.pk)
+			got, ok := namedColumn(tt.exprs)
 			assert.Equal(t, tt.wantOK, ok)
 			assert.Equal(t, tt.want, got)
 		})
@@ -60,17 +62,31 @@ func TestUnconstrainedPKTables(t *testing.T) {
 		"composite": "ts, id",
 		"expr":      "toStartOfHour(ts)",
 		"nokey":     "",
+		"summary":   "`toStartOfDay(reqTimeSec)`",
+	}
+	aliases := map[string]map[string]string{
+		"t": {"ts_alias": "ts"},
+		"summary": {
+			"reqTimeSec": "`toStartOfDay(reqTimeSec)`",
+			"day":        "toDate(`toStartOfDay(reqTimeSec)`)",
+			"cnt_all":    "countMerge(`count()`)",
+		},
+	}
+	qualified := func(database, table string) string {
+		if database != "" {
+			return database + "." + table
+		}
+		return table
 	}
 	resolve := func(_ context.Context, _ http.Header, database, table string) (string, error) {
-		name := table
-		if database != "" {
-			name = database + "." + table
-		}
-		pk, ok := keys[name]
+		pk, ok := keys[qualified(database, table)]
 		if !ok {
 			return "", ErrPrimaryKeyNotFound
 		}
 		return pk, nil
+	}
+	resolveAliases := func(_ context.Context, _ http.Header, database, table string) (map[string]string, error) {
+		return aliases[qualified(database, table)], nil
 	}
 
 	tests := []struct {
@@ -106,21 +122,57 @@ func TestUnconstrainedPKTables(t *testing.T) {
 		{"expression key is skipped", "SELECT * FROM expr", nil},
 		{"table without a key", "SELECT * FROM nokey", nil},
 		{"unknown table is skipped", "SELECT * FROM missing", nil},
+		{"identity alias of the key column", "SELECT * FROM t WHERE ts_alias > 1", nil},
+		{"summary key column filtered by name", "SELECT * FROM summary WHERE `toStartOfDay(reqTimeSec)` >= 1", nil},
+		{"summary key column filtered through its alias", "SELECT * FROM summary WHERE reqTimeSec >= 1 AND biIsBotTraffic = 1", nil},
+		{"summary alias filtered by a CTE reader", "WITH x AS (SELECT * FROM summary) SELECT * FROM x WHERE reqTimeSec >= 1", nil},
+		{"summary unfiltered", "SELECT * FROM summary WHERE biIsBotTraffic = 1", []string{"Primary key `toStartOfDay(reqTimeSec)` of `summary`"}},
+		{"computed alias over the key does not count", "SELECT * FROM summary WHERE day = today()", []string{"Primary key `toStartOfDay(reqTimeSec)` of `summary`"}},
+		{"alias of another column does not count", "SELECT * FROM summary WHERE cnt_all > 1", []string{"Primary key `toStartOfDay(reqTimeSec)` of `summary`"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := unconstrainedPKTables(context.Background(), parseSelect(t, tt.sql), nil, resolve)
+			got := unconstrainedPKTables(context.Background(), parseSelect(t, tt.sql), nil, resolve, resolveAliases)
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func noAliases(context.Context, http.Header, string, string) (map[string]string, error) {
+	return nil, nil
 }
 
 func TestUnconstrainedPKTables_ResolverErrorIsSkipped(t *testing.T) {
 	resolve := func(context.Context, http.Header, string, string) (string, error) {
 		return "", errors.New("cluster unreachable")
 	}
-	got := unconstrainedPKTables(context.Background(), parseSelect(t, "SELECT * FROM t"), nil, resolve)
+	got := unconstrainedPKTables(context.Background(), parseSelect(t, "SELECT * FROM t"), nil, resolve, noAliases)
 	assert.Empty(t, got)
+}
+
+func TestUnconstrainedPKTables_AliasLookup(t *testing.T) {
+	resolve := func(context.Context, http.Header, string, string) (string, error) {
+		return "ts", nil
+	}
+	t.Run("not issued when the key column is filtered", func(t *testing.T) {
+		calls := 0
+		resolveAliases := func(context.Context, http.Header, string, string) (map[string]string, error) {
+			calls++
+			return nil, nil
+		}
+		got := unconstrainedPKTables(context.Background(), parseSelect(t, "SELECT * FROM t WHERE ts > 1"), nil, resolve, resolveAliases)
+		assert.Empty(t, got)
+		assert.Zero(t, calls)
+	})
+	t.Run("failure skips the check", func(t *testing.T) {
+		capture := captureWarnings(t)
+		resolveAliases := func(context.Context, http.Header, string, string) (map[string]string, error) {
+			return nil, backend.DownstreamError(errors.New("cluster unreachable"))
+		}
+		got := unconstrainedPKTables(context.Background(), parseSelect(t, "SELECT * FROM t"), nil, resolve, resolveAliases)
+		assert.Empty(t, got)
+		assert.Equal(t, []string{"query validation: skipping PK check"}, capture.warnings)
+	})
 }
 
 // warnCapture records Warn calls; every other method is the wrapped logger's.
@@ -160,7 +212,7 @@ func TestUnconstrainedPKTables_SkipLogOnlyForLookupFailures(t *testing.T) {
 			resolve := func(context.Context, http.Header, string, string) (string, error) {
 				return tt.pk, tt.err
 			}
-			got := unconstrainedPKTables(context.Background(), parseSelect(t, "SELECT * FROM t"), nil, resolve)
+			got := unconstrainedPKTables(context.Background(), parseSelect(t, "SELECT * FROM t"), nil, resolve, noAliases)
 			assert.Empty(t, got)
 			if tt.wantLog {
 				assert.Equal(t, []string{"query validation: skipping PK check"}, capture.warnings)
@@ -179,7 +231,7 @@ func TestUnconstrainedPKTables_StopsWhenContextIsDone(t *testing.T) {
 		cancel()
 		return "", context.Canceled
 	}
-	got := unconstrainedPKTables(ctx, parseSelect(t, "SELECT * FROM t UNION ALL SELECT * FROM u"), nil, resolve)
+	got := unconstrainedPKTables(ctx, parseSelect(t, "SELECT * FROM t UNION ALL SELECT * FROM u"), nil, resolve, noAliases)
 	assert.Empty(t, got)
 	assert.Equal(t, 1, calls)
 }
@@ -228,11 +280,13 @@ func TestPositionsInUserSQL(t *testing.T) {
 	}
 }
 
-// validatorFixture fakes the PK lookup and the EXPLAIN, recording requests.
+// validatorFixture fakes the PK lookup, the alias DESCRIBE and the EXPLAIN,
+// recording requests.
 type validatorFixture struct {
 	mu             sync.Mutex
 	requests       []*backend.QueryDataRequest
 	pk             string
+	aliases        map[string]string
 	pkFn           func(ctx context.Context) error
 	explainErr     error
 	explainFn      func(ctx context.Context) error
@@ -253,6 +307,14 @@ func (f *validatorFixture) queryData(ctx context.Context, req *backend.QueryData
 			}
 		}
 		return respondWith(frameOf([]string{f.pk}), q.RefID), nil
+	case "alias_query":
+		// DESCRIBE: name, type, default_type, default_expression, plus a
+		// physical column that must not be mistaken for an alias.
+		names, types, kinds, expressions := []string{f.pk}, []string{"DateTime"}, []string{""}, []string{""}
+		for name, expression := range f.aliases {
+			names, types, kinds, expressions = append(names, name), append(types, "DateTime"), append(kinds, "ALIAS"), append(expressions, expression)
+		}
+		return respondWith(frameOf(names, types, kinds, expressions), q.RefID), nil
 	case "validate_query":
 		f.mu.Lock()
 		f.explainSkipped = interpolationSkipped(ctx)
@@ -326,6 +388,38 @@ func TestValidate_UnfilteredPrimaryKeyWarns(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, res.Error)
 	assert.Equal(t, "Primary key `ts` of `t` not filtered in WHERE; add $__timeFilter() to limit the scan.", res.Warning)
+}
+
+// A Hydrolix summary table: the key column is named after its expression and
+// exposed under the source column's name through an ALIAS.
+func TestValidate_SummaryKeyAliasSatisfiesPKCheck(t *testing.T) {
+	f := &validatorFixture{pk: "`toStartOfDay(reqTimeSec)`", aliases: map[string]string{"reqTimeSec": "`toStartOfDay(reqTimeSec)`"}}
+	q := validationQuery("SELECT count() FROM t WHERE $__timeFilter(reqTimeSec) AND biIsBotTraffic = 1")
+	q.Headers = http.Header{"Authorization": []string{"Bearer user-token"}}
+
+	res, err := newTestValidator(f).Validate(context.Background(), q)
+
+	require.NoError(t, err)
+	assert.Equal(t, models.ValidationResult{}, res)
+	var describe string
+	for _, r := range f.requests {
+		if r.Queries[0].RefID == "alias_query" {
+			var payload map[string]any
+			require.NoError(t, json.Unmarshal(r.Queries[0].JSON, &payload))
+			describe, _ = payload["rawSql"].(string)
+			assert.Equal(t, "Bearer user-token", r.GetHTTPHeader("Authorization"), "the alias lookup carries the user's headers")
+		}
+	}
+	assert.Equal(t, "DESCRIBE TABLE `db`.`t`", describe)
+}
+
+func TestValidate_SummaryKeyUnfilteredWarns(t *testing.T) {
+	f := &validatorFixture{pk: "`toStartOfDay(reqTimeSec)`", aliases: map[string]string{"reqTimeSec": "`toStartOfDay(reqTimeSec)`"}}
+
+	res, err := newTestValidator(f).Validate(context.Background(), validationQuery("SELECT count() FROM t WHERE biIsBotTraffic = 1"))
+
+	require.NoError(t, err)
+	assert.Equal(t, "Primary key `toStartOfDay(reqTimeSec)` of `t` not filtered in WHERE; add $__timeFilter() to limit the scan.", res.Warning)
 }
 
 func TestValidate_TimeFilterMacroSatisfiesPKCheck(t *testing.T) {
