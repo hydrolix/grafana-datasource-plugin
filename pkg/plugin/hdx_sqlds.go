@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -110,7 +111,16 @@ func NewHdxSqlDatasource(driver sqlds.Driver, settings backend.DataSourceInstanc
 // with no delegate therefore passes here and fails in its first panel.
 func (ds *HdxSqlDatasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
 	if ds.Settings == nil || !forwardsUserIdentity(ds.Settings.CredentialsType) {
-		return ds.SQLDatasource.CheckHealth(ctx, req)
+		res, err := ds.SQLDatasource.CheckHealth(ctx, req)
+		// sqlds pings the connection the instance already holds and answers
+		// with the ping's error as text. A cluster that stopped answering
+		// after the instance was built fails here rather than in Connect, so
+		// the same fixed messages apply.
+		if err == nil && res != nil && res.Status == backend.HealthStatusError {
+			log.DefaultLogger.Error("health check failed", "error", res.Message)
+			res.Message = connectFailure(errors.New(res.Message)).Error()
+		}
+		return res, err
 	}
 
 	if ds.Settings.CredentialsType != exchange.CredentialsType {
