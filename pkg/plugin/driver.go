@@ -329,29 +329,32 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 				if db != nil {
 					_ = db.Close()
 				}
-				// A refused redirect fails the instance here, and sqlds
-				// returns that error as-is: MutateQueryError never sees a
-				// connect error. So the reason is unwrapped from the fork's
-				// request plumbing on this path too, and logged once.
+				// This error fails the instance, and the SDK and sqlds both
+				// return it as-is: it is the message Save & test shows, and
+				// the error of every panel on the datasource, and
+				// MutateQueryError never sees it. So it leaves here as a
+				// fixed message (connectFailure), and what happened is logged
+				// once.
 				var redirect *RedirectError
-				if errors.As(err, &redirect) {
+				var ex *clickhouse.Exception
+				switch {
+				case errors.As(err, &redirect):
 					log.DefaultLogger.Warn(
 						"cluster redirected; not following",
 						"status", redirect.Status,
 						"location", redirect.Location,
 					)
-					return nil, redirect
-				}
-				var ex *clickhouse.Exception
-				if errors.As(err, &ex) {
+				case errors.As(err, &ex):
 					log.DefaultLogger.Error(
 						"clickhouse exception",
 						"code", ex.Code,
 						"message", ex.Message,
 						"stack", ex.StackTrace,
 					)
+				default:
+					log.DefaultLogger.Error("connecting to the cluster failed", "error", err)
 				}
-				return nil, err
+				return nil, connectFailure(err)
 			}
 		}
 	}
@@ -762,6 +765,11 @@ func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
 	// that in its request plumbing, and the panel gets the reason alone.
 	var redirect *RedirectError
 	if errors.As(err, &redirect) {
+		log.DefaultLogger.Warn(
+			"cluster redirected; not following",
+			"status", redirect.Status,
+			"location", redirect.Location,
+		)
 		return backend.NewErrorWithSource(backend.DownstreamError(redirect), backend.ErrorSourceDownstream)
 	}
 
@@ -787,6 +795,19 @@ func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
 	if errors.As(err, &ex) {
 		return backend.NewErrorWithSource(
 			backend.DownstreamError(fmt.Errorf("Code: %d. %s: %s", ex.Code, ex.Name, ex.Message)),
+			backend.ErrorSourceDownstream,
+		)
+	}
+
+	// A query that never got an answer: the forwarding modes skip the
+	// handshake in Connect, so their first dial is a panel's, and its error
+	// names the address like any other. An answer, an HTTP error with the
+	// cluster's own text included, is what the query's author needs and passes
+	// through.
+	if message, ok := transportMessage(err); ok {
+		log.DefaultLogger.Error("query did not reach the cluster", "error", err)
+		return backend.NewErrorWithSource(
+			backend.DownstreamError(&connectionError{message: message, cause: err}),
 			backend.ErrorSourceDownstream,
 		)
 	}
