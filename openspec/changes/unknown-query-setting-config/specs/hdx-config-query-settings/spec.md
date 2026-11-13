@@ -20,10 +20,16 @@ The data source config editor SHALL render the Query Settings section for any co
 
 #### Scenario: Malformed content does not crash the page
 
-- **GIVEN** `jsonData.querySettings` is not a list, or is a list holding entries that are not objects (for example `null`)
+- **GIVEN** `jsonData.querySettings` is not a list, or is a list holding entries that are not objects (for example `null`) or whose `setting` is itself an object (for example `{ setting: { name: "x" } }`)
 - **WHEN** the config editor renders
 - **THEN** the Query Settings section SHALL render without throwing
-- **AND** an entry that is not an object SHALL have no row
+- **AND** an entry that is not an object, or whose `setting` is an object, SHALL have no row and SHALL be dropped on the first edit
+
+#### Scenario: A query settings list that is not an array does not stop the query
+
+- **GIVEN** `jsonData.querySettings`, or a query's own `querySettings`, is not an array (for example `{ hdx_query_max_rows: "10" }`)
+- **WHEN** a query is sent
+- **THEN** the frontend query settings merge SHALL read it as holding no entries and SHALL NOT throw
 
 #### Scenario: Entries that are not objects are dropped on the first edit
 

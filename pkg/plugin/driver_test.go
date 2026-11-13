@@ -791,3 +791,23 @@ func TestMutateQueryData_NumericQuerySettingValue(t *testing.T) {
 		},
 		ctx.Value("querySettings"))
 }
+
+// A per-query entry with no name is dropped in the merge, the way a stored one
+// is, so Hydrolix never receives a setting with an empty name.
+func TestMutateQueryData_NamelessQuerySettingDropped(t *testing.T) {
+	h := &Hydrolix{querySettingsContextHandler: testContextHandler}
+	req := makeQueryDataReq(t, "", nil, `{"rawSql":"select 1","querySettings":[
+		{"value":"5"},
+		{"setting":"hdx_query_max_rows","value":"100"}
+	]}`)
+
+	_, out := h.MutateQueryData(context.Background(), req)
+	ctx, _ := h.MutateQuery(context.Background(), out.Queries[0])
+
+	assert.JSONEq(t,
+		`{"rawSql":"select 1","querySettings":[{"setting":"hdx_query_max_rows","value":"100"}]}`,
+		string(out.Queries[0].JSON))
+	assert.Equal(t,
+		map[string]any{"hdx_query_max_rows": clickhouse.CustomSetting{Value: "100"}},
+		ctx.Value("querySettings"))
+}

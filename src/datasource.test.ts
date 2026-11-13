@@ -838,6 +838,30 @@ describe("HdxDataSource", () => {
       ).toBeUndefined();
     });
 
+    it.each([
+      ["datasource-level", { hdx_query_max_rows: "10" }, undefined],
+      ["per-query", undefined, { hdx_query_max_rows: "10" }],
+    ])(
+      "should send the query when the %s querySettings is not an array",
+      async (_, stored, perQuery) => {
+        const { datasource, queryMock } = setupDataSourceMock({
+          customInstanceSettings: {
+            ...MockDataSourceInstanceSettings,
+            jsonData: {
+              ...MockDataSourceInstanceSettings.jsonData,
+              querySettings: stored as any,
+            },
+          },
+        });
+        queryMock.mockReturnValue(of({ data: [] }));
+        const req = {
+          targets: [{ rawSql: "select 1", refId: "A", querySettings: perQuery }],
+        } as any as DataQueryRequest<HdxQuery>;
+        await firstValueFrom(datasource.query(req));
+        expect(queryMock.mock.calls[0][0].targets[0].querySettings).toEqual([]);
+      }
+    );
+
     it("should handle empty querySettings arrays", async () => {
       const { datasource, queryMock } = setupDataSourceMock({});
       queryMock.mockReturnValue(of({ data: [] }));

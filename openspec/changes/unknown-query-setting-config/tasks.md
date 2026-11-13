@@ -14,6 +14,10 @@
 - [x] 1.11 `pkg/plugin/models/settings.go`: `QuerySetting.UnmarshalJSON` reads a per-query number or boolean as text; `MutateQueryData` logs a decode error instead of discarding it
 - [x] 1.12 `src/datasource.ts`: the query settings merge sends a missing or `null` value as `""`
 
+- [x] 1.13 `ConfigEditor.tsx`: an entry whose `setting` is an object gets no row
+- [x] 1.14 `src/datasource.ts`: the query settings merge reads a list that is not an array as empty
+- [x] 1.15 `pkg/plugin/driver.go`: `MutateQueryData` drops nameless per-query entries
+
 ## 2. Unit tests
 
 - [x] 2.1 `ConfigEditor.test.tsx`: an unknown setting renders without throwing, shows its value and the warning, and no validation error
@@ -32,6 +36,10 @@
 - [x] 2.12 `ConfigEditor.test.tsx`: a boolean setting stored as `"1"`, `1`, `true` or `"true"` shows "Yes"; `"0"`, `0` or `false` shows "No"
 - [x] 2.13 `settings_test.go`: `QuerySetting` unmarshals numbers, booleans and missing values as text and rejects other types; `driver_test.go`: a per-query numeric value overrides the data source's
 - [x] 2.14 `datasource.test.ts`: a data-source-level entry with no value is sent as `""`
+
+- [x] 2.15 `ConfigEditor.test.tsx`: an entry whose `setting` is an object renders no row and does not throw
+- [x] 2.16 `datasource.test.ts`: a data-source-level or per-query `querySettings` that is not an array sends the query with no settings
+- [x] 2.17 `driver_test.go`: a nameless per-query entry is left out of the query's settings and the context
 
 ## 3. E2E
 

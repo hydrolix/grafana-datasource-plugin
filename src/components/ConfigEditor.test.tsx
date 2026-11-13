@@ -425,6 +425,7 @@ describe("ConfigEditor", () => {
     it.each([
       ["a non-array", { hdx_query_unknown: "10" }],
       ["entries that are not objects", [null, "junk", unknown]],
+      ["an entry whose name is an object", [{ setting: { name: "x" } }]],
     ])("renders when querySettings holds %s", (_, stored) => {
       render(
         <ConfigEditor

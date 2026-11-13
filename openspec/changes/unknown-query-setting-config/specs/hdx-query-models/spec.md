@@ -8,6 +8,14 @@ Unmarshalling a `QuerySetting` from JSON SHALL read `setting` and `value` the wa
 
 When a query's `querySettings` cannot be read, `MutateQueryData` SHALL log a warning and still run the query.
 
+`MutateQueryData` SHALL leave a per-query entry whose `setting` is missing or empty out of the merged settings, the way `NewPluginSettings` skips a stored one.
+
+#### Scenario: A nameless per-query entry is dropped
+
+- **GIVEN** a query whose JSON carries `querySettings: [{"value": "5"}, {"setting": "hdx_query_max_rows", "value": "100"}]`
+- **WHEN** `MutateQueryData` and then `MutateQuery` process the query
+- **THEN** the query's `querySettings` and the query context SHALL carry only `hdx_query_max_rows` = `"100"`
+
 #### Scenario: `QuerySetting` JSON tags match the wire format
 
 - **GIVEN** a JSON object `{"setting": "max_threads", "value": "4"}`

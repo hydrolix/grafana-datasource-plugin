@@ -477,6 +477,11 @@ func (h *Hydrolix) MutateQueryData(ctx context.Context, req *backend.QueryDataRe
 		if dataQuery.QuerySettings != nil {
 
 			for _, setting := range dataQuery.QuerySettings {
+				// Nameless entries are dropped, as NewPluginSettings and the
+				// frontend merge drop them.
+				if setting.Setting == "" {
+					continue
+				}
 				mergedSettings[setting.Setting] = setting.Value
 			}
 		}

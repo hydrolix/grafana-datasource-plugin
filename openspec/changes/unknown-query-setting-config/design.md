@@ -40,9 +40,11 @@ A `Map` rather than a plain object: a stored name such as `constructor` or `toSt
 
 ### D4. Tolerate malformed `querySettings`
 
-A `querySettings` that is not an array is read as empty. An entry that is not an object (`null`, a string) gets no row, and the first edit of any row (change, add, remove) writes the list without it. Opening the page changes nothing.
+A `querySettings` that is not an array is read as empty. An entry that is not an object (`null`, a string), or whose `setting` is itself an object, gets no row, and the first edit of any row (change, add, remove) writes the list without it. Opening the page changes nothing.
 
-Such an entry cannot be shown as a row, since it has no name or value to show, and the backend settings parser rejects the whole data source for it. Leaving it in `jsonData` would keep the data source broken with nothing in the UI to remove. The frontend query settings merge skips these entries too, so a query fails with the backend's message and not a `TypeError` in the browser.
+Such an entry cannot be shown as a row, since it has no name or value to show, and the backend settings parser rejects the whole data source for it. Leaving it in `jsonData` would keep the data source broken with nothing in the UI to remove. The frontend query settings merge skips these entries too, and reads a list that is not an array as empty, so a query fails with the backend's message and not a `TypeError` in the browser. A per-query list that is not an array is ignored: the merged list the frontend sends replaces it.
+
+`MutateQueryData` drops a per-query entry with no name, as `NewPluginSettings` does for a stored one, so a query built outside the frontend (an alert rule, the query API) sends no setting with an empty name.
 
 **Alternative considered:** leave malformed entries untouched, as D1 does for unknown names. Rejected: an unknown name works and is visible; a malformed entry does neither.
 

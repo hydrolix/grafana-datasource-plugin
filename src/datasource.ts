@@ -252,7 +252,8 @@ export class DataSource extends DataSourceWithBackend<
     const accumulator: { [v: string]: string } = {};
     return {
       addSettings: (querySettings: QuerySetting[]) =>
-        querySettings &&
+        // Anything that is not an array has no entries to merge.
+        Array.isArray(querySettings) &&
         querySettings
           .filter((s) => s?.setting)
           .reduce((acc: { [key: string]: any }, s) => {

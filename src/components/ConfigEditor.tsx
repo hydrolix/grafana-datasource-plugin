@@ -46,8 +46,12 @@ export interface Props
 type QuerySettingDefinition =
   (typeof allLabels.components.querySettings.values)[number];
 
+// A name that is itself an object cannot be a row's label, and the backend
+// rejects it like an entry that is not an object.
 const isQuerySetting = (entry: unknown): entry is QuerySetting =>
-  typeof entry === "object" && entry !== null;
+  typeof entry === "object" &&
+  entry !== null &&
+  !((entry as { setting?: unknown }).setting instanceof Object);
 
 export function ConfigEditor(props: Props) {
   const { onOptionsChange, options } = props;
