@@ -57,6 +57,10 @@ var authFailureCodes = map[int32]bool{192: true, 193: true, 194: true, 516: true
 var (
 	// The fork reports an HTTP failure as text, "[HTTP 403] response body: …".
 	httpStatusText = regexp.MustCompile(`\[HTTP (\d{3})\]`)
+	// The same, where the body was read: everything after it is the answer's.
+	// The fork's other form, "[HTTP 500] failed to read response: …", ends in
+	// a transport error and is not matched.
+	httpBodyText = regexp.MustCompile(`\[HTTP \d{3}\] response body:`)
 	// clickhouse.Exception's own text, for an error that arrives as a string.
 	exceptionText = regexp.MustCompile(`code: (\d+), message:`)
 )
@@ -70,6 +74,11 @@ var (
 // text otherwise: sqlds hands the health check a message, not an error.
 func transportMessage(err error) (string, bool) {
 	text := err.Error()
+	// An HTTP answer is text too, and its body can hold any of the phrases
+	// below: a syntax error repeats the query, string literals included.
+	if httpBodyText.MatchString(text) {
+		return "", false
+	}
 	has := func(parts ...string) bool {
 		for _, p := range parts {
 			if strings.Contains(text, p) {
@@ -132,20 +141,21 @@ func connectFailure(err error) error {
 	if errors.As(err, &ex) {
 		return fixed(exceptionMessage(ex.Code))
 	}
-	if m := exceptionText.FindStringSubmatch(err.Error()); m != nil {
-		if code, convErr := strconv.ParseInt(m[1], 10, 32); convErr == nil {
-			return fixed(exceptionMessage(int32(code)))
-		}
-	}
-
-	// Before the transport kinds: those also read the text, and this text ends in
-	// a body somebody else wrote.
+	// Before anything else that reads the text: this text ends in a body
+	// somebody else wrote, which can look like an exception or a transport
+	// error.
 	if m := httpStatusText.FindStringSubmatch(err.Error()); m != nil {
 		switch m[1] {
 		case "401", "403":
 			return fixed(msgAuthFailed)
 		}
 		return fixed("The server answered HTTP " + m[1])
+	}
+
+	if m := exceptionText.FindStringSubmatch(err.Error()); m != nil {
+		if code, convErr := strconv.ParseInt(m[1], 10, 32); convErr == nil {
+			return fixed(exceptionMessage(int32(code)))
+		}
 	}
 
 	if message, ok := transportMessage(err); ok {

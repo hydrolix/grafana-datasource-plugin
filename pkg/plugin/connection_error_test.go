@@ -94,6 +94,9 @@ func TestTransportMessageLeavesAnAnswerAlone(t *testing.T) {
 		"clickhouse exception": &clickhouse.Exception{Code: 62, Name: "SYNTAX_ERROR", Message: "Syntax error: failed at position 8"},
 		"http error with body": errors.New(`sendQuery: [HTTP 400] response body: "Code: 62. DB::Exception: Syntax error"`),
 		"plain error":          errors.New("unexpected column type"),
+		"http error echoing a query": errors.New(
+			`sendQuery: [HTTP 400] response body: "Code: 62. DB::Exception: Syntax error: failed at position 7: SELEC 1 WHERE message ILIKE '%dial tcp: connection refused, no such host, i/o timeout, tls: x509: context deadline exceeded%'"`,
+		),
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, ok := transportMessage(err)
@@ -124,6 +127,14 @@ func TestConnectFailureRepeatsNothingOfWhatAnswered(t *testing.T) {
 		"some other service's body": {
 			err:  errors.New(`sendQuery: [HTTP 404] response body: "{\"message\": \"internal.example says no such host\"}"`),
 			want: "The server answered HTTP 404",
+		},
+		"a body shaped like an exception": {
+			err:  errors.New(`sendQuery: [HTTP 500] response body: "code: 516, message: internal.example"`),
+			want: "The server answered HTTP 500",
+		},
+		"a body that could not be read": {
+			err:  errors.New(`sendQuery: [HTTP 500] failed to read response: read tcp 10.0.0.5:9440: connection reset by peer`),
+			want: "The server answered HTTP 500",
 		},
 		"refused":               {err: dialError(syscall.ECONNREFUSED), want: msgRefused},
 		"deadline, any step":    {err: context.DeadlineExceeded, want: msgConnectTimeout},
@@ -233,5 +244,18 @@ func TestMutateQueryErrorHidesWhereAQueryFailedToReach(t *testing.T) {
 		raw := fmt.Errorf("%w: %w", sqlds.ErrorQuery, errors.New(`sendQuery: [HTTP 400] response body: "Code: 62. DB::Exception: Syntax error"`))
 		got := h.MutateQueryError(raw)
 		assert.Contains(t, got.Error(), "Syntax error")
+	})
+
+	t.Run("an answer that repeats a query about connections passes through", func(t *testing.T) {
+		raw := fmt.Errorf("%w: %w", sqlds.ErrorQuery, errors.New(`sendQuery: [HTTP 400] response body: "Code: 62. DB::Exception: Syntax error: failed at position 7: SELEC 1 WHERE message ILIKE '%connection refused%'"`))
+		got := h.MutateQueryError(raw)
+		assert.Contains(t, got.Error(), "Syntax error")
+	})
+
+	t.Run("a body that could not be read is still the network's", func(t *testing.T) {
+		raw := fmt.Errorf("%w: %w", sqlds.ErrorQuery, errors.New(`sendQuery: [HTTP 500] failed to read response: read tcp 10.0.0.5:9440: connection reset by peer`))
+		got := h.MutateQueryError(raw)
+		assert.Equal(t, msgCannotConnect, got.Error())
+		assertNoNetworkDetails(t, got.Error())
 	})
 }
