@@ -1,9 +1,10 @@
-import { test, expect } from "@grafana/plugin-e2e";
-import { Page } from "@playwright/test";
+import { test, expect } from '@grafana/plugin-e2e';
+import { Page } from '@playwright/test';
 // @ts-ignore
-import { captureRequestsAndResponses, closeWhatsNewDialog, ConfigPageSteps } from "./helpers";
-import { DashboardBuilder } from "./dashboardBuilder";
-import { AdHocFilter } from "./adHocFilter";
+import { captureRequestsAndResponses, closeWhatsNewDialog, ConfigPageSteps } from './helpers';
+import { DashboardBuilder } from './dashboardBuilder';
+import { AdHocFilter } from './adHocFilter';
+import { visibleOptionTexts } from './grafanaSelect';
 
 /**
  * Ad hoc filter key names expire (CFB-4795). A Hydrolix table gains names while
@@ -18,18 +19,18 @@ import { AdHocFilter } from "./adHocFilter";
  */
 
 const TABLE = `e2e.adhoc_names_${Date.now()}`;
-const DASHBOARD_FROM = "2025-04-19T00:00:00.000Z";
-const DASHBOARD_TO = "2025-04-20T00:00:00.000Z";
+const DASHBOARD_FROM = '2025-04-19T00:00:00.000Z';
+const DASHBOARD_TO = '2025-04-20T00:00:00.000Z';
 const KEYS_TIMEOUT_MS = 15_000;
 const KEY_LIST_TTL_MS = 60_000;
 
 async function clickhouse(sql: string): Promise<void> {
-  const host = process.env.E2E_CLICKHOUSE_HTTP_HOST ?? process.env.CLICKHOUSE_HOSTNAME ?? "clickhouse-server";
-  const username = process.env.CLICKHOUSE_USERNAME ?? "testuser";
-  const password = process.env.CLICKHOUSE_PASSWORD ?? "testpass";
+  const host = process.env.E2E_CLICKHOUSE_HTTP_HOST ?? process.env.CLICKHOUSE_HOSTNAME ?? 'clickhouse-server';
+  const username = process.env.CLICKHOUSE_USERNAME ?? 'testuser';
+  const password = process.env.CLICKHOUSE_PASSWORD ?? 'testpass';
   const res = await fetch(`http://${host}:8123/`, {
-    method: "POST",
-    headers: { Authorization: "Basic " + Buffer.from(`${username}:${password}`).toString("base64") },
+    method: 'POST',
+    headers: { Authorization: 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64') },
     body: sql,
   });
   if (!res.ok) {
@@ -50,9 +51,7 @@ function filteredCount(requests: string[], responses: string[], keys: string[]):
     try {
       const req = JSON.parse(requests[i]) as WireRequest;
       const query = (req.queries ?? []).find(
-        (q) =>
-          q.rawSql?.includes("$__adHocFilter") &&
-          keys.every((key) => (q.filters ?? []).some((f) => f.key === key))
+        (q) => q.rawSql?.includes('$__adHocFilter') && keys.every((key) => (q.filters ?? []).some((f) => f.key === key))
       );
       if (!query) {
         continue;
@@ -71,14 +70,14 @@ function filteredCount(requests: string[], responses: string[], keys: string[]):
 
 async function createAdHocDatasource(
   page: Page,
-  createDataSourceConfigPage: Parameters<ConfigPageSteps["createDatasourceConfigPage"]>[1]
+  createDataSourceConfigPage: Parameters<ConfigPageSteps['createDatasourceConfigPage']>[1]
 ) {
   const steps = new ConfigPageSteps(page);
-  const dsConfigPage = await steps.createDatasourceConfigPage("adhoc key names expire", createDataSourceConfigPage);
+  const dsConfigPage = await steps.createDatasourceConfigPage('adhoc key names expire', createDataSourceConfigPage);
   await steps.fillTestHttpDatasource();
   await steps.configPageLocator.additionalSettingsExpandable().click({ force: true });
-  await steps.configPageLocator.defaultDatabase().fill("e2e");
-  await steps.configPageLocator.adHocTableVariable().fill("table");
+  await steps.configPageLocator.defaultDatabase().fill('e2e');
+  await steps.configPageLocator.adHocTableVariable().fill('table');
   await steps.saveSuccess(dsConfigPage);
   const { uid, type } = dsConfigPage.datasource;
   return { uid, type };
@@ -95,7 +94,7 @@ test.afterAll(async () => {
   await clickhouse(`DROP TABLE IF EXISTS ${TABLE}`);
 });
 
-test("a name published while the dashboard is open is offered and filters within a minute", async ({
+test('a name published while the dashboard is open is offered and filters within a minute', async ({
   page,
   createDataSourceConfigPage,
   gotoDashboardPage,
@@ -108,8 +107,8 @@ test("a name published while the dashboard is open is offered and filters within
   // column map before the new name exists.
   const { uid: dashUid } = await new DashboardBuilder(page, datasource)
     .withTitle(`adhoc-key-names-expire-${Date.now()}`)
-    .addCustomVariable({ name: "table", query: TABLE })
-    .addAdHocVariable({ name: "Filters", filters: [{ key: "UA", operator: "!=", value: "nobody" }] })
+    .addCustomVariable({ name: 'table', query: TABLE })
+    .addAdHocVariable({ name: 'Filters', filters: [{ key: 'UA', operator: '!=', value: 'nobody' }] })
     .addPanel({ rawSql: `SELECT count() AS cnt FROM ${TABLE} WHERE $__adHocFilter()` })
     .withTimeRange(DASHBOARD_FROM, DASHBOARD_TO)
     .create();
@@ -118,26 +117,29 @@ test("a name published while the dashboard is open is offered and filters within
   await page.clock.install();
   const dashboardPage = await gotoDashboardPage({ uid: dashUid });
   await closeWhatsNewDialog(page);
-  await expect.poll(() => filteredCount(requests, responses, ["UA"]), { timeout: 30_000 }).toBe(3);
+  await expect.poll(() => filteredCount(requests, responses, ['UA']), { timeout: 30_000 }).toBe(3);
 
   const filters = new AdHocFilter(page);
-  expect(await filters.openKeys({ timeout: KEYS_TIMEOUT_MS })).not.toContain("userAgent");
+  expect(await filters.openKeys({ timeout: KEYS_TIMEOUT_MS })).not.toContain('userAgent');
   await filters.dismiss();
 
   await clickhouse(`ALTER TABLE ${TABLE} ADD COLUMN userAgent String ALIAS UA`);
 
   // Within the minute the list read before the publish is reused.
-  expect(await filters.openKeys({ timeout: KEYS_TIMEOUT_MS })).not.toContain("userAgent");
+  expect(await filters.openKeys({ timeout: KEYS_TIMEOUT_MS })).not.toContain('userAgent');
   await filters.dismiss();
 
+  // Reopening renders the previous open's options for one paint before the
+  // combobox's effect starts the new fetch, so wait for the fetched list.
   await page.clock.fastForward(KEY_LIST_TTL_MS + 1_000);
-  expect(await filters.openKeys({ timeout: KEYS_TIMEOUT_MS })).toContain("userAgent");
+  await filters.openKeys({ timeout: KEYS_TIMEOUT_MS });
+  await expect.poll(() => visibleOptionTexts(page), { timeout: KEYS_TIMEOUT_MS }).toContain('userAgent');
   await filters.dismiss();
 
-  await filters.selectKey("userAgent");
+  await filters.selectKey('userAgent');
   const { options } = await filters.openValues({ timeout: KEYS_TIMEOUT_MS });
-  expect(options).toContain("Mozilla");
-  await filters.pickValue("Mozilla");
+  expect(options).toContain('Mozilla');
+  await filters.pickValue('Mozilla');
 
   // The backend's map was filled without userAgent less than a minute ago, so
   // the filter is dropped at first (3 rows); once the map is read again it
@@ -146,7 +148,7 @@ test("a name published while the dashboard is open is offered and filters within
     .poll(
       async () => {
         await dashboardPage.refreshDashboard();
-        return filteredCount(requests, responses, ["UA", "userAgent"]);
+        return filteredCount(requests, responses, ['UA', 'userAgent']);
       },
       { timeout: KEY_LIST_TTL_MS + 60_000, intervals: [5_000] }
     )
