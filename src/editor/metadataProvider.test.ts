@@ -12,6 +12,7 @@ import {
   DESCRIBE_UUID_IP,
 } from "../__mocks__/tableDescribes";
 import {
+  AD_HOC_KEYS_TTL_MS,
   ARRAY_TYPES,
   SUPPORTED_TYPES,
   NULLABLE_TYPES,
@@ -227,6 +228,61 @@ describe("MetadataProvider", () => {
     await mdp.tableKeys("table");
     await mdp.tableKeys("table");
     expect(queryMock).toHaveBeenCalledTimes(1);
+  });
+
+  // A naming profile publishes `userAgent` as an alias of the existing `UA`
+  // while the dashboard is open. Grafana keeps this DataSource instance, and
+  // so the key list, until the page reloads or the datasource is saved; the
+  // new name must reach the filter dropdown without either.
+  describe("key names published while the page is open", () => {
+    const START = 1_700_000_000_000;
+    const withUserAgent = {
+      fields: [
+        { values: [...KEY_RESPONSE.fields[0].values, "userAgent"] },
+        { values: [...KEY_RESPONSE.fields[1].values, "String"] },
+        { values: [...KEY_RESPONSE.fields[2].values, "ALIAS"] },
+        { values: [...KEY_RESPONSE.fields[3].values, "`column1`"] },
+      ],
+    };
+    let now: jest.SpyInstance<number, []>;
+    beforeEach(() => {
+      now = jest.spyOn(Date, "now").mockReturnValue(START);
+    });
+    afterEach(() => now.mockRestore());
+
+    const names = async (mdp: ReturnType<typeof getMetadataProvider>) =>
+      (await mdp.tableKeys("table")).map((k) => k.value);
+
+    test("appear once the key list's TTL has passed", async () => {
+      queryMock
+        .mockReturnValueOnce(of({ data: [toDataFrame(KEY_RESPONSE)] }))
+        .mockReturnValueOnce(of({ data: [toDataFrame(withUserAgent)] }));
+      const mdp = getMetadataProvider(datasource);
+
+      expect(await names(mdp)).not.toContain("userAgent");
+
+      now.mockReturnValue(START + AD_HOC_KEYS_TTL_MS - 1);
+      expect(await names(mdp)).not.toContain("userAgent");
+      expect(queryMock).toHaveBeenCalledTimes(1);
+
+      now.mockReturnValue(START + AD_HOC_KEYS_TTL_MS);
+      expect(await names(mdp)).toContain("userAgent");
+      expect(queryMock).toHaveBeenCalledTimes(2);
+    });
+
+    test("are cached per table", async () => {
+      queryMock.mockReturnValue(of({ data: [toDataFrame(KEY_RESPONSE)] }));
+      const mdp = getMetadataProvider(datasource);
+
+      await mdp.tableKeys("db.a");
+      now.mockReturnValue(START + AD_HOC_KEYS_TTL_MS - 1);
+      await mdp.tableKeys("db.b");
+      now.mockReturnValue(START + AD_HOC_KEYS_TTL_MS);
+      await mdp.tableKeys("db.b");
+      expect(queryMock).toHaveBeenCalledTimes(2);
+      await mdp.tableKeys("db.a");
+      expect(queryMock).toHaveBeenCalledTimes(3);
+    });
   });
 
   test("get pk", async () => {
