@@ -20,9 +20,15 @@
       not move its expiry; `$__adHocFilter` applies a filter on a newly published name within the TTL
       while it is queried faster than the TTL.
 - [x] 3.3 The existing Jest and Go suites pass (`go test -race`).
-- [ ] 3.4 Playwright e2e: with a dashboard open, add an ALIAS column to the
-      fixture table, advance the browser clock past the TTL, and the key
-      dropdown offers the new name without a reload.
+- [x] 3.4 Playwright e2e (`tests/adHocKeyNamesExpire.spec.ts`): with a
+      dashboard open and a filter set, add an ALIAS column to the test's own
+      table; within the TTL the dropdown still shows the old list, past it
+      (browser clock advanced) it offers the new name, and a filter on it
+      applies once the backend's minute has passed (count 3 → 1), all without a
+      reload. Local Grafana 13.2.1: passes on this branch (twice, 1.3 min);
+      fails on `develop` (the dropdown lists only `UA`); with this branch's
+      frontend and `develop`'s backend the filter stays dropped (count 3 for
+      2 min). The other ad hoc specs pass on this branch (27/27).
 
 ## 4. Docs and archive order
 
