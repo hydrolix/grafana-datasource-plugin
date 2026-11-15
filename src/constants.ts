@@ -60,14 +60,18 @@ export const adHocGuardrailSettings = (lookbackSeconds: number): string =>
     lookbackSeconds
   )}`;
 
-// `${timeFilter}` is either `$__timeFilter(<pk>) AND ` (value) /
-// `$__timeFilter() AND ` (map keys) or empty for a table with no primary key,
-// so the keyed statement is byte-identical to the pre-slot template.
 export const AD_HOC_KEY_QUERY = "DESCRIBE ${table}";
+
+// `${timeFilter}` is either `$__timeFilter(<pk>) AND ` (value) /
+// `$__timeFilter() AND ` (map keys) or empty for a table with no primary key.
+// The result column has no alias: ClickHouse resolves a SELECT alias before a
+// table column of the same name inside WHERE, so `AS key` / `AS value` would
+// turn an ad-hoc filter or primary key on a `key` / `value` column into an
+// aggregate in WHERE. The response is read by position instead.
 // topKArray counts every key of every row, so a high-cardinality map offers
 // its most common keys rather than every key it has ever held.
-export const AD_HOC_MAP_KEY_QUERY = `SELECT arrayJoin(topKArray(${AD_HOC_MAP_KEY_TOP_K})(mapKeys(\${column}))) AS key FROM \${table} WHERE \${timeFilter}$__adHocFilter() \${settings}`;
-export const AD_HOC_VALUE_QUERY = `SELECT arrayJoin(topK(${AD_HOC_VALUE_TOP_K})(\${column})) AS value FROM \${table} WHERE \${timeFilter}$__adHocFilter() \${condition} \${settings}`;
+export const AD_HOC_MAP_KEY_QUERY = `SELECT arrayJoin(topKArray(${AD_HOC_MAP_KEY_TOP_K})(mapKeys(\${column}))) FROM \${table} WHERE \${timeFilter}$__adHocFilter() \${settings}`;
+export const AD_HOC_VALUE_QUERY = `SELECT arrayJoin(topK(${AD_HOC_VALUE_TOP_K})(\${column})) FROM \${table} WHERE \${timeFilter}$__adHocFilter() \${condition} \${settings}`;
 
 export const SUPPORTED_TYPES = [
   "DateTime",

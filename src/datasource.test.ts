@@ -1564,6 +1564,31 @@ describe("HdxDataSource", () => {
       ]);
     });
 
+    // The cap and the ordering come from topKArray on the cluster (covered by
+    // tests/adHocMapKeys.spec.ts); here the frontend must keep that order and
+    // must not alias the column it reads by position.
+    it("getTagKeys keeps the discovered map keys in the order the query returns them", async () => {
+      const { datasource, queryMock } = setupPreloadMock({
+        keys: [MAP_KEY, STRING_KEY],
+        values: ["hot", "warm", "cold"],
+      });
+
+      const keys = await datasource.getTagKeys({
+        filters: [],
+        timeRange: NINETY_DAYS,
+      } as any);
+
+      expect(keys.map((k) => k.value)).toEqual([
+        "labels['hot']",
+        "labels['warm']",
+        "labels['cold']",
+        STRING_KEY.value,
+      ]);
+      const rawSql: string = queryMock.mock.calls[0][0].targets[0].rawSql;
+      expect(rawSql).toContain("arrayJoin(topKArray(100)(mapKeys(labels)))");
+      expect(rawSql).not.toMatch(/\sAS\s/i);
+    });
+
     it("getTagKeysForMap builds the keyless statement and passes no range", async () => {
       const { datasource, queryMock } = setupPreloadMock({
         primaryKey: "",

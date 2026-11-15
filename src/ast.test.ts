@@ -101,7 +101,7 @@ describe("ast getColumnValuesStatement", () => {
       AD_HOC_PRELOAD_LOOKBACK_SECONDS
     );
     expect(result).toBe(
-      "SELECT arrayJoin(topK(100)(statusCode)) AS value FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter()  SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000"
+      "SELECT arrayJoin(topK(100)(statusCode)) FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter()  SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000"
     );
   });
 
@@ -114,7 +114,7 @@ describe("ast getColumnValuesStatement", () => {
       AD_HOC_PRELOAD_LOOKBACK_SECONDS
     );
     expect(result).toBe(
-      "SELECT arrayJoin(topK(100)(city)) AS value FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter()  SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000"
+      "SELECT arrayJoin(topK(100)(city)) FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter()  SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000"
     );
   });
 
@@ -127,7 +127,7 @@ describe("ast getColumnValuesStatement", () => {
       AD_HOC_PRELOAD_LOOKBACK_SECONDS
     );
     expect(result).toBe(
-      "SELECT arrayJoin(topK(100)(statusCode)) AS value FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter() AND toString(statusCode) like '2%' SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000"
+      "SELECT arrayJoin(topK(100)(statusCode)) FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter() AND toString(statusCode) like '2%' SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000"
     );
   });
 
@@ -140,7 +140,7 @@ describe("ast getColumnValuesStatement", () => {
       AD_HOC_PRELOAD_LOOKBACK_SECONDS
     );
     expect(result).toBe(
-      "SELECT arrayJoin(topK(100)(arrayJoin(tags))) AS value FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter()  SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000"
+      "SELECT arrayJoin(topK(100)(arrayJoin(tags))) FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter()  SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000"
     );
   });
 
@@ -153,7 +153,7 @@ describe("ast getColumnValuesStatement", () => {
       AD_HOC_PRELOAD_LOOKBACK_SECONDS
     );
     expect(result).toBe(
-      "SELECT arrayJoin(topK(100)(attributes['env'])) AS value FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter()  SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000"
+      "SELECT arrayJoin(topK(100)(attributes['env'])) FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter()  SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000"
     );
   });
 
@@ -183,18 +183,17 @@ describe("ast getColumnValuesStatement", () => {
 });
 
 describe("ast statement builders with and without a primary key", () => {
-  // What the pre-slot templates rendered (git show a801488:src/constants.ts),
-  // at the default lookback the guardrail suffix was baked in with. Anything
-  // that changes these strings changes the SQL every keyed table has been
-  // issuing, so they are pinned byte-for-byte.
+  // The SQL every keyed table issues, at the default lookback. Anything that
+  // changes these strings changes what runs against every keyed table, so
+  // they are pinned byte-for-byte.
   const HEAD_VALUE_SQL =
-    "SELECT arrayJoin(topK(100)(status)) AS value FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter()  SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000";
+    "SELECT arrayJoin(topK(100)(status)) FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter()  SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000";
   const HEAD_MAP_KEY_SQL =
-    "SELECT arrayJoin(topKArray(100)(mapKeys(attributes))) AS key FROM sample.log WHERE $__timeFilter() AND $__adHocFilter() SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000";
+    "SELECT arrayJoin(topKArray(100)(mapKeys(attributes))) FROM sample.log WHERE $__timeFilter() AND $__adHocFilter() SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000";
   const SETTINGS_SUFFIX =
     "SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000";
 
-  test("keyed value statement is byte-identical to the pre-change template", () => {
+  test("keyed value statement is pinned byte-for-byte", () => {
     expect(
       getColumnValuesStatement(
         "status",
@@ -206,7 +205,7 @@ describe("ast statement builders with and without a primary key", () => {
     ).toBe(HEAD_VALUE_SQL);
   });
 
-  test("keyed map-key statement is byte-identical to the pre-change template", () => {
+  test("keyed map-key statement is pinned byte-for-byte", () => {
     expect(
       getColumnKeysForMapStatement(
         "attributes",
@@ -215,6 +214,27 @@ describe("ast statement builders with and without a primary key", () => {
         AD_HOC_PRELOAD_LOOKBACK_SECONDS
       )
     ).toBe(HEAD_MAP_KEY_SQL);
+  });
+
+  // A SELECT alias shadows a same-named table column inside WHERE, so
+  // `AS key` turned `key = 'a'` (an ad-hoc filter, or $__timeFilter() on a
+  // primary key named `key`) into an aggregate in WHERE (ILLEGAL_AGGREGATION).
+  test("neither statement aliases its result column", () => {
+    const mapKeySql = getColumnKeysForMapStatement(
+      "attributes",
+      "sample.log",
+      "key",
+      AD_HOC_PRELOAD_LOOKBACK_SECONDS
+    );
+    const valueSql = getColumnValuesStatement(
+      "status",
+      "sample.log",
+      "value",
+      "",
+      AD_HOC_PRELOAD_LOOKBACK_SECONDS
+    );
+    expect(mapKeySql).not.toMatch(/\sAS\s/i);
+    expect(valueSql).not.toMatch(/\sAS\s/i);
   });
 
   test("keyless value statement drops only the time conjunct", () => {
@@ -226,7 +246,7 @@ describe("ast statement builders with and without a primary key", () => {
       AD_HOC_PRELOAD_LOOKBACK_SECONDS
     );
     expect(result).toBe(
-      `SELECT arrayJoin(topK(100)(status)) AS value FROM sample.log WHERE $__adHocFilter()  ${SETTINGS_SUFFIX}`
+      `SELECT arrayJoin(topK(100)(status)) FROM sample.log WHERE $__adHocFilter()  ${SETTINGS_SUFFIX}`
     );
     expect(result).not.toContain("$__timeFilter");
     expect(result).toContain("topK(100)(status)");
@@ -247,7 +267,7 @@ describe("ast statement builders with and without a primary key", () => {
         AD_HOC_PRELOAD_LOOKBACK_SECONDS
       )
     ).toBe(
-      `SELECT arrayJoin(topK(100)(status)) AS value FROM sample.log WHERE $__adHocFilter() AND toString(status) like '2%' ${SETTINGS_SUFFIX}`
+      `SELECT arrayJoin(topK(100)(status)) FROM sample.log WHERE $__adHocFilter() AND toString(status) like '2%' ${SETTINGS_SUFFIX}`
     );
   });
 
@@ -259,7 +279,7 @@ describe("ast statement builders with and without a primary key", () => {
       AD_HOC_PRELOAD_LOOKBACK_SECONDS
     );
     expect(result).toBe(
-      `SELECT arrayJoin(topKArray(100)(mapKeys(attributes))) AS key FROM sample.log WHERE $__adHocFilter() ${SETTINGS_SUFFIX}`
+      `SELECT arrayJoin(topKArray(100)(mapKeys(attributes))) FROM sample.log WHERE $__adHocFilter() ${SETTINGS_SUFFIX}`
     );
     expect(result).not.toContain("$__timeFilter");
   });

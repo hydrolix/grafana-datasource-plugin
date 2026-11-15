@@ -88,6 +88,26 @@ INSERT INTO e2e.adhoc_topk (ts, status, status_null, status_nonnull, tags, attrs
     ('2025-04-19 11:00:00', '', '', '', [], map()),
     ('2025-04-19 11:05:00', '', '', '', [], map());
 
+-- Map-key discovery cap fixture (tests/adHocMapKeys.spec.ts). `attributes`
+-- holds 152 distinct keys over 150 rows inside the trailing-24h window:
+-- `hot` on every row, `warm` on every other row and one `cold<n>` per row, so
+-- the bounded preload has a known head and more keys than it may return.
+-- The primary key is named `key` on purpose: `$__timeFilter()` expands to a
+-- predicate on it, which a `key` alias on the discovery query used to hijack.
+DROP TABLE IF EXISTS e2e.adhoc_map_topk;
+CREATE TABLE e2e.adhoc_map_topk
+(
+    key DateTime64(3, 'UTC'),
+    attributes Map(String, String)
+) ENGINE = MergeTree() ORDER BY key;
+
+INSERT INTO e2e.adhoc_map_topk
+SELECT toDateTime64('2025-04-19 00:00:00', 3, 'UTC') + INTERVAL number MINUTE,
+       mapFromArrays(
+           arrayConcat(['hot'], if(number % 2 = 0, ['warm'], []), [concat('cold', leftPad(toString(number), 3, '0'))]),
+           arrayConcat(['1'], if(number % 2 = 0, ['1'], []), ['1']))
+FROM numbers(150);
+
 -- Slow ad-hoc value source (tests/adHocGuardrails.spec.ts slow-source
 -- test): 100 rows in ONE insert (=> one part) so a sleepEachRow predicate
 -- reads them sequentially; index_granularity = 10 lets a max_block_size=10

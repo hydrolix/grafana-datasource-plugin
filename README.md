@@ -420,8 +420,11 @@ suggestions are computed by a bounded, best-effort query rather than an exhausti
   because both endpoints snap to the nearest 5-minute boundary, a shorter window frequently collapses to zero
   width and the dropdown then returns no suggestions at all.
 - **`Map` column keys**: for a `Map` column the key dropdown offers `column['key']` entries discovered by scanning the
-  same trailing lookback window, so a key that did not occur in that window is not offered and must be typed in. Keys
-  for plain (non-`Map`) columns come from `DESCRIBE` and are always listed in full.
+  same trailing lookback window. It lists up to 100 of the most common keys in that window, most common first, using
+  an approximate (`topKArray`) aggregation, so inclusion and ordering near the cutoff are approximate. A key that is
+  rare or did not occur in that window is not offered even though it exists; type it in (enable **Allow custom
+  values** on the ad hoc filter variable). Keys for plain (non-`Map`) columns come from `DESCRIBE` and are always
+  listed in full.
 - **Approximate top values**: up to 100 of the most frequent values are returned using an approximate (`topK`)
   aggregation, so inclusion and ordering near the cutoff are approximate rather than exact.
 - **Execution-time breaker**: every metadata query the plugin issues on its own behalf (value suggestions, map-key

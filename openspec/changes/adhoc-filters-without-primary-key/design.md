@@ -118,7 +118,7 @@ existing `${condition}` slot uses. Both forms keep the full
 
 Rationale: `hdx_query_max_timerange_sec` is inert on a statement with no
 primary-column predicate, so there is no reason to vary the suffix, and one
-template keeps the `topK` arity, `AS value`, `$__adHocFilter()` and
+template keeps the `topK` arity, `$__adHocFilter()` and
 `${condition}` handling in a single place instead of four hand-synced
 copies. The keyed output is byte-identical to today.
 
