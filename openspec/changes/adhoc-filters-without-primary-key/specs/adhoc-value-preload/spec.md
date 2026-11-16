@@ -134,9 +134,8 @@ optional ad-hoc condition variable. It SHALL additionally be filtered by
 key to serve as `<timeColumn>`; when the primary key is the empty string,
 the time conjunct SHALL be absent and no substitute ordering or time
 predicate SHALL be introduced in its place. Both forms SHALL be produced
-from the same template, so the `topK` arity, the `AS value` alias, the
-`$__adHocFilter()` conjunct, and the condition handling cannot drift
-between them.
+from the same template, so the `topK` arity, the `$__adHocFilter()`
+conjunct, and the condition handling cannot drift between them.
 
 #### Scenario: High-cardinality column produces a bounded query
 
@@ -180,7 +179,7 @@ between them.
   primary key is `ts`, with no condition variable
 - **WHEN** `getColumnValuesStatement` builds the preload SQL
 - **THEN** the SQL SHALL equal
-  `SELECT arrayJoin(topK(100)(status)) AS value FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter()  SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000`
+  `SELECT arrayJoin(topK(100)(status)) FROM sample.log WHERE $__timeFilter(ts) AND $__adHocFilter()  SETTINGS timeout_overflow_mode = 'break', hdx_query_max_timerange_sec = 87000`
 
 ### Requirement: Metadata queries carry guardrail query settings
 
