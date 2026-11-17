@@ -18,6 +18,7 @@ import { fillSlots } from "../ast";
 import { AdHocFilterKeys, QuerySetting } from "../types";
 import {
   AD_HOC_KEY_QUERY,
+  AD_HOC_KEYS_TTL_MS,
   AD_HOC_PRELOAD_ROUND_INTERVAL,
   COLUMNS_SQL,
   FUNCTIONS_SQL,
@@ -143,14 +144,19 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
   let schemas: SchemaDefinition[] | undefined;
   let tables: { [table: string]: TableDefinition[] } = {};
   let columns: { [table: string]: ColumnDefinition[] } = {};
-  let tableKeys: { [table: string]: AdHocFilterKeys[] } = {};
+  // Unlike the other lookups, key names expire: see AD_HOC_KEYS_TTL_MS.
+  let tableKeys: {
+    [table: string]: { keys: AdHocFilterKeys[]; requestedAt: number };
+  } = {};
   let primaryKeys: { [table: string]: string } = {};
   let functions:
     | Array<{ id: string; name: string; description: string }>
     | undefined;
   let tableKeysFn: (table: string) => Promise<AdHocFilterKeys[]>;
-  tableKeysFn = (table: string) =>
-    !tableKeys[table]
+  tableKeysFn = (table: string) => {
+    const requestedAt = Date.now();
+    const cached = tableKeys[table];
+    return !cached || requestedAt - cached.requestedAt >= AD_HOC_KEYS_TTL_MS
       ? firstValueFrom(
           queryRunner(fillSlots(AD_HOC_KEY_QUERY, { table })).pipe(
             map((r) => {
@@ -162,10 +168,11 @@ export const getMetadataProvider = (ds: DataSource): MetadataProvider => {
                 );
               }
             }),
-            tap((k) => (tableKeys[table] = k))
+            tap((keys) => (tableKeys[table] = { keys, requestedAt }))
           )
         )
-      : Promise.resolve(tableKeys[table]);
+      : Promise.resolve(cached.keys);
+  };
 
   return {
     schemas: () =>
