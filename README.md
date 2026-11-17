@@ -16,12 +16,14 @@ Following is the list of Hydrolix configuration options.
 
 - **Server address** - The IP address or hostname of your Hydrolix instance.
 - **Server port** - The port on which your Hydrolix instance is running.
-- **Use default** - Toggle to use the default port instead of specifying a custom one.
+- **Use default** - Toggle to use the default port for the selected protocol instead of specifying a custom one:
+  `9440` for secure native, `9000` for native, `443` for secure HTTP, `8123` for HTTP.
 - **Protocol** - The communication protocol used: Native or HTTP.
 - **Secure connection** - Toggle to enable a secure connection.
-- **HTTP URL path** (optional) - Additional URL path for HTTP requests.
+- **HTTP URL path** (optional) - Additional URL path for HTTP requests. Shown only for the HTTP protocol. A new data
+  source starts with `/query`.
 
-**TLS / SSL Settings section:**
+**TLS / SSL Settings section** (shown only when **Secure connection** is on):
 
 - **Skip TLS verify** - Toggle to bypass TLS certificate verification. Not recommended, unless absolutely necessary for
   testing.
@@ -30,8 +32,10 @@ Following is the list of Hydrolix configuration options.
 
 - **Credentials Type** - Credentials type for connecting to your Hydrolix instance: User Account, Service Account,
   Forward OAuth Identity, or Forward OAuth + Exchange.
-- **Token** - Service account token.
-- **Username**, **Password** - Service account credentials.
+- **Username**, **Password** - User Account credentials. The password is stored encrypted in `secureJsonData`.
+- **Token** - Service Account token, stored encrypted in `secureJsonData`.
+- Forward OAuth Identity and Forward OAuth + Exchange store no credential on the data source; see
+  [Forward OAuth with a token exchange](#forward-oauth-with-a-token-exchange).
 
 **Additional Settings section:**
 
@@ -44,8 +48,8 @@ Following is the list of Hydrolix configuration options.
   example `30m`, `6h`, `24h`; supported units: `s`, `m`, `h`). Use at least `5m` — see
   [Value suggestion guardrails](#value-suggestion-guardrails). Defaults to `24h`.
 - **Ad hoc filter values query condition variable name** (optional) - Name of a dashboard variable that defines query condition to filter ad hoc filter values
-- **Dial timeout** (optional) - Connection timeout in seconds.
-- **Query timeout** (optional) - Read timeout in seconds.
+- **Dial timeout** (optional) - Connection timeout in seconds. Defaults to `10`.
+- **Query timeout** (optional) - Timeout for read queries in seconds. Defaults to `60`.
 
 For the identity-alias ad-hoc key option, see
 [Ad-hoc keys prefer aliases](https://github.com/hydrolix/grafana-datasource-plugin/blob/develop/docs/adhoc-keys-prefer-aliases.md). It defaults off.
@@ -56,7 +60,19 @@ You can configure [Hydrolix query settings](https://docs.hydrolix.io/docs/query-
 with each query from this data source, wrapped as `CustomSetting` values. Note that only a subset of settings is
 supported in this way.
 
-To add a setting, select it from the dropdown list and provide a corresponding value in the field that appears.
+To add a setting, select it from the dropdown list and provide a corresponding value in the field that appears. The
+supported settings are `hdx_query_max_rows`, `hdx_query_max_attempts`, `hdx_query_max_result_bytes`,
+`hdx_query_max_result_rows`, `hdx_query_max_timerange_sec`, `hdx_query_max_execution_time`,
+`hdx_query_timerange_required`, `hdx_query_max_partitions`, `hdx_query_max_peers`, `hdx_query_pool_name`,
+`hdx_query_max_concurrent_partitions`, `hdx_query_admin_comment`, `hdx_query_comment`, `hdx_query_streaming_result`,
+`hdx_http_proxy_enabled` and `hdx_http_proxy_ttl`. A setting configured on an individual query overrides the same
+setting configured on the data source.
+
+Selecting `hdx_query_comment` or `hdx_query_admin_comment` pre-fills a query attribution template, which you can edit:
+
+```text
+grafana_user_email=${__user.email} grafana_user_login=${__user.login} grafana_panel_id=${__hydrolix.panel.id} grafana_panel_name=${__hydrolix.panel.name} grafana_dashboard_uid=${__dashboard.uid} grafana_dashboard_title=${__dashboard} grafana_app=${__hydrolix.app} grafana_ref_id=${__hydrolix.ref_id}
+```
 
 You can include any built-in Grafana variables or dashboard template variables in the setting values. Keep in mind that
 some variables may not be available during interpolation - their availability depends on the query source. If a variable
@@ -67,13 +83,18 @@ The plugin also supports several synthetic variables specific to query settings:
 - `${__hydrolix.raw_query}` - Represents the raw query text before any interpolation is applied.
 - `${__hydrolix.query_source}` - Represents the query source, derived from the `DataQueryRequest.app` field. This is
   useful to distinguish whether a query originated from Explore or elsewhere.
+- `${__hydrolix.app}` - Same value as `${__hydrolix.query_source}`.
+- `${__hydrolix.panel.id}` - ID of the panel that issued the query; empty when there is none (for example in
+  annotations).
+- `${__hydrolix.panel.name}` - Title of the panel that issued the query; empty when there is none.
+- `${__hydrolix.ref_id}` - The query's ref ID within its panel (`A`, `B`, ...).
 
 **Error Exposure subsection:**
 
 The Error Exposure feature allows you to expose query errors to Grafana dashboard variables, enabling error tracking,
 monitoring, and custom error handling within your dashboards.
 
-- **Enable Error Exposure** - Toggle to enable exposing query errors to dashboard variables.
+- **Enable Error Exposure** - Toggle to enable exposing query errors to dashboard variables. On by default.
 - **Variable Name** - Name of the dashboard variable where error information will be stored (default: `hdx_query_errors`).
 - **Max Error Count** - Maximum number of errors to store in the variable (default: `5`).
 - **Error TTL (seconds)** - Time to live for stored errors in seconds. Errors older than this value will be automatically
@@ -168,7 +189,16 @@ Notes:
 
 To provision the Hydrolix data source using Grafana’s provisioning system, define it in a YAML configuration file.
 
-Below are some provisioning examples.
+Below are some provisioning examples. When writing your own:
+
+- Put the password and the service account token under `secureJsonData`. The plugin reads them only from there; a
+  password under `jsonData` is ignored (the connection fails to authenticate) and stored in plain text.
+- Leave numbers and booleans unquoted: `port`, `secure`, `skipTlsVerify`, `useDefaultPort`, `oauthPassThru` and
+  `exposeErrors.enabled`, `maxCount` and `ttl`.
+- Boolean query settings take `"1"` (yes) or `"0"` (no), the values the config editor stores.
+- Write a literal `$` as `$$`. Grafana replaces `$NAME` and `${NAME}` in provisioning files with environment variables,
+  so a template such as `${__user.login}` must be written `$${__user.login}`.
+- Set `credentialsType` explicitly. When it is omitted, the plugin uses a User Account.
 
 #### Using HTTPS protocol
 
@@ -182,6 +212,7 @@ datasources:
       port: 443
       protocol: http
       secure: true
+      credentialsType: userAccount
       username: username
       path: /query
     secureJsonData:
@@ -200,6 +231,7 @@ datasources:
       port: 9440
       protocol: native
       secure: true
+      credentialsType: userAccount
       username: username
     secureJsonData:
       password: password
@@ -217,10 +249,10 @@ datasources:
       port: 443
       protocol: http
       secure: true
+      credentialsType: userAccount
       username: username
       path: /query
       defaultDatabase: database
-      defaultRound: 60s
       adHocTableVariable: table
     secureJsonData:
       password: password
@@ -238,16 +270,89 @@ datasources:
       port: 443
       protocol: http
       secure: true
+      credentialsType: userAccount
       username: username
       path: /query
       exposeErrors:
-        enables: true
+        enabled: true
         variableName: hdx_query_errors
         maxCount: 5
         ttl: 300
     secureJsonData:
       password: password
 ```
+
+#### Using HTTPS protocol with query settings and ad hoc filter options
+
+```yaml
+apiVersion: 1
+datasources:
+  - name: "Hydrolix"
+    type: "hydrolix-hydrolix-datasource"
+    jsonData:
+      host: localhost
+      port: 443
+      protocol: http
+      secure: true
+      path: /query
+      credentialsType: userAccount
+      username: username
+      dialTimeout: "10"
+      queryTimeout: "60"
+      adHocTableVariable: table
+      adHocConditionVariable: condition
+      adHocTimeRangeLookback: 6h
+      querySettings:
+        - setting: hdx_query_max_execution_time
+          value: "60"
+        - setting: hdx_query_comment
+          value: "grafana_user_login=$${__user.login} grafana_panel_id=$${__hydrolix.panel.id}"
+    secureJsonData:
+      password: password
+```
+
+#### Using a service account token
+
+```yaml
+apiVersion: 1
+datasources:
+  - name: "Hydrolix"
+    type: "hydrolix-hydrolix-datasource"
+    jsonData:
+      host: localhost
+      port: 443
+      protocol: http
+      secure: true
+      path: /query
+      credentialsType: serviceAccount
+    secureJsonData:
+      token: token
+```
+
+#### Forwarding the signed-in user's OAuth identity
+
+Grafana must sign users in through an OAuth provider whose tokens the cluster accepts. `oauthPassThru: true` tells
+Grafana to forward the user's token to the plugin. The config editor sets it when you pick a Forward OAuth mode, so a
+provisioned data source must set it too.
+
+```yaml
+apiVersion: 1
+datasources:
+  - name: "Hydrolix"
+    type: "hydrolix-hydrolix-datasource"
+    jsonData:
+      host: localhost
+      port: 443
+      protocol: http
+      secure: true
+      path: /query
+      credentialsType: forwardOAuth
+      oauthPassThru: true
+```
+
+For **Forward OAuth + Exchange**, use `credentialsType: forwardOAuthExchange` with the same `oauthPassThru: true`. That
+mode requires the HTTP protocol, `secure: true` and `skipTlsVerify` off, plus the Grafana configuration described in
+[Forward OAuth with a token exchange](#forward-oauth-with-a-token-exchange).
 
 > For more details about provisioning, see
 > Grafana's [Provisioning documentation](https://grafana.com/docs/grafana/latest/administration/provisioning/#data-sources).
@@ -465,7 +570,9 @@ When a round value is set in the query editor, it takes precedence and is always
 the data source falls back to the default round, if it is configured and non-zero. If neither is set, or if the round value
 in the query editor is explicitly set to `0`, no rounding is applied and the original timestamps are used as-is.
 
-The supported time units for rounding are: `ms` (milliseconds), `s` (seconds), `m` (minutes), and `h` (hours).
+The supported time units for rounding are: `s` (seconds), `m` (minutes), and `h` (hours), as a
+whole number followed by the unit (for example `30s`, `5m`, `1h`). The editors reject other formats, and `0s` is
+treated as no rounding.
 
 #### Examples
 
