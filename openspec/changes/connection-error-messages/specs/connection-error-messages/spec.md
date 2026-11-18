@@ -173,6 +173,22 @@ When a query fails with an HTTP answer from the cluster, the error shown SHALL s
 - **THEN** the message SHALL contain `[HTTP 401]`
 - **AND** `errors.Is(err, sqlds.ErrorQuery)` SHALL report true
 
+### Requirement: A ClickHouse error reads the same over either protocol
+
+When a panel shows a ClickHouse exception, it SHALL show the exception's message alone, without the code, the exception's name, the error name in parentheses or the server version. A native exception, which carries no error name in parentheses and no version, SHALL read the same as the same exception over HTTP.
+
+#### Scenario: A native exception is shown by its message
+
+- **GIVEN** a query error `Code: 60. DB::Exception: Unknown table expression identifier 'nope' in scope SELECT * FROM nope`, as a native query returns it
+- **WHEN** the panel shows it
+- **THEN** the message SHALL be `Unknown table expression identifier 'nope' in scope SELECT * FROM nope`
+
+#### Scenario: An HTTP exception is shown by its message
+
+- **GIVEN** a query error `[HTTP 400] Code: 62. DB::Exception: Syntax error: failed at position 1 ('SELEC'): SELEC 1. Expected one of: Query. (SYNTAX_ERROR)`
+- **WHEN** the panel shows it
+- **THEN** the message SHALL be `Syntax error: failed at position 1 ('SELEC'): SELEC 1. Expected one of: Query`
+
 ### Requirement: A refused redirect is reported by its status alone
 
 The message of a refused redirect SHALL name the HTTP status and SHALL NOT contain any part of the `Location` it pointed to.

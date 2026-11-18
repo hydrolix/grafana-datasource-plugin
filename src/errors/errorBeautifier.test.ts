@@ -207,6 +207,25 @@ describe("ErrorMessageBeautifier", () => {
     );
   });
 
+  // ClickHouse's native exception carries no "(NAME)" suffix and no version;
+  // the same error over HTTP reads the same once beautified.
+  test.each([
+    [
+      "Code: 60. DB::Exception: Unknown table expression identifier 'nope' in scope SELECT * FROM nope",
+      "Unknown table expression identifier 'nope' in scope SELECT * FROM nope",
+    ],
+    [
+      "Code: 46. DB::Exception: Function with name 'nope' does not exist. In scope SELECT nope(1). Maybe you meant: ['hop','not']",
+      "Function with name 'nope' does not exist. In scope SELECT nope(1). Maybe you meant: ['hop','not']",
+    ],
+    [
+      "Code: 62. DB::Exception: Syntax error: failed at position 53 ('BY') (line 4, col 7): BY number. Expected one of: token sequence, Dot, token",
+      "Syntax error: failed at position 53 ('BY') (line 4, col 7): BY number. Expected one of: token sequence, Dot, token",
+    ],
+  ])("should extract CH message from a native exception: %s", (input, expected) => {
+    expect(beautifier.beautify(input)).toEqual(expected);
+  });
+
   test("should format HTTP auth error from an HTTP answer", () => {
     const input =
       '[HTTP 401] response body: {"error": "<TurbineApiAuthenticatorError api login failed with provided username/password \'admin\'. (Hydrolix)>"}';
