@@ -18,6 +18,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/sqlds/v5"
+	"github.com/hydrolix/plugin/pkg/plugin/exchange"
 	"github.com/hydrolix/plugin/pkg/plugin/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,6 +37,29 @@ func assertNoNetworkDetails(t *testing.T, message string) {
 
 func dialError(err error) error {
 	return &net.OpError{Op: "dial", Net: "tcp", Addr: &net.TCPAddr{IP: net.ParseIP("10.0.0.5"), Port: 9440}, Err: err}
+}
+
+// The fork's error for a non-200 answer, under the handshake's plumbing.
+func httpAnswer(status int, inner error) error {
+	return fmt.Errorf("failed to query server hello: failed to query server hello info: sendQuery: %w",
+		&clickhouse.HTTPError{StatusCode: status, Err: inner})
+}
+
+// The same, under a query's plumbing as sqlds hands it to MutateQueryError.
+func httpQueryAnswer(status int, inner error) error {
+	return fmt.Errorf("%w: %w", sqlds.ErrorQuery, fmt.Errorf("sendQuery: %w", &clickhouse.HTTPError{StatusCode: status, Err: inner}))
+}
+
+// The fork's inner error for a body that is not a ClickHouse exception.
+func bodyOf(body string) error {
+	return fmt.Errorf("response body: %q", body)
+}
+
+// The fork's inner error when X-ClickHouse-Exception-Code was set but the body
+// could not be read: an exception whose message is the read error.
+var undeliveredException = &clickhouse.Exception{
+	Code:    516,
+	Message: "failed to read response body: read tcp 10.0.0.5:9440: connection reset by peer",
 }
 
 type timeoutError struct{}
@@ -146,6 +170,44 @@ func TestConnectFailureRepeatsNothingOfWhatAnswered(t *testing.T) {
 		"nothing recognised":    {err: errors.New("unable to get default db connection"), want: msgCannotConnect},
 		"something unexpected":  {err: errors.New("read: internal.example closed the stream"), want: msgCannotConnect},
 		"exception inside text": {err: fmt.Errorf("handshake: %w", &clickhouse.Exception{Code: 193, Message: "wrong password for alice"}), want: msgAuthFailed},
+
+		// The fork's typed errors: the status decides, not the exception the
+		// fork parsed out of the body.
+		"wrong password, typed http": {
+			err:  httpAnswer(http.StatusForbidden, &clickhouse.Exception{Code: 516, Name: "DB::Exception", Message: "alice: Authentication failed"}),
+			want: msgAuthFailed,
+		},
+		"unauthorized, typed": {err: httpAnswer(http.StatusUnauthorized, bodyOf("")), want: msgAuthFailed},
+		"some other service's body, typed": {
+			err:  httpAnswer(http.StatusNotFound, bodyOf(`{"message": "internal.example says no such host"}`)),
+			want: "The server answered HTTP 404",
+		},
+		"a typed body shaped like an exception": {
+			err:  httpAnswer(http.StatusInternalServerError, &clickhouse.Exception{Code: 516, Name: "DB::Exception", Message: "internal.example"}),
+			want: "The server answered HTTP 500",
+		},
+		"a syntax error at connect, typed": {
+			err:  httpAnswer(http.StatusBadRequest, &clickhouse.Exception{Code: 62, Name: "DB::Exception", Message: "Syntax error"}),
+			want: "The server answered HTTP 400",
+		},
+		"an exception announced but not delivered": {
+			err:  httpAnswer(http.StatusInternalServerError, undeliveredException),
+			want: "The server answered HTTP 500",
+		},
+		"a body that could not be read, typed": {
+			err: httpAnswer(http.StatusInternalServerError, fmt.Errorf("failed to read response: %w",
+				&net.OpError{Op: "read", Net: "tcp", Addr: &net.TCPAddr{IP: net.ParseIP("10.0.0.5"), Port: 9440}, Err: syscall.ECONNRESET})),
+			want: "The server answered HTTP 500",
+		},
+		// What the health check sees of the same: the typed error's text.
+		"a typed body shaped like an exception, as text": {
+			err:  errors.New(httpAnswer(http.StatusInternalServerError, &clickhouse.Exception{Code: 516, Message: "internal.example"}).Error()),
+			want: "The server answered HTTP 500",
+		},
+		"an exception announced but not delivered, as text": {
+			err:  errors.New(httpAnswer(http.StatusInternalServerError, undeliveredException).Error()),
+			want: "The server answered HTTP 500",
+		},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -216,6 +278,18 @@ func TestAnInstanceThatCannotConnectFailsWithAFixedMessage(t *testing.T) {
 	defer forbidden.Close()
 	other := answering(http.StatusNotFound, `{"message": "internal service says not found"}`)
 	defer other.Close()
+	exceptionShaped := answering(http.StatusInternalServerError, "Code: 516. DB::Exception: internal service: Authentication failed (AUTHENTICATION_FAILED)")
+	defer exceptionShaped.Close()
+	syntaxError := answering(http.StatusBadRequest, "Code: 62. DB::Exception: internal service: Syntax error (SYNTAX_ERROR)")
+	defer syntaxError.Close()
+	// The header promises an exception; the body is cut short, so reading it fails.
+	undelivered := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-ClickHouse-Exception-Code", "516")
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = fmt.Fprint(w, "Code: 516.")
+	}))
+	defer undelivered.Close()
 
 	cases := map[string]struct {
 		settings backend.DataSourceInstanceSettings
@@ -227,6 +301,15 @@ func TestAnInstanceThatCannotConnectFailsWithAFixedMessage(t *testing.T) {
 		"wrong password":        {instanceSettingsFor(t, forbidden.Listener.Addr().String(), false, "http"), msgAuthFailed},
 		"not a cluster at all":  {instanceSettingsFor(t, other.Listener.Addr().String(), false, "http"), "The server answered HTTP 404"},
 		"refused, tls expected": {instanceSettingsFor(t, closedAddr, true, "native"), msgRefused},
+		"a body shaped like an exception": {
+			instanceSettingsFor(t, exceptionShaped.Listener.Addr().String(), false, "http"), "The server answered HTTP 500",
+		},
+		"a syntax error at connect": {
+			instanceSettingsFor(t, syntaxError.Listener.Addr().String(), false, "http"), "The server answered HTTP 400",
+		},
+		"an exception announced but not delivered": {
+			instanceSettingsFor(t, undelivered.Listener.Addr().String(), false, "http"), "The server answered HTTP 500",
+		},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -277,4 +360,59 @@ func TestMutateQueryErrorHidesWhereAQueryFailedToReach(t *testing.T) {
 		assert.Equal(t, msgCannotConnect, got.Error())
 		assertNoNetworkDetails(t, got.Error())
 	})
+
+	t.Run("an exception announced but not delivered is the network's", func(t *testing.T) {
+		got := h.MutateQueryError(httpQueryAnswer(http.StatusInternalServerError, undeliveredException))
+		assert.Equal(t, msgCannotConnect, got.Error())
+		assert.Equal(t, backend.ErrorSourceDownstream, got.ErrorSource())
+		assertNoNetworkDetails(t, got.Error())
+	})
+
+	t.Run("a typed answer that repeats a query about connections passes through", func(t *testing.T) {
+		got := h.MutateQueryError(httpQueryAnswer(http.StatusBadRequest, &clickhouse.Exception{
+			Code: 62, Name: "DB::Exception", Message: "Syntax error: failed at position 7: SELEC 1 WHERE message ILIKE '%connection refused%'",
+		}))
+		assert.Contains(t, got.Error(), "Syntax error")
+	})
+}
+
+func TestMutateQueryErrorShowsAnHTTPAnswerAsTheClusterWroteIt(t *testing.T) {
+	h := NewHydrolix()
+
+	t.Run("a clickhouse exception reads like a native one", func(t *testing.T) {
+		got := h.MutateQueryError(httpQueryAnswer(http.StatusBadRequest, &clickhouse.Exception{
+			Code: 62, Name: "DB::Exception", Message: "Syntax error: failed at position 1 ('SELEC')",
+		}))
+		assert.Contains(t, got.Error(), "[HTTP 400]")
+		assert.Contains(t, got.Error(), "Code: 62. DB::Exception: Syntax error: failed at position 1 ('SELEC')")
+		assert.Equal(t, backend.ErrorSourceDownstream, got.ErrorSource())
+	})
+
+	// Fixtures from src/errors/errorBeautifier.test.ts: the frontend finds the
+	// JSON in the message and parses it, which an escaped body defeats.
+	for name, body := range map[string]string{
+		"a turbine authentication failure": `{"error": "<TurbineApiAuthenticatorError api login failed with provided username/password 'admin'. (Hydrolix)>"}`,
+		"a body over several lines":        "<ChTurbineDatabaseError table unknown not found>\nsecond line with \"quotes\"",
+	} {
+		t.Run(name+" is not escaped", func(t *testing.T) {
+			got := h.MutateQueryError(httpQueryAnswer(http.StatusUnauthorized, bodyOf(body)))
+			assert.Contains(t, got.Error(), "[HTTP 401]")
+			assert.Contains(t, got.Error(), body)
+		})
+	}
+
+	// sqlds retries a query once when its mutated error is a query error whose
+	// text holds the marker; exchange mode relies on that to replace a token
+	// the cluster stopped accepting.
+	for name, inner := range map[string]error{
+		"with an exception": &clickhouse.Exception{Code: 516, Name: "DB::Exception", Message: "token expired"},
+		"with a body":       bodyOf(`{"error": "token expired"}`),
+	} {
+		t.Run("a cluster 401 "+name+" is still retried", func(t *testing.T) {
+			got := h.MutateQueryError(httpQueryAnswer(http.StatusUnauthorized, inner))
+			assert.Contains(t, got.Error(), exchange.UnauthorizedMarker)
+			assert.ErrorIs(t, got, sqlds.ErrorQuery)
+			assert.Equal(t, backend.ErrorSourceDownstream, got.ErrorSource())
+		})
+	}
 }

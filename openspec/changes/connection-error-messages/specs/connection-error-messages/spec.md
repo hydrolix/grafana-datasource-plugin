@@ -18,7 +18,7 @@ The messages SHALL be:
 | Any other ClickHouse exception | `The server refused the connection (ClickHouse error code <code>)` |
 | Anything else | `Could not connect to the server` |
 
-An HTTP status SHALL be read before anything else in an error's text: what follows it is a body the answering service wrote, and it SHALL NOT select a ClickHouse code, a redirect or a transport kind.
+An HTTP status SHALL be read before anything else in an error, whether the error carries it as a type or in its text: what follows it is a body the answering service wrote, and it SHALL NOT select a ClickHouse code, a redirect or a transport kind, even where the driver has parsed that body into a ClickHouse exception.
 
 The returned error SHALL be a downstream error and SHALL unwrap to the original error. A refused redirect is returned as the redirect error itself.
 
@@ -39,9 +39,16 @@ The returned error SHALL be a downstream error and SHALL unwrap to the original 
 
 #### Scenario: A body shaped like an exception is still a body
 
-- **GIVEN** an address that answers `500` with a body containing `code: 516, message:`
+- **GIVEN** an address that answers `500` with a body that starts with `Code: 516.`, or that contains `code: 516, message:`
 - **WHEN** the instance is built
 - **THEN** the build SHALL fail with the message `The server answered HTTP 500`
+
+#### Scenario: An exception announced by a header but not delivered
+
+- **GIVEN** an address that answers `500` with an `X-ClickHouse-Exception-Code` header and a body that could not be read
+- **WHEN** the instance is built
+- **THEN** the build SHALL fail with the message `The server answered HTTP 500`
+- **AND** the message SHALL NOT contain an IP address or a port
 
 #### Scenario: A resolver that timed out is a timeout
 
@@ -96,7 +103,7 @@ When the health check of a data source in a stored-credential mode returns an er
 
 ### Requirement: A query that never reached the cluster uses the same messages
 
-When a query fails while resolving, dialling, in the TLS handshake, or on a timeout, the error shown for it SHALL be the fixed message for that kind. A timeout that is not a dial timeout SHALL be reported as `The request timed out`. Any other failure of the network under the request, a connection reset or an answer whose body could not be read included, SHALL be reported as `Could not connect to the server`. The error SHALL remain a downstream error and SHALL unwrap to the original, so that a query error and an exceeded deadline are still recognised as such.
+When a query fails while resolving, dialling, in the TLS handshake, or on a timeout, the error shown for it SHALL be the fixed message for that kind. A timeout that is not a dial timeout SHALL be reported as `The request timed out`. Any other failure of the network under the request, a connection reset or an answer whose body could not be read included, SHALL be reported as `Could not connect to the server`; an answer that announced an exception code in a header and whose body could not be read is such a failure too. The error SHALL remain a downstream error and SHALL unwrap to the original, so that a query error and an exceeded deadline are still recognised as such.
 
 An error that carries an answer from the cluster, a ClickHouse exception or an HTTP status with a body, SHALL NOT be replaced by this requirement, whatever the body contains.
 
@@ -133,6 +140,38 @@ An error that carries an answer from the cluster, a ClickHouse exception or an H
 - **GIVEN** a query error whose text is an HTTP status followed by a failed read naming an address
 - **WHEN** it is converted for the panel
 - **THEN** the message SHALL be `Could not connect to the server`
+
+#### Scenario: An exception announced by a header whose body could not be read
+
+- **GIVEN** a query error that is an HTTP answer carrying a ClickHouse exception built from an `X-ClickHouse-Exception-Code` header
+- **AND** the exception's message is the failed read of the body, naming an address
+- **WHEN** it is converted for the panel
+- **THEN** the message SHALL be `Could not connect to the server`
+- **AND** the message SHALL NOT contain an IP address or a port
+
+### Requirement: An HTTP answer to a query is shown as the cluster wrote it
+
+When a query fails with an HTTP answer from the cluster, the error shown SHALL start with the status as `[HTTP <status>]`. A ClickHouse exception in the answer SHALL follow as `Code: <code>. <name>: <message>`; any other body SHALL follow as the cluster wrote it, neither quoted nor escaped. The error SHALL remain a query error, so that sqlds still retries a cluster's `401`.
+
+#### Scenario: A ClickHouse error over HTTP reads like a native one
+
+- **GIVEN** a query error that is an HTTP `400` answer carrying ClickHouse exception code `62`, named `DB::Exception`, with a syntax error as its message
+- **WHEN** it is converted for the panel
+- **THEN** the message SHALL contain `[HTTP 400]`
+- **AND** the message SHALL contain `Code: 62. DB::Exception:` followed by the syntax error
+
+#### Scenario: A Turbine body reaches the panel unescaped
+
+- **GIVEN** a query error that is an HTTP `401` answer whose body is the JSON `{"error": "<TurbineApiAuthenticatorError …>"}`, with no ClickHouse exception
+- **WHEN** it is converted for the panel
+- **THEN** the message SHALL contain the body exactly as the cluster wrote it
+
+#### Scenario: A cluster 401 carrying an exception is still retried
+
+- **GIVEN** a query error that is an HTTP `401` answer carrying ClickHouse exception code `516`
+- **WHEN** it is converted for the panel
+- **THEN** the message SHALL contain `[HTTP 401]`
+- **AND** `errors.Is(err, sqlds.ErrorQuery)` SHALL report true
 
 ### Requirement: A refused redirect is reported by its status alone
 

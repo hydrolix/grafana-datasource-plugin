@@ -336,6 +336,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 				// fixed message (connectFailure), and what happened is logged
 				// once.
 				var redirect *RedirectError
+				var answer *clickhouse.HTTPError
 				var ex *clickhouse.Exception
 				switch {
 				case errors.As(err, &redirect):
@@ -344,6 +345,8 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 						"status", redirect.Status,
 						"location", redirect.Location,
 					)
+				case errors.As(err, &answer):
+					log.DefaultLogger.Error("cluster answered with an error", "status", answer.StatusCode, "error", err)
 				case errors.As(err, &ex):
 					log.DefaultLogger.Error(
 						"clickhouse exception",
@@ -785,11 +788,32 @@ func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
 		)
 	}
 
+	// Before the exception it may carry, which would drop the status and the
+	// chain that sqlds's retry of an exchange-mode 401 reads.
+	var answer *clickhouse.HTTPError
+	if errors.As(err, &answer) {
+		if message, ok := queryAnswer(answer); ok {
+			return backend.NewErrorWithSource(
+				backend.DownstreamError(&httpAnswerError{message: message, cause: err}),
+				backend.ErrorSourceDownstream,
+			)
+		}
+		message, ok := transportMessage(err)
+		if !ok {
+			message = msgCannotConnect
+		}
+		log.DefaultLogger.Error("query answer could not be read", "error", err)
+		return backend.NewErrorWithSource(
+			backend.DownstreamError(&connectionError{message: message, cause: err}),
+			backend.ErrorSourceDownstream,
+		)
+	}
+
 	if uw, ok := err.(interface{ Unwrap() []error }); ok {
 		for _, e := range uw.Unwrap() {
 			if ex, ok := e.(*proto.Exception); ok {
 				return backend.NewErrorWithSource(
-					backend.DownstreamError(fmt.Errorf("Code: %d. %s: %s", ex.Code, ex.Name, ex.Message)),
+					backend.DownstreamError(errors.New(formatException(ex))),
 					backend.ErrorSourceDownstream,
 				)
 			}
@@ -799,7 +823,7 @@ func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
 	var ex *proto.Exception
 	if errors.As(err, &ex) {
 		return backend.NewErrorWithSource(
-			backend.DownstreamError(fmt.Errorf("Code: %d. %s: %s", ex.Code, ex.Name, ex.Message)),
+			backend.DownstreamError(errors.New(formatException(ex))),
 			backend.ErrorSourceDownstream,
 		)
 	}

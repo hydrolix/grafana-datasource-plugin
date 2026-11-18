@@ -55,11 +55,13 @@ func (e *connectionError) Unwrap() error { return e.cause }
 var authFailureCodes = map[int32]bool{192: true, 193: true, 194: true, 516: true}
 
 var (
-	// The fork reports an HTTP failure as text, "[HTTP 403] response body: …".
+	// The text of the fork's clickhouse.HTTPError, "[HTTP 403] …": all the
+	// health check has of it, since sqlds hands it a message.
 	httpStatusText = regexp.MustCompile(`\[HTTP (\d{3})\]`)
-	// The same, where the body was read: everything after it is the answer's.
-	// The fork's other form, "[HTTP 500] failed to read response: …", ends in
-	// a transport error and is not matched.
+	// The same, where the body was read and was not an exception: everything
+	// after it is the answer's. The fork's other forms, "[HTTP 500] failed to
+	// read response: …" and an announced exception whose message is "failed to
+	// read response body: …", end in a transport error and are not matched.
 	httpBodyText = regexp.MustCompile(`\[HTTP \d{3}\] response body:`)
 	// clickhouse.Exception's own text, for an error that arrives as a string.
 	exceptionText = regexp.MustCompile(`code: (\d+), message:`)
@@ -139,6 +141,12 @@ func connectFailure(err error) error {
 
 	fixed := func(message string) error { return &connectionError{message: message, cause: err} }
 
+	// Before the exception it may carry: the fork parses any body that starts
+	// with "Code: NNN." into one, whoever wrote it.
+	var answer *clickhouse.HTTPError
+	if errors.As(err, &answer) {
+		return fixed(statusMessage(answer.StatusCode))
+	}
 	var ex *clickhouse.Exception
 	if errors.As(err, &ex) {
 		return fixed(exceptionMessage(ex.Code))
@@ -147,11 +155,8 @@ func connectFailure(err error) error {
 	// somebody else wrote, which can look like an exception or a transport
 	// error.
 	if m := httpStatusText.FindStringSubmatch(err.Error()); m != nil {
-		switch m[1] {
-		case "401", "403":
-			return fixed(msgAuthFailed)
-		}
-		return fixed("The server answered HTTP " + m[1])
+		status, _ := strconv.Atoi(m[1])
+		return fixed(statusMessage(status))
 	}
 
 	if m := exceptionText.FindStringSubmatch(err.Error()); m != nil {
@@ -177,9 +182,70 @@ func connectFailure(err error) error {
 	return fixed(msgCannotConnect)
 }
 
+func statusMessage(status int) string {
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return msgAuthFailed
+	}
+	return fmt.Sprintf("The server answered HTTP %d", status)
+}
+
 func exceptionMessage(code int32) string {
 	if authFailureCodes[code] {
 		return msgAuthFailed
 	}
 	return fmt.Sprintf("The server refused the connection (ClickHouse error code %d)", code)
+}
+
+// The fork's text for a body that is not an exception: `response body: %q`.
+const answerBodyPrefix = "response body: "
+
+// The fork's message for an exception that X-ClickHouse-Exception-Code
+// announced but whose body could not be read (executeRequest in conn_http.go).
+// The read error survives only as text, so the prefix is all there is to know
+// it by.
+const undeliveredExceptionPrefix = "failed to read response body: "
+
+// httpAnswerError is a cluster's HTTP answer to a query, shown as the cluster
+// wrote it. The original stays underneath: sqlds retries an exchange-mode 401
+// by the status in this text and by ErrorQuery in the chain.
+type httpAnswerError struct {
+	message string
+	cause   error
+}
+
+func (e *httpAnswerError) Error() string { return e.message }
+func (e *httpAnswerError) Unwrap() error { return e.cause }
+
+// queryAnswer is what a panel shows for a cluster's HTTP answer: the status,
+// then the exception or the body. It reports false for an answer that never
+// arrived whole, which is the network's to name.
+func queryAnswer(answer *clickhouse.HTTPError) (string, bool) {
+	status := fmt.Sprintf("[HTTP %d] ", answer.StatusCode)
+	var ex *clickhouse.Exception
+	if errors.As(answer.Err, &ex) {
+		if strings.HasPrefix(ex.Message, undeliveredExceptionPrefix) {
+			return "", false
+		}
+		return status + formatException(ex), true
+	}
+	text := answer.Err.Error()
+	quoted, ok := strings.CutPrefix(text, answerBodyPrefix)
+	if !ok {
+		return "", false
+	}
+	// The frontend finds JSON in the message and parses it; escaped quotes
+	// defeat that.
+	if body, err := strconv.Unquote(quoted); err == nil {
+		return status + answerBodyPrefix + body, true
+	}
+	return status + text, true
+}
+
+// formatException prints an exception the way ClickHouse does. One the fork
+// built from the header alone has no name.
+func formatException(ex *clickhouse.Exception) string {
+	if ex.Name == "" {
+		return fmt.Sprintf("Code: %d. %s", ex.Code, ex.Message)
+	}
+	return fmt.Sprintf("Code: %d. %s: %s", ex.Code, ex.Name, ex.Message)
 }

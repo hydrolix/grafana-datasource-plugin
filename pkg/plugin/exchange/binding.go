@@ -5,10 +5,11 @@ import (
 	"net/http"
 )
 
-// UnauthorizedMarker is the text the clickhouse-go fork leaves in an error for a
-// cluster's 401: `[HTTP 401] response body: "..."` (conn_http.go,
-// executeRequest). sqlds decides whether to retry a query by substring of the
-// error text, and this is the substring the driver lists.
+// UnauthorizedMarker is the status the clickhouse-go fork prints at the front of
+// its error for a cluster's 401 (clickhouse.HTTPError), and MutateQueryError
+// keeps at the front of the panel's message. sqlds decides whether to retry a
+// query by substring of that message, and this is the substring the driver
+// lists.
 const UnauthorizedMarker = "[HTTP 401]"
 
 // Binding is one connection's supply of cluster tokens: where they come from,

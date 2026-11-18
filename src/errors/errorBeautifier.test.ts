@@ -196,4 +196,23 @@ describe("ErrorMessageBeautifier", () => {
     const result = beautifier.beautify(input);
     expect(result).toEqual("Lowercase code prefix");
   });
+
+  // The backend's text for a query's HTTP answer (MutateQueryError).
+  test("should extract CH message from an HTTP answer", () => {
+    const input =
+      "[HTTP 400] Code: 62. DB::Exception: Syntax error: failed at position 1 ('SELEC'): SELEC 1. Expected one of: Query. (SYNTAX_ERROR)";
+    const result = beautifier.beautify(input);
+    expect(result).toEqual(
+      "Syntax error: failed at position 1 ('SELEC'): SELEC 1. Expected one of: Query"
+    );
+  });
+
+  test("should format HTTP auth error from an HTTP answer", () => {
+    const input =
+      '[HTTP 401] response body: {"error": "<TurbineApiAuthenticatorError api login failed with provided username/password \'admin\'. (Hydrolix)>"}';
+    const result = beautifier.beautify(input);
+    expect(result).toEqual(
+      "api login failed with provided username/password 'admin'.:\n"
+    );
+  });
 });
