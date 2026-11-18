@@ -58,11 +58,11 @@ describe("ErrorMessageBeautifier", () => {
     expect(result).toEqual("Hydrolix specific error message");
   });
 
-  test("should format singular unit when timeout equals 1", () => {
+  test("should end the message at the error name when text follows it", () => {
     const input =
       'prefix {"error": "Code: 159. DB::Exception: Some error. (XYZ) elapsed 1 seconds, maximum: 1", "query": "SELECT 1"} suffix';
     const result = beautifier.beautify(input);
-    expect(result).toEqual("Some error.");
+    expect(result).toEqual("Some error");
   });
 
   test("should format native connection refused", () => {
@@ -224,6 +224,31 @@ describe("ErrorMessageBeautifier", () => {
     ],
   ])("should extract CH message from a native exception: %s", (input, expected) => {
     expect(beautifier.beautify(input)).toEqual(expected);
+  });
+
+  // Turbine writes the failing token in parentheses without quotes; only the
+  // "(NAME)" that ClickHouse puts after a period ends the message.
+  test.each([
+    [
+      '[HTTP 400] response body: {"error": "Code: 62. DB::Exception: Syntax error: failed at position 1 (SELEC): SELEC 1. Expected one of: Query. (SYNTAX_ERROR)", "query": "SELEC 1"}',
+      "Syntax error: failed at position 1 (SELEC): SELEC 1. Expected one of: Query",
+    ],
+    [
+      '[HTTP 400] response body: {"error": "Code: 62. DB::Exception: Syntax error: failed at position 53 (BY) (line 4, col 7): BY number. Expected one of: token. (SYNTAX_ERROR)", "query": "SELECT 1"}',
+      "Syntax error: failed at position 53 (BY) (line 4, col 7): BY number. Expected one of: token",
+    ],
+  ])("should keep an unquoted token in the message: %s", (input, expected) => {
+    expect(beautifier.beautify(input)).toEqual(expected);
+  });
+
+  // An exception the fork parsed from a Turbine JSON body announced by
+  // X-ClickHouse-Exception-Code keeps the body's tail after its "(NAME)".
+  test("should drop the period before the error name when text follows it", () => {
+    const input =
+      '[HTTP 400] Code: 47. DB::Exception: Missing columns: \'nope\' while processing query: \'SELECT nope FROM hydro.logs\', required columns: \'nope\'. (UNKNOWN_IDENTIFIER)",\n    "query": "SELECT nope FROM hydro.logs"\n}';
+    expect(beautifier.beautify(input)).toEqual(
+      "Missing columns: 'nope' while processing query: 'SELECT nope FROM hydro.logs', required columns: 'nope'"
+    );
   });
 
   test("should format HTTP auth error from an HTTP answer", () => {

@@ -24,9 +24,11 @@ export class ErrorMessageBeautifier {
   private static readonly CONNECTION_NATIVE_REFUSED =
     /^dial\stcp.* \d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5}:\s(.*)$/;
   private static readonly CH_CODE_REGEX = /Code:\s+(\d+)[.|,]/i;
-  // The "(NAME)" suffix is HTTP's; a native exception ends at its message.
+  // ClickHouse ends an HTTP exception's message with ". (NAME)"; a native
+  // exception ends at its message. Only the period tells the name from a
+  // token Turbine writes in parentheses: "failed at position 1 (SELEC)".
   private static readonly CH_MESSAGE_HTTP_REGEX =
-    /DB::Exception:\s+(?<message>.*?)(?:(?:\.(?=\s+\(\w+\)$))?\s+\(\w+\)|$)/m;
+    /DB::Exception:\s+(?<message>.*?)(?:\.\s+\(\w+\)|$)/m;
   private static readonly CH_MESSAGE_NATIVE_REGEX =
     /code:\s(?<code>\d+),\smessage:(?<message>.+)$/;
   private static readonly CH_DATABASE_ERROR_REGEX =

@@ -175,7 +175,7 @@ When a query fails with an HTTP answer from the cluster, the error shown SHALL s
 
 ### Requirement: A ClickHouse error reads the same over either protocol
 
-When a panel shows a ClickHouse exception, it SHALL show the exception's message alone, without the code, the exception's name, the error name in parentheses or the server version. A native exception, which carries no error name in parentheses and no version, SHALL read the same as the same exception over HTTP.
+When a panel shows a ClickHouse exception, it SHALL show the exception's message alone, without the code, the exception's name, the error name in parentheses with the period before it, or the server version. A native exception, which carries no error name in parentheses and no version, SHALL read the same as the same exception over HTTP. A word in parentheses that no period precedes, such as the token Turbine names in a syntax error, SHALL stay part of the message.
 
 #### Scenario: A native exception is shown by its message
 
@@ -188,6 +188,12 @@ When a panel shows a ClickHouse exception, it SHALL show the exception's message
 - **GIVEN** a query error `[HTTP 400] Code: 62. DB::Exception: Syntax error: failed at position 1 ('SELEC'): SELEC 1. Expected one of: Query. (SYNTAX_ERROR)`
 - **WHEN** the panel shows it
 - **THEN** the message SHALL be `Syntax error: failed at position 1 ('SELEC'): SELEC 1. Expected one of: Query`
+
+#### Scenario: A Turbine syntax error keeps its token
+
+- **GIVEN** a query error whose body is the JSON `{"error": "Code: 62. DB::Exception: Syntax error: failed at position 1 (SELEC): SELEC 1. Expected one of: Query. (SYNTAX_ERROR)", "query": "SELEC 1"}`
+- **WHEN** the panel shows it
+- **THEN** the message SHALL be `Syntax error: failed at position 1 (SELEC): SELEC 1. Expected one of: Query`
 
 ### Requirement: A refused redirect is reported by its status alone
 
