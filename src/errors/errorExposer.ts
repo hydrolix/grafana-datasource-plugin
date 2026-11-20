@@ -8,7 +8,7 @@ export class ErrorExposer {
   constructor(
     private beautifier: ErrorMessageBeautifier,
     private templateSrv: TemplateSrv,
-    private settings: ExposeErrorsOptions
+    private settings: Required<ExposeErrorsOptions>
   ) {}
 
   public async addErrorToVariable(message: string) {
@@ -25,7 +25,7 @@ export class ErrorExposer {
       .getVariables()
       .find(
         (v) => v.name === this.settings.variableName
-      ) as VariableWithOptions;
+      ) as VariableWithOptions | undefined;
     // Nothing on the dashboard reads the parameter without the variable;
     // writing it would only put error text into the URL.
     if (!variable) {
@@ -41,7 +41,7 @@ export class ErrorExposer {
 
     let errors: ErrorFixSuggestion[] = [];
     try {
-      errors = JSON.parse(variable?.current?.value.toString());
+      errors = JSON.parse(variable.current?.value.toString());
       if (!errors.length) {
         errors = [];
       }
@@ -72,7 +72,7 @@ export class ErrorExposer {
     errors = errors.filter(
       (e: { time: string }) =>
         new Date().getTime() - new Date(e.time).getTime() <
-        this.settings.ttl! * 1000
+        this.settings.ttl * 1000
     );
     errors = errors.slice(0, this.settings.maxCount);
     this.setVariable(errors);

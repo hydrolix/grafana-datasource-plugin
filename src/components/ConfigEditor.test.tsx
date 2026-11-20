@@ -628,6 +628,12 @@ describe("ConfigEditor", () => {
       expect(
         screen.queryByLabelText(labels.exposeErrorsVariableName.label)
       ).not.toBeInTheDocument();
+      expect(
+        screen.queryByLabelText(labels.exposeErrorsMaxCount.label)
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByLabelText(labels.exposeErrorsTtl.label)
+      ).not.toBeInTheDocument();
     });
   });
 
