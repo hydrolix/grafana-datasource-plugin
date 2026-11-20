@@ -40,7 +40,7 @@ func dialError(err error) error {
 	return &net.OpError{Op: "dial", Net: "tcp", Addr: &net.TCPAddr{IP: net.ParseIP("10.0.0.5"), Port: 9440}, Err: err}
 }
 
-// The fork's error for a non-200 answer, under the handshake's plumbing.
+// clickhouse-go's error for a non-200 answer, under the handshake's plumbing.
 func httpAnswer(status int, inner error) error {
 	return fmt.Errorf("failed to query server hello: failed to query server hello info: sendQuery: %w",
 		&clickhouse.HTTPError{StatusCode: status, Err: inner})
@@ -51,13 +51,13 @@ func httpQueryAnswer(status int, inner error) error {
 	return fmt.Errorf("%w: %w", sqlds.ErrorQuery, fmt.Errorf("sendQuery: %w", &clickhouse.HTTPError{StatusCode: status, Err: inner}))
 }
 
-// The fork's inner error for a body that is not a ClickHouse exception.
+// clickhouse-go's inner error for a body that is not a ClickHouse exception.
 func bodyOf(body string) error {
 	return fmt.Errorf("response body: %q", body)
 }
 
-// The fork's inner error when X-ClickHouse-Exception-Code was set but the body
-// could not be read: an exception whose message is the read error.
+// clickhouse-go's inner error when X-ClickHouse-Exception-Code was set but the
+// body could not be read: an exception whose message is the read error.
 var undeliveredException = &clickhouse.Exception{
 	Code:    516,
 	Message: "failed to read response body: read tcp 10.0.0.5:9440: connection reset by peer",
@@ -172,8 +172,8 @@ func TestConnectFailureRepeatsNothingOfWhatAnswered(t *testing.T) {
 		"something unexpected":  {err: errors.New("read: internal.example closed the stream"), want: msgCannotConnect},
 		"exception inside text": {err: fmt.Errorf("handshake: %w", &clickhouse.Exception{Code: 193, Message: "wrong password for alice"}), want: msgAuthFailed},
 
-		// The fork's typed errors: the status decides, not the exception the
-		// fork parsed out of the body.
+		// clickhouse-go's typed errors: the status decides, not the exception
+		// clickhouse-go parsed out of the body.
 		"wrong password, typed http": {
 			err:  httpAnswer(http.StatusForbidden, &clickhouse.Exception{Code: 516, Name: "DB::Exception", Message: "alice: Authentication failed"}),
 			want: msgAuthFailed,
@@ -369,8 +369,8 @@ func TestMutateQueryErrorHidesWhereAQueryFailedToReach(t *testing.T) {
 		assertNoNetworkDetails(t, got.Error())
 	})
 
-	// The fork's other error for a body it could not read, which keeps the read
-	// error's type: its kind is named where it has one.
+	// clickhouse-go's other error for a body it could not read, which keeps the
+	// read error's type: its kind is named where it has one.
 	for name, c := range map[string]struct {
 		read error
 		want string
@@ -420,10 +420,10 @@ func TestMutateQueryErrorShowsAnHTTPAnswerAsTheClusterWroteIt(t *testing.T) {
 		})
 	}
 
-	// Turbine sends X-ClickHouse-Exception-Code with some JSON answers. The
-	// fork then cuts the body at "Code: N." and parses the rest, so the
-	// exception's message ends in the JSON's tail, still escaped.
-	t.Run("a turbine body the fork cut into an exception is put back whole", func(t *testing.T) {
+	// Turbine sends X-ClickHouse-Exception-Code with some JSON answers.
+	// clickhouse-go then cuts the body at "Code: N." and parses the rest, so
+	// the exception's message ends in the JSON's tail, still escaped.
+	t.Run("a turbine body clickhouse-go cut into an exception is put back whole", func(t *testing.T) {
 		got := h.MutateQueryError(httpQueryAnswer(http.StatusBadRequest, &clickhouse.Exception{
 			Code: 47, Name: "DB::Exception", CodeName: "UNKNOWN_IDENTIFIER",
 			Message: `Missing columns: 'a' while processing query: 'SELECT \"a\"\nFROM t', required columns: 'a'. (UNKNOWN_IDENTIFIER)",` + "\n" + `    "query": "SELECT \"a\"\nFROM t"` + "\n}",
@@ -453,7 +453,7 @@ func TestMutateQueryErrorShowsAnHTTPAnswerAsTheClusterWroteIt(t *testing.T) {
 		assert.Equal(t, "Code: 1001. std::exception", got.Error())
 	})
 
-	t.Run("a body the fork did not quote is shown as it came", func(t *testing.T) {
+	t.Run("a body clickhouse-go did not quote is shown as it came", func(t *testing.T) {
 		got := h.MutateQueryError(httpQueryAnswer(http.StatusBadGateway, errors.New("response body: upstream gave up")))
 		assert.Equal(t, "[HTTP 502] response body: upstream gave up", got.Error())
 	})
@@ -474,11 +474,11 @@ func TestMutateQueryErrorShowsAnHTTPAnswerAsTheClusterWroteIt(t *testing.T) {
 	}
 }
 
-// The cases above build the fork's errors by hand. These get them from the
-// fork, so that a release which words or shapes an answer differently fails
-// here and not in a panel: the unreadable answers are known only by the
-// fork's text, and a miss there prints a read error, address included.
-func TestMutateQueryErrorOnTheForksOwnErrors(t *testing.T) {
+// The cases above build clickhouse-go's errors by hand. These get them from
+// clickhouse-go, so that a release which words or shapes an answer differently
+// fails here and not in a panel: the unreadable answers are known only by
+// clickhouse-go's text, and a miss there prints a read error, address included.
+func TestMutateQueryErrorOnErrorsFromClickhouseGo(t *testing.T) {
 	turbineBody := `{"error": "Code: 47. DB::Exception: Missing columns: 'a' while processing query: 'SELECT \"a\"\nFROM numbers(1)', required columns: 'a'. (UNKNOWN_IDENTIFIER)",` + "\n" + `    "query": "SELECT \"a\"\nFROM numbers(1)"` + "\n}"
 	answerWith := func(status int, code, body string) func(http.ResponseWriter) {
 		return func(w http.ResponseWriter) {

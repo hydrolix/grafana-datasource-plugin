@@ -211,8 +211,9 @@ func TestExchangeMode_NativeProtocolIsRefused(t *testing.T) {
 }
 
 func TestExchangeMode_PlainHTTPIsRefused(t *testing.T) {
-	// The fork consults the JWT hook only on a TLS connection, so a plain-http
-	// datasource in this mode would send no credential at all. Say so.
+	// clickhouse-go consults the JWT hook only on a TLS connection, so a
+	// plain-http datasource in this mode would send no credential at all. Say
+	// so.
 	settings := models.PluginSettings{
 		Host: "localhost", Port: 8123, Protocol: "http", Secure: false,
 		CredentialsType: exchange.CredentialsType,
@@ -548,7 +549,8 @@ func TestExchangeMode_AnExchangeFailureReachesThePanelAsItsReason(t *testing.T) 
 		// The refusal memory in the source answers with the bare outcome.
 		// Before errors reported an outcome and a detail in one value, the
 		// driver walked the chain to "the error above the sentinel", which
-		// for a bare one was the fork's wrapper, and the panel showed that.
+		// for a bare one was clickhouse-go's wrapper, and the panel showed
+		// that.
 		res := h.MutateQueryError(driverWrap(exchange.ErrRefused))
 		assert.Equal(t, exchange.ErrRefused.Error(), res.Error())
 		assert.Equal(t, backend.ErrorSourceDownstream, res.ErrorSource())

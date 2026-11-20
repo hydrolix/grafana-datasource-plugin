@@ -60,8 +60,8 @@ func (b *Binding) principalFor(ctx context.Context) (Principal, bool) {
 	return b.Principals.Lookup(b.Bound)
 }
 
-// JWT is the fork's GetJWT hook: the cluster token for the request this context
-// belongs to.
+// JWT is clickhouse-go's GetJWT hook: the cluster token for the request this
+// context belongs to.
 //
 // A request with no identity is refused rather than sent with whatever the
 // connection was built with — a query with no signed-in user has no business
@@ -78,8 +78,8 @@ func (b *Binding) JWT(ctx context.Context) (string, error) {
 
 // Watch wraps the connection's round tripper so that a cluster's 401 drops the
 // token the cluster refused. It attaches nothing and changes nothing: the
-// request goes out as the fork built it, and the response comes back as the
-// cluster sent it.
+// request goes out as clickhouse-go built it, and the response comes back as
+// the cluster sent it.
 //
 // The cluster is the authority on whether a token is still good, whatever the
 // cache believes. The retry itself is sqlds's: the driver lists the 401 as
@@ -99,7 +99,7 @@ type unauthorizedWatch struct {
 }
 
 // http.Client finds CloseIdleConnections by a type assertion on its
-// transport; without this forward the fork's httpConnect.close() would
+// transport; without this forward clickhouse-go's httpConnect.close() would
 // release nothing, and every retired connection would keep its keep-alive
 // socket until the transport's idle timeout. The assertion keeps the method
 // from being dropped by the next edit.

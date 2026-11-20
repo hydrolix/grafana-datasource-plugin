@@ -163,9 +163,9 @@ func TestAnOKResponseLeavesTheTokenAlone(t *testing.T) {
 }
 
 func TestTheWatchNeitherAttachesNorRemovesACredential(t *testing.T) {
-	// Attaching is the fork's job, from the JWT hook, on the initial request.
-	// The watch must not become a second place that handles the header — that
-	// is exactly what would re-send the token on a redirected hop.
+	// Attaching is clickhouse-go's job, from the JWT hook, on the initial
+	// request. The watch must not become a second place that handles the header
+	// — that is exactly what would re-send the token on a redirected hop.
 	s, _, _ := newFixture(300 * time.Second)
 	base := &recordingBase{}
 	watched := unbound(s).Watch(base)
@@ -175,16 +175,16 @@ func TestTheWatchNeitherAttachesNorRemovesACredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	set := newRequest(t, principalCtx())
-	set.Header.Set("Authorization", "Bearer as-the-fork-built-it")
+	set.Header.Set("Authorization", "Bearer as-clickhouse-go-built-it")
 	if _, err := watched.RoundTrip(set); err != nil {
 		t.Fatal(err)
 	}
 
 	seen := base.seen()
-	if len(seen) != 2 || seen[0] != "" || seen[1] != "Bearer as-the-fork-built-it" {
+	if len(seen) != 2 || seen[0] != "" || seen[1] != "Bearer as-clickhouse-go-built-it" {
 		t.Fatalf("the watch touched the credential: %v", seen)
 	}
-	if got := set.Header.Get("Authorization"); got != "Bearer as-the-fork-built-it" {
+	if got := set.Header.Get("Authorization"); got != "Bearer as-clickhouse-go-built-it" {
 		t.Fatalf("the caller's request was mutated: %q", got)
 	}
 }
@@ -433,11 +433,11 @@ func base64url(s string) string {
 }
 
 func TestWatchReleasesTheConnectionOnClose(t *testing.T) {
-	// The fork's httpConnect.close() is h.client.CloseIdleConnections(), and
-	// http.Client finds that method by a type assertion on its transport, so
-	// a wrapper without it keeps every retired connection's socket open
-	// until the transport's idle timeout. The release is pinned on the
-	// server side: its ConnState hook counts the closes it saw.
+	// clickhouse-go's httpConnect.close() is h.client.CloseIdleConnections(),
+	// and http.Client finds that method by a type assertion on its transport,
+	// so a wrapper without it keeps every retired connection's socket open
+	// until the transport's idle timeout. The release is pinned on the server
+	// side: its ConnState hook counts the closes it saw.
 	var mu sync.Mutex
 	closed := 0
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

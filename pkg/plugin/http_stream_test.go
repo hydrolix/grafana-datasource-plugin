@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A Native block as a cluster writes it over HTTP. The fork reads HTTP blocks
-// at revision 0, so there is no block info: the column and row counts, then
-// each column's name, type and values.
+// A Native block as a cluster writes it over HTTP. clickhouse-go reads HTTP
+// blocks at revision 0, so there is no block info: the column and row counts,
+// then each column's name, type and values.
 type nativeColumn struct {
 	name, typ string
 	values    []byte
@@ -48,7 +48,7 @@ func numbersBlock(from, to uint64) []byte {
 	return nativeBlock(int(to-from), nativeColumn{name: "number", typ: "UInt64", values: values})
 }
 
-// The answer to the fork's handshake, `SELECT displayName(), version(),
+// The answer to clickhouse-go's handshake, `SELECT displayName(), version(),
 // revision(), timezone()`.
 var helloBlock = nativeBlock(1,
 	stringColumn("displayName()", "stream-test"),
@@ -57,7 +57,7 @@ var helloBlock = nativeBlock(1,
 	stringColumn("timezone()", "UTC"),
 )
 
-// The answer to the fork's ping, `SELECT 1`: it checks the column's name.
+// The answer to clickhouse-go's ping, `SELECT 1`: it checks the column's name.
 var pingBlock = nativeBlock(1, nativeColumn{name: "1", typ: "UInt8", values: []byte{1}})
 
 // clusterAnswering answers the handshake and the ping, and hands a query on
@@ -107,9 +107,9 @@ func dropConnection(w http.ResponseWriter) {
 
 // A streamed answer carries its status before its rows, so a query that fails
 // partway can only say so by how the stream ends. A dropped connection must
-// stay an error through the fork and the transport chain, whatever the fork's
-// exception detection does with the bytes it captured; only a stream that the
-// server ended itself is a complete answer.
+// stay an error through clickhouse-go and the transport chain, whatever
+// clickhouse-go's exception detection does with the bytes it captured; only a
+// stream that the server ended itself is a complete answer.
 func TestACutStreamIsAnError(t *testing.T) {
 	first, second := numbersBlock(0, 1000), numbersBlock(1000, 2000)
 	cases := map[string]struct {

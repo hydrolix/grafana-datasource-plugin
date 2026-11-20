@@ -57,13 +57,13 @@ func (e *shownError) Unwrap() error { return e.cause }
 var authFailureCodes = map[int32]bool{192: true, 193: true, 194: true, 516: true}
 
 var (
-	// The text of the fork's clickhouse.HTTPError, "[HTTP 403] …": all the
+	// The text of clickhouse-go's clickhouse.HTTPError, "[HTTP 403] …": all the
 	// health check has of it, since sqlds hands it a message.
 	httpStatusText = regexp.MustCompile(`\[HTTP (\d{3})\]`)
 	// The same, where the body was read and was not an exception: everything
-	// after it is the answer's. The fork's other forms, "[HTTP 500] failed to
-	// read response: …" and an announced exception whose message is "failed to
-	// read response body: …", end in a transport error and are not matched.
+	// after it is the answer's. clickhouse-go's other forms, "[HTTP 500] failed
+	// to read response: …" and an announced exception whose message is "failed
+	// to read response body: …", end in a transport error and are not matched.
 	httpBodyText = regexp.MustCompile(`\[HTTP \d{3}\] response body:`)
 	// clickhouse.Exception's own text, for an error that arrives as a string.
 	exceptionText = regexp.MustCompile(`code: (\d+), message:`)
@@ -143,8 +143,8 @@ func connectFailure(err error) error {
 
 	fixed := func(message string) error { return &shownError{message: message, cause: err} }
 
-	// Before the exception it may carry: the fork parses any body that starts
-	// with "Code: NNN." into one, whoever wrote it.
+	// Before the exception it may carry: clickhouse-go parses any body that
+	// starts with "Code: NNN." into one, whoever wrote it.
 	var answer *clickhouse.HTTPError
 	if errors.As(err, &answer) {
 		return fixed(statusMessage(answer.StatusCode))
@@ -198,10 +198,11 @@ func exceptionMessage(code int32) string {
 	return fmt.Sprintf("The server refused the connection (ClickHouse error code %d)", code)
 }
 
-// The fork's text for a body that is not an exception: `response body: %q`.
+// clickhouse-go's text for a body that is not an exception:
+// `response body: %q`.
 const answerBodyPrefix = "response body: "
 
-// The fork's message for an exception that X-ClickHouse-Exception-Code
+// clickhouse-go's message for an exception that X-ClickHouse-Exception-Code
 // announced but whose body could not be read (executeRequest in conn_http.go).
 // The read error survives only as text, so the prefix is all there is to know
 // it by.
@@ -240,15 +241,15 @@ func answerMessage(answer *clickhouse.HTTPError) (string, bool) {
 	return withStatus(answer.StatusCode, text), true
 }
 
-// withStatus puts the status in front of text through the fork's own type, so
-// the form that httpStatusText and exchange.UnauthorizedMarker read has one
+// withStatus puts the status in front of text through clickhouse-go's own type,
+// so the form that httpStatusText and exchange.UnauthorizedMarker read has one
 // author.
 func withStatus(status int, text string) string {
 	return (&clickhouse.HTTPError{StatusCode: status, Err: errors.New(text)}).Error()
 }
 
 // restoredJSONBody puts the opening back on a Turbine JSON answer. Where the
-// answer carries X-ClickHouse-Exception-Code the fork cuts the body at
+// answer carries X-ClickHouse-Exception-Code clickhouse-go cuts the body at
 // "Code: N." and parses the rest as an exception, so the exception's text
 // ends in the JSON's tail and is still escaped as a JSON string:
 // `… FROM \"t\"", "query": "…"}`. With the opening back it is the body the
@@ -265,8 +266,8 @@ func restoredJSONBody(exceptionText string) (string, bool) {
 	return body, true
 }
 
-// formatException prints an exception the way ClickHouse does. One the fork
-// built from the header alone has no name.
+// formatException prints an exception the way ClickHouse does. One
+// clickhouse-go built from the header alone has no name.
 func formatException(ex *clickhouse.Exception) string {
 	if ex.Name == "" {
 		return fmt.Sprintf("Code: %d. %s", ex.Code, ex.Message)
