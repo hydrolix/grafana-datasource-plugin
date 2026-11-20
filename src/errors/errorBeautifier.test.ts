@@ -58,11 +58,11 @@ describe("ErrorMessageBeautifier", () => {
     expect(result).toEqual("Hydrolix specific error message");
   });
 
-  test("should format singular unit when timeout equals 1", () => {
+  test("should end the message at the error name when text follows it", () => {
     const input =
       'prefix {"error": "Code: 159. DB::Exception: Some error. (XYZ) elapsed 1 seconds, maximum: 1", "query": "SELECT 1"} suffix';
     const result = beautifier.beautify(input);
-    expect(result).toEqual("Some error.");
+    expect(result).toEqual("Some error");
   });
 
   test("should format native connection refused", () => {
@@ -195,5 +195,98 @@ describe("ErrorMessageBeautifier", () => {
       'prefix {"error": "code: 999. DB::Exception: Lowercase code prefix. (TEST)", "query": "SELECT 1"} suffix';
     const result = beautifier.beautify(input);
     expect(result).toEqual("Lowercase code prefix");
+  });
+
+  // The backend's text for a query's HTTP answer (MutateQueryError).
+  test("should extract CH message from an HTTP answer", () => {
+    const input =
+      "[HTTP 400] Code: 62. DB::Exception: Syntax error: failed at position 1 ('SELEC'): SELEC 1. Expected one of: Query. (SYNTAX_ERROR)";
+    const result = beautifier.beautify(input);
+    expect(result).toEqual(
+      "Syntax error: failed at position 1 ('SELEC'): SELEC 1. Expected one of: Query"
+    );
+  });
+
+  // ClickHouse's native exception carries no "(NAME)" suffix and no version;
+  // the same error over HTTP reads the same once beautified.
+  test.each([
+    [
+      "Code: 60. DB::Exception: Unknown table expression identifier 'nope' in scope SELECT * FROM nope",
+      "Unknown table expression identifier 'nope' in scope SELECT * FROM nope",
+    ],
+    [
+      "Code: 46. DB::Exception: Function with name 'nope' does not exist. In scope SELECT nope(1). Maybe you meant: ['hop','not']",
+      "Function with name 'nope' does not exist. In scope SELECT nope(1). Maybe you meant: ['hop','not']",
+    ],
+    [
+      "Code: 62. DB::Exception: Syntax error: failed at position 53 ('BY') (line 4, col 7): BY number. Expected one of: token sequence, Dot, token",
+      "Syntax error: failed at position 53 ('BY') (line 4, col 7): BY number. Expected one of: token sequence, Dot, token",
+    ],
+  ])("should extract CH message from a native exception: %s", (input, expected) => {
+    expect(beautifier.beautify(input)).toEqual(expected);
+  });
+
+  // Turbine writes the failing token in parentheses without quotes; only the
+  // "(NAME)" that ClickHouse puts after a period ends the message.
+  test.each([
+    [
+      '[HTTP 400] response body: {"error": "Code: 62. DB::Exception: Syntax error: failed at position 1 (SELEC): SELEC 1. Expected one of: Query. (SYNTAX_ERROR)", "query": "SELEC 1"}',
+      "Syntax error: failed at position 1 (SELEC): SELEC 1. Expected one of: Query",
+    ],
+    [
+      '[HTTP 400] response body: {"error": "Code: 62. DB::Exception: Syntax error: failed at position 53 (BY) (line 4, col 7): BY number. Expected one of: token. (SYNTAX_ERROR)", "query": "SELECT 1"}',
+      "Syntax error: failed at position 53 (BY) (line 4, col 7): BY number. Expected one of: token",
+    ],
+  ])("should keep an unquoted token in the message: %s", (input, expected) => {
+    expect(beautifier.beautify(input)).toEqual(expected);
+  });
+
+  // The tail of a Turbine JSON body after the "(NAME)", for an exception cut
+  // out of one that the backend could not put back whole.
+  test("should drop the period before the error name when text follows it", () => {
+    const input =
+      '[HTTP 400] Code: 47. DB::Exception: Missing columns: \'nope\' while processing query: \'SELECT nope FROM hydro.logs\', required columns: \'nope\'. (UNKNOWN_IDENTIFIER)",\n    "query": "SELECT nope FROM hydro.logs"\n}';
+    expect(beautifier.beautify(input)).toEqual(
+      "Missing columns: 'nope' while processing query: 'SELECT nope FROM hydro.logs', required columns: 'nope'"
+    );
+  });
+
+  // The backend's text for a Turbine JSON body, with or without
+  // X-ClickHouse-Exception-Code: what the query repeats is not left escaped.
+  test("should unescape the query a Turbine body repeats", () => {
+    const input =
+      '[HTTP 400] response body: {"error": "Code: 47. DB::Exception: Missing columns: \'a\' while processing query: \'SELECT \\"a\\"\\nFROM t\', required columns: \'a\'. (UNKNOWN_IDENTIFIER)",\n    "query": "SELECT \\"a\\"\\nFROM t"\n}';
+    expect(beautifier.beautify(input)).toEqual(
+      "Missing columns: 'a' while processing query: 'SELECT \"a\" FROM t', required columns: 'a'"
+    );
+  });
+
+  // Exception classes other than DB::Exception, over either protocol.
+  test.each([
+    [
+      "Code: 210. DB::NetException: Connection reset by peer, while reading from socket",
+      "Connection reset by peer, while reading from socket",
+    ],
+    [
+      "[HTTP 500] Code: 210. DB::NetException: Connection reset by peer, while reading from socket. (NETWORK_ERROR) (version 24.8.1.1 (official build))",
+      "Connection reset by peer, while reading from socket",
+    ],
+  ])("should extract CH message from another exception class: %s", (input, expected) => {
+    expect(beautifier.beautify(input)).toEqual(expected);
+  });
+
+  test("should extract ChTurbineDatabaseError inside a native exception", () => {
+    const input =
+      "Code: 1001. DB::Exception: h::db::ChTurbineDatabaseError: <ChTurbineDatabaseError table unknown not found>";
+    expect(beautifier.beautify(input)).toEqual("table unknown not found");
+  });
+
+  test("should format HTTP auth error from an HTTP answer", () => {
+    const input =
+      '[HTTP 401] response body: {"error": "<TurbineApiAuthenticatorError api login failed with provided username/password \'admin\'. (Hydrolix)>"}';
+    const result = beautifier.beautify(input);
+    expect(result).toEqual(
+      "api login failed with provided username/password 'admin'.:\n"
+    );
   });
 });

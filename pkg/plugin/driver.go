@@ -212,7 +212,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 		} else if settings.CredentialsType != exchange.CredentialsType {
 			// The exchanging mode stores no credential, and must not pick one
 			// up by accident: a token left over from an earlier mode would
-			// become an Authorization header below, and the fork applies
+			// become an Authorization header below, and clickhouse-go applies
 			// HttpHeaders after the JWT hook, so it would win over the
 			// exchanged token.
 			token = settings.Token
@@ -251,7 +251,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 
 	if settings.CredentialsType == exchange.CredentialsType {
 		if protocol != clickhouse.HTTP {
-			// Over HTTP the fork asks the JWT hook on every request. Over
+			// Over HTTP clickhouse-go asks the JWT hook on every request. Over
 			// native it asks once, at the handshake, and only when the
 			// username is its JWT marker — a handshake no Turbine has been
 			// seen to accept. Refusing is better than a second, unverified
@@ -260,7 +260,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 				"%s credentials need the http protocol: the native protocol binds its credential to the connection", exchange.CredentialsType))
 		}
 		if tlsConfig == nil {
-			// The fork attaches a JWT only on a TLS connection
+			// clickhouse-go attaches a JWT only on a TLS connection
 			// (applyOptionsToRequest, conn_http.go): over plain http the hook
 			// is never consulted and the request would go out with no
 			// credential at all. A bearer in the clear is not worth supporting.
@@ -282,7 +282,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 			// is answered by the hook with the operator's problem instead.
 			opts.GetJWT = h.unconfiguredJWT
 		} else {
-			// The credential is supplied per request through the fork's
+			// The credential is supplied per request through clickhouse-go's
 			// GetJWT hook, from the token source, rather than frozen into
 			// this connection's headers. No redirect is followed, in this
 			// or any mode (transportFor), so the header never leaves the
@@ -336,6 +336,7 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 				// fixed message (connectFailure), and what happened is logged
 				// once.
 				var redirect *RedirectError
+				var answer *clickhouse.HTTPError
 				var ex *clickhouse.Exception
 				switch {
 				case errors.As(err, &redirect):
@@ -344,6 +345,8 @@ func (h *Hydrolix) Connect(ctx context.Context, config backend.DataSourceInstanc
 						"status", redirect.Status,
 						"location", redirect.Location,
 					)
+				case errors.As(err, &answer):
+					log.DefaultLogger.Error("cluster answered with an error", "status", answer.StatusCode, "error", err)
 				case errors.As(err, &ex):
 					log.DefaultLogger.Error(
 						"clickhouse exception",
@@ -626,7 +629,7 @@ func (e *exchangeQueryError) Unwrap() error { return e.cause }
 
 // responseLimitError is the panel's reason when Grafana's response limit cut
 // the cluster's answer short. The limit is enforced on the transport
-// (transportFor), so the fork sees it as a read error part-way through the
+// (transportFor), so clickhouse-go sees it as a read error part-way through the
 // body and reports it in its stream plumbing; the chain stays underneath for
 // errors.Is. The limit itself is in Grafana's log, where the SDK writes it.
 type responseLimitError struct {
@@ -766,8 +769,8 @@ func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
 		return backend.NewErrorWithSource(wrapped, source)
 	}
 
-	// A redirect is refused at the transport (refuseRedirects); the fork wraps
-	// that in its request plumbing, and the panel gets the reason alone.
+	// A redirect is refused at the transport (refuseRedirects); clickhouse-go
+	// wraps that in its request plumbing, and the panel gets the reason alone.
 	var redirect *RedirectError
 	if errors.As(err, &redirect) {
 		log.DefaultLogger.Warn(
@@ -785,11 +788,26 @@ func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
 		)
 	}
 
+	// Before the exception it may carry, which would drop the status and the
+	// chain that sqlds's retry of an exchange-mode 401 reads.
+	var answer *clickhouse.HTTPError
+	if errors.As(err, &answer) {
+		if message, ok := answerMessage(answer); ok {
+			return shown(message, err)
+		}
+		message, ok := transportMessage(err)
+		if !ok {
+			message = msgCannotConnect
+		}
+		log.DefaultLogger.Error("query answer could not be read", "error", err)
+		return shown(message, err)
+	}
+
 	if uw, ok := err.(interface{ Unwrap() []error }); ok {
 		for _, e := range uw.Unwrap() {
 			if ex, ok := e.(*proto.Exception); ok {
 				return backend.NewErrorWithSource(
-					backend.DownstreamError(fmt.Errorf("Code: %d. %s: %s", ex.Code, ex.Name, ex.Message)),
+					backend.DownstreamError(errors.New(formatException(ex))),
 					backend.ErrorSourceDownstream,
 				)
 			}
@@ -799,7 +817,7 @@ func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
 	var ex *proto.Exception
 	if errors.As(err, &ex) {
 		return backend.NewErrorWithSource(
-			backend.DownstreamError(fmt.Errorf("Code: %d. %s: %s", ex.Code, ex.Name, ex.Message)),
+			backend.DownstreamError(errors.New(formatException(ex))),
 			backend.ErrorSourceDownstream,
 		)
 	}
@@ -811,14 +829,19 @@ func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
 	// through.
 	if message, ok := transportMessage(err); ok {
 		log.DefaultLogger.Error("query did not reach the cluster", "error", err)
-		return backend.NewErrorWithSource(
-			backend.DownstreamError(&connectionError{message: message, cause: err}),
-			backend.ErrorSourceDownstream,
-		)
+		return shown(message, err)
 	}
 
 	return backend.NewErrorWithSource(
 		backend.DownstreamError(err),
+		backend.ErrorSourceDownstream,
+	)
+}
+
+// shown is a downstream error that reads message and keeps cause underneath.
+func shown(message string, cause error) backend.ErrorWithSource {
+	return backend.NewErrorWithSource(
+		backend.DownstreamError(&shownError{message: message, cause: cause}),
 		backend.ErrorSourceDownstream,
 	)
 }

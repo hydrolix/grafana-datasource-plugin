@@ -1963,11 +1963,11 @@ describe("HdxDataSource", () => {
 
     it("keeps an error the beautifier does not recognise", async () => {
       const { datasource } = setupDataSourceMock({});
-      const native =
-        "Code: 47. DB::Exception: Unknown expression identifier `nope` in scope SELECT nope FROM e2e.macros";
+      const unrecognised =
+        "Code: 1001. std::exception: an error with no message pattern";
       jest
         .spyOn(datasource, "postResource")
-        .mockResolvedValue({ error: false, data: { error: native } });
+        .mockResolvedValue({ error: false, data: { error: unrecognised } });
 
       const result = await datasource.validateQuery(
         { refId: "A", rawSql: "SELECT nope FROM e2e.macros" } as HdxQuery,
@@ -1975,7 +1975,29 @@ describe("HdxDataSource", () => {
         "req-1"
       );
 
-      expect(result).toEqual({ error: native });
+      expect(result).toEqual({ error: unrecognised });
+    });
+
+    it("beautifies a native exception like an HTTP one", async () => {
+      const { datasource } = setupDataSourceMock({});
+      jest.spyOn(datasource, "postResource").mockResolvedValue({
+        error: false,
+        data: {
+          error:
+            "Code: 47. DB::Exception: Unknown expression identifier `nope` in scope SELECT nope FROM e2e.macros",
+        },
+      });
+
+      const result = await datasource.validateQuery(
+        { refId: "A", rawSql: "SELECT nope FROM e2e.macros" } as HdxQuery,
+        context,
+        "req-1"
+      );
+
+      expect(result).toEqual({
+        error:
+          "Unknown expression identifier `nope` in scope SELECT nope FROM e2e.macros",
+      });
     });
 
     it("passes warnings and skipped results through unchanged", async () => {

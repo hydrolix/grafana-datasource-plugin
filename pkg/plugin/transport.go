@@ -25,24 +25,24 @@ import (
 // less the two that write credentials: BasicAuthenticationMiddleware and
 // CustomHeadersMiddleware set Authorization and configured headers from the
 // datasource's own HTTP settings, which this plugin does not use, and either
-// would overwrite the Bearer the fork puts on the request in the forwarding
-// modes. The list is kept by hand so that a middleware the SDK adds later
-// does not join the chain unread.
+// would overwrite the Bearer clickhouse-go puts on the request in the
+// forwarding modes. The list is kept by hand so that a middleware the SDK adds
+// later does not join the chain unread.
 func sdkMiddlewares() []httpclient.Middleware {
 	return []httpclient.Middleware{
 		httpclient.TracingMiddleware(nil),
 		httpclient.DataSourceMetricsMiddleware(),
-		// A no-op today: the fork sets User-Agent from ClientInfo, and the
+		// A no-op today: clickhouse-go sets User-Agent from ClientInfo, and the
 		// middleware fills the header only when it is absent.
 		httpclient.UserAgentMiddleware(),
 		httpclient.ContextualMiddleware(),
 		httpclient.ErrorSourceMiddleware(),
 		// The limit is resolved per request from the request's context:
 		// Grafana's dataproxy.response_limit, which the SDK puts on every
-		// handler's context (QueryData, CheckHealth, CallResource), and the
-		// fork builds each request with that context. The argument is the
-		// fallback when the context carries none, and 0 means no limit, which
-		// is Grafana's own default; the plugin invents none.
+		// handler's context (QueryData, CheckHealth, CallResource), and
+		// clickhouse-go builds each request with that context. The argument is
+		// the fallback when the context carries none, and 0 means no limit,
+		// which is Grafana's own default; the plugin invents none.
 		httpclient.ResponseLimitMiddleware(0),
 	}
 }
@@ -77,7 +77,7 @@ func withSDKMiddlewares(opts httpclient.Options, base http.RoundTripper) http.Ro
 // idleConnCloser puts CloseIdleConnections back on top of the chain. The
 // SDK's middlewares are RoundTripperFuncs, which have no such method, and
 // http.Client finds it by a type assertion on its transport; without this
-// the fork's httpConnect.close() would release nothing, and every retired
+// clickhouse-go's httpConnect.close() would release nothing, and every retired
 // connection would keep its keep-alive socket until the transport's idle
 // timeout. The call goes to the transport itself, which owns the sockets.
 type idleConnCloser struct {

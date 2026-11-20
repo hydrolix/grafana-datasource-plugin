@@ -170,8 +170,8 @@ Host Go picks up the wrong toolchain. See `build-plugin`.
   the hand-picked SDK middlewares (`sdkMiddlewares`: tracing, datasource
   metrics, user-agent, contextual, error-source, `ResponseLimitMiddleware(0)`),
   `idleConnCloser` (puts `CloseIdleConnections` back; the SDK middlewares are
-  `RoundTripperFunc`s and the fork's `httpConnect.close()` needs it), then the
-  exchange mode's 401 watch. Never add `BasicAuthenticationMiddleware` or
+  `RoundTripperFunc`s and clickhouse-go's `httpConnect.close()` needs it), then
+  the exchange mode's 401 watch. Never add `BasicAuthenticationMiddleware` or
   `CustomHeadersMiddleware`: they overwrite the Bearer. The response limit is
   resolved per request from `GF_RESPONSE_LIMIT` in the context's Grafana
   config, which the SDK puts on every handler context; the fallback is 0, no

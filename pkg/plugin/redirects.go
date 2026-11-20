@@ -65,9 +65,10 @@ type noRedirects struct {
 }
 
 // http.Client finds CloseIdleConnections by a type assertion on its
-// transport, so a wrapper without the method silently loses it, and the
-// fork's httpConnect.close() has nothing else with which to release the
-// socket. The assertion keeps the method from being dropped by the next edit.
+// transport, so a wrapper without the method silently loses it, and
+// clickhouse-go's httpConnect.close() has nothing else with which to release
+// the socket. The assertion keeps the method from being dropped by the next
+// edit.
 var _ interface{ CloseIdleConnections() } = (*noRedirects)(nil)
 
 func (n *noRedirects) CloseIdleConnections() {

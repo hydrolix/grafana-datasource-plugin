@@ -71,8 +71,9 @@ func TestGrafanaResponseLimitCutsTheClusterAnswerShort(t *testing.T) {
 	})
 
 	t.Run("the panel gets the reason, with the chain underneath", func(t *testing.T) {
-		// The fork reports the cut in its stream plumbing; the panel's text
-		// is the reason alone, and errors.Is still reaches the SDK's error.
+		// clickhouse-go reports the cut in its stream plumbing; the panel's
+		// text is the reason alone, and errors.Is still reaches the SDK's
+		// error.
 		_, err := get(withResponseLimit(context.Background(), 1<<10))
 		require.Error(t, err)
 		mutated := NewHydrolix().MutateQueryError(fmt.Errorf("readData stream: %w", err))
@@ -84,7 +85,7 @@ func TestGrafanaResponseLimitCutsTheClusterAnswerShort(t *testing.T) {
 }
 
 func TestTransportForStillRefusesRedirects(t *testing.T) {
-	// The guard sits under the SDK chain; through the fork's real client a
+	// The guard sits under the SDK chain; through clickhouse-go's real client a
 	// hop is still refused before any header can follow it.
 	p := newRedirectingPair(t)
 	db := clickhouse.OpenDB(p.options(func(rt http.RoundTripper) http.RoundTripper {
@@ -104,9 +105,9 @@ func TestTransportForStillRefusesRedirects(t *testing.T) {
 
 func TestTransportForReleasesTheConnectionOnClose(t *testing.T) {
 	// The SDK's middlewares are RoundTripperFuncs, without CloseIdleConnections;
-	// idleConnCloser puts it back on top, or the fork's httpConnect.close()
-	// would release nothing (see TestRefuseRedirectsReleasesTheConnectionOnClose
-	// for the witness).
+	// idleConnCloser puts it back on top, or clickhouse-go's
+	// httpConnect.close() would release nothing (see
+	// TestRefuseRedirectsReleasesTheConnectionOnClose for the witness).
 	server := newSocketCloses(t)
 	client := &http.Client{Transport: clusterTransport(t, nil)}
 	openKeepAlive(t, client, server.URL)

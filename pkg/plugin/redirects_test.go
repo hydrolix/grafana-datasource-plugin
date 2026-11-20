@@ -94,8 +94,8 @@ func (p *redirectingPair) dial(ctx context.Context, network, addr string) (net.C
 }
 
 // options opens the cluster over TLS with a username and password, the mode
-// in which the fork sends the password as X-ClickHouse-Key, through the given
-// transport wrapper.
+// in which clickhouse-go sends the password as X-ClickHouse-Key, through the
+// given transport wrapper.
 func (p *redirectingPair) options(wrap func(http.RoundTripper) http.RoundTripper) *clickhouse.Options {
 	_, port, _ := net.SplitHostPort(p.cluster.Listener.Addr().String())
 	return &clickhouse.Options{
@@ -173,7 +173,7 @@ func TestConnectRefusesARedirectInThePasswordMode(t *testing.T) {
 	// The instance factory is the production path for this mode: Connect
 	// pings, the redirect fails the ping, and sqlds returns that error as
 	// the instance error, never through MutateQueryError. Save & test and
-	// every panel show its text, so it is the reason alone, not the fork's
+	// every panel show its text, so it is the reason alone, not clickhouse-go's
 	// request plumbing, that is asserted.
 	_, err = NewDatasource(context.Background(), backend.DataSourceInstanceSettings{
 		UID:                     "redirecting",
@@ -234,13 +234,12 @@ func openKeepAlive(t *testing.T, client *http.Client, url string) {
 }
 
 func TestRefuseRedirectsReleasesTheConnectionOnClose(t *testing.T) {
-	// The fork's httpConnect.close() is h.client.CloseIdleConnections(), and
-	// http.Client finds that method by a type assertion on its transport. A
-	// wrapper without the method turns the call into a no-op, and the
-	// retired connection's socket stays open until the transport's idle
-	// timeout, an hour by the fork's default. So the socket's release is
-	// pinned on the server side, where a close is a close whatever the
-	// client believes.
+	// clickhouse-go's httpConnect.close() is h.client.CloseIdleConnections(),
+	// and http.Client finds that method by a type assertion on its transport. A
+	// wrapper without the method turns the call into a no-op, and the retired
+	// connection's socket stays open until the transport's idle timeout, an
+	// hour by clickhouse-go's default. So the socket's release is pinned on the
+	// server side, where a close is a close whatever the client believes.
 	t.Run("witness: an opaque wrapper keeps the socket open", func(t *testing.T) {
 		server := newSocketCloses(t)
 		client := &http.Client{Transport: struct{ http.RoundTripper }{&http.Transport{}}}
