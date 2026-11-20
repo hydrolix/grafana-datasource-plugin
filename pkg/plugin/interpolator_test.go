@@ -202,17 +202,20 @@ func TestInterpolate_QueryJSONCannotSkip(t *testing.T) {
 func TestInterpolate_ParseErrorAfterTrailingCommentFallsBack(t *testing.T) {
 	// A parse error after a `--` or `#` comment that runs to end of input
 	// used to panic inside the parser's error formatting (HDX-12634). The
-	// interpolator must get the error back and fall back to regex matching.
+	// interpolator must get the error back and fall back to regex matching,
+	// so the macro ahead of the broken part still expands.
 	i := NewHdxInterpolator(NewMetadataProvider(nopMetadataDS{}), Macros)
-	for _, sql := range []string{"select (1 -- x", "select (1 # x"} {
-		t.Run(sql, func(t *testing.T) {
+	timeRange := backend.TimeRange{From: time.Unix(1000, 0), To: time.Unix(2000, 0)}
+	for _, unparsable := range []string{"(1 -- x", "(1 # x"} {
+		t.Run(unparsable, func(t *testing.T) {
+			q := &models.HdxQuery{RawSQL: "select $__fromTime, " + unparsable, TimeRange: timeRange}
 			var out string
 			var err error
 			require.NotPanics(t, func() {
-				out, err = i.interpolate(context.Background(), &models.HdxQuery{RawSQL: sql})
+				out, err = i.interpolate(context.Background(), q)
 			})
 			assert.NoError(t, err)
-			assert.Equal(t, sql, out)
+			assert.Equal(t, "select toDateTime(1000), "+unparsable, out)
 		})
 	}
 }
