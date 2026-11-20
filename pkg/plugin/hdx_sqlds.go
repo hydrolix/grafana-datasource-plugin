@@ -86,7 +86,7 @@ func NewHdxSqlDatasource(driver sqlds.Driver, settings backend.DataSourceInstanc
 	md := NewMetadataProvider(wrapper)
 	interp := NewHdxInterpolator(md, Macros)
 	if parsed != nil {
-		interp.defaultRound = parsed.DefaultRound
+		interp.defaultRound = usableDefaultRound(parsed.DefaultRound)
 	}
 	ds.Interpolator = interp.Interpolate
 	wrapper.Validator = NewQueryValidator(interp, md)

@@ -32,8 +32,9 @@ var ErrParseMacroArgs = errors.New("failed to parse macro arguments (missing clo
 //
 // The interpolator is safe for concurrent use across queries: it carries
 // no mutable state. The `macros` map is populated at init() time by C6 /
-// C7 and is read-only thereafter; the metadata provider is the only
-// other field and its public surface is also concurrency-safe.
+// C7 and is read-only thereafter; `defaultRound` is set once, before the
+// interpolator is shared; the metadata provider's public surface is also
+// concurrency-safe.
 type HdxInterpolator struct {
 	md     *MetadataProvider
 	macros map[string]MacroFunc
@@ -253,8 +254,8 @@ func parseArgs(argString string) ([]string, int) {
 // `interval`. Returns the original range unchanged if `interval` is
 // non-parseable or sub-second. Port of the fork's RoundTimeRange (interpolator.go:185).
 func roundTimeRange(timeRange backend.TimeRange, interval string) backend.TimeRange {
-	dInterval, err := time.ParseDuration(interval)
-	if err != nil || dInterval.Seconds() < 1 {
+	dInterval, ok := parseRound(interval)
+	if !ok {
 		log.DefaultLogger.Warn("Using default time range, provided round interval is invalid", "interval", interval)
 		return timeRange
 	}
@@ -262,4 +263,26 @@ func roundTimeRange(timeRange backend.TimeRange, interval string) backend.TimeRa
 	from := timeRange.From.Round(dInterval)
 	log.DefaultLogger.Debug("Time range rounded", "original", timeRange, "from", from, "to", to, "interval", interval)
 	return backend.TimeRange{To: to, From: from}
+}
+
+// parseRound reads a round as a duration; ok is false when it does not parse
+// or is under a second, the values roundTimeRange leaves the range alone for.
+func parseRound(round string) (d time.Duration, ok bool) {
+	d, err := time.ParseDuration(round)
+	return d, err == nil && d.Seconds() >= 1
+}
+
+// usableDefaultRound returns the data source's Default round, or "" when it
+// could never round a range. The default applies to every query without a
+// round of its own, so an unusable one is reported once here instead of by
+// roundTimeRange on each interpolation.
+func usableDefaultRound(round string) string {
+	if round == "" || round == "0" {
+		return ""
+	}
+	if _, ok := parseRound(round); !ok {
+		log.DefaultLogger.Warn("Ignoring the data source default round, it is not a duration of a second or more", "defaultRound", round)
+		return ""
+	}
+	return round
 }

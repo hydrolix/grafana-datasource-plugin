@@ -13,13 +13,15 @@ Every query path reaches `HdxInterpolator.interpolate`: sqlds queries (panels, a
 **Non-Goals:**
 - Sub-second rounding or new round formats.
 - Frontend changes; the preview already goes through `/interpolate`.
-- Validating `defaultRound` on the backend; the config editor validates it, and an unparseable value is already a logged no-op in `roundTimeRange`.
+- Failing the data source over a bad `defaultRound`; the config editor validates it, and D4 drops what gets past it.
 
 ## Decisions
 
 ### D1. Apply the fallback in `HdxInterpolator.interpolate`
 
 The interpolator computes the effective round from `query.Round` and its own `defaultRound`, then rounds as today. The query is not mutated beyond its time range, so `Round` keeps what the caller sent.
+
+A non-empty query round is used as sent. One that is unparseable or under a second stays the logged no-op it is today and does not fall through to the default. This differs from v0.6.0, whose `getFirstValidRound` skipped an invalid query round and used the default. The README says the query round is always used, and the query editor clears an invalid value on blur, so only a hand-edited or provisioned dashboard can carry one.
 
 **Alternative considered:** fill `round` into the query JSON in `MutateQuery`. Rejected: `/interpolate` and `/validate` do not pass through `MutateQuery`, so the preview and validation would disagree with execution.
 
@@ -33,8 +35,12 @@ The interpolator computes the effective round from `query.Round` and its own `de
 
 `NewPluginSettings` stores `defaultRound` only when it is a JSON string; any other type is ignored. An unchecked assertion would panic like HDX-12842. A number has no valid meaning here anyway: the round format needs a unit (`30s`, `5m`), and `"0"` is the only bare number the editor accepts.
 
+### D4. Drop an unusable default when the data source is built
+
+`NewHdxSqlDatasource` passes the setting through `usableDefaultRound`, which keeps only a duration of one second or more and warns once otherwise. `roundTimeRange` warns on every call it cannot round, and the default applies to every query without its own round. Left to it, a default of `0s` (which the config editor accepts) or a provisioned `1d` or `500ms` would warn on each panel, alert, preview and validation call.
+
 ## Risks / Trade-offs
 
 - [Data sources that configured a default round years ago start rounding, shifting their time windows] → This is the documented behaviour and what v0.6.0 did; called out in the PR. Covered by the e2e.
-- [Metadata queries without their own round are now rounded too] → They either carry their own round (`5m` for ad-hoc preloads) or use `ZERO_TIME_RANGE`, which rounds to itself; unit test covers the zero range.
+- [Metadata queries without their own round are now rounded too] → None is: every frontend metadata query pins `round: "5m"`, which `metadataProvider.test.ts` ("sets round to 5m on metadata query targets") asserts, and backend metadata lookups carry no time macro.
 - [The field is set only on the production path] → `NewHdxSqlDatasource` test asserts the wiring.

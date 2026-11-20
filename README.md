@@ -462,7 +462,7 @@ When a round value is set in the query editor, it takes precedence and is always
 the data source falls back to the default round, if it is configured and non-zero. If neither is set, or if the round value
 in the query editor is explicitly set to `0`, no rounding is applied and the original timestamps are used as-is.
 
-The supported time units for rounding are: `ms` (milliseconds), `s` (seconds), `m` (minutes), and `h` (hours).
+The supported time units for rounding are: `s` (seconds), `m` (minutes), and `h` (hours).
 
 #### Examples
 

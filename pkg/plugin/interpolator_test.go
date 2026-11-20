@@ -119,7 +119,7 @@ func TestInterpolate_RoundAppliesBeforeMacros(t *testing.T) {
 		TimeRange: backend.TimeRange{From: t0, To: t0.Add(2 * time.Minute)},
 	})
 	assert.NoError(t, err)
-	// 12:00:30 rounded to 1m → 12:00:00.
+	// 12:00:30 rounded to 1m → 12:01:00.
 	assert.Contains(t, out, t0.Round(time.Minute).Format(time.RFC3339))
 }
 
@@ -239,6 +239,7 @@ func TestInterpolate_DefaultRoundPrecedence(t *testing.T) {
 		{"default 0", "0", "", at(0, 30), at(0, 30)},
 		{"neither set", "", "", at(0, 30), at(0, 30)},
 		{"invalid default is a no-op", "soon", "", at(0, 30), at(0, 30)},
+		{"invalid query round does not fall back to the default", "1m", "soon", at(0, 20), at(0, 20)},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -253,6 +254,27 @@ func TestInterpolate_DefaultRoundPrecedence(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, "SELECT "+test.want.Format(time.RFC3339)+" FROM t", out)
 			assert.Equal(t, test.queryRound, query.Round, "the query's own round is left as sent")
+		})
+	}
+}
+
+func TestUsableDefaultRound(t *testing.T) {
+	tests := []struct {
+		name  string
+		round string
+		want  string
+	}{
+		{"a duration of a second or more is kept", "1m", "1m"},
+		{"unset", "", ""},
+		{"0", "0", ""},
+		{"zero duration the config editor accepts", "0s", ""},
+		{"sub-second", "500ms", ""},
+		{"unit Go does not parse", "1d", ""},
+		{"not a duration", "soon", ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, usableDefaultRound(test.round))
 		})
 	}
 }
