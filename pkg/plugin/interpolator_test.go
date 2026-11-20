@@ -12,6 +12,7 @@ import (
 	"github.com/hydrolix/clickhouse-sql-parser/parser"
 	"github.com/hydrolix/plugin/pkg/plugin/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseArgs(t *testing.T) {
@@ -196,6 +197,44 @@ func TestInterpolate_QueryJSONCannotSkip(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, "SELECT toDateTime(1000)", out)
+}
+
+func TestInterpolate_ParseErrorAfterTrailingCommentFallsBack(t *testing.T) {
+	// A parse error after a `--` or `#` comment that runs to end of input
+	// used to panic inside the parser's error formatting (HDX-12634). The
+	// interpolator must get the error back and fall back to regex matching,
+	// so the macro ahead of the broken part still expands.
+	i := NewHdxInterpolator(NewMetadataProvider(nopMetadataDS{}), Macros)
+	timeRange := backend.TimeRange{From: time.Unix(1000, 0), To: time.Unix(2000, 0)}
+	for _, unparsable := range []string{"(1 -- x", "(1 # x"} {
+		t.Run(unparsable, func(t *testing.T) {
+			q := &models.HdxQuery{RawSQL: "select $__fromTime, " + unparsable, TimeRange: timeRange}
+			var out string
+			var err error
+			require.NotPanics(t, func() {
+				out, err = i.interpolate(context.Background(), q)
+			})
+			assert.NoError(t, err)
+			assert.Equal(t, "select toDateTime(1000), "+unparsable, out)
+		})
+	}
+}
+
+func TestInterpolate_UnquotedViewArgRejected(t *testing.T) {
+	// `#` starts a comment, so the unquoted view name fails to parse; the
+	// regex fallback must still reach the macro's own argument check.
+	// nopMetadataDS panics on QueryData, so this also proves no lookup runs.
+	i := NewHdxInterpolator(NewMetadataProvider(nopMetadataDS{}), Macros)
+	q := &models.HdxQuery{
+		RawSQL:  "SELECT count() FROM e2e.adhoc_topk WHERE $__adHocFilter(e2e.adhoc_topk#view)",
+		Filters: []models.AdHocFilter{{Key: "status", Operator: "=", Value: "rare1"}},
+	}
+	var err error
+	require.NotPanics(t, func() {
+		_, err = i.interpolate(context.Background(), q)
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `invalid $__adHocFilter argument: "e2e.adhoc_topk#view"`)
 }
 
 func TestErrParseMacroArgs(t *testing.T) {

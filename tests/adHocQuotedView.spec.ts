@@ -14,8 +14,9 @@ import { DashboardBuilder } from "./dashboardBuilder";
  * Hydrolix custom views are named `<table>#<view>`, which is only a valid
  * identifier when quoted. The explicit macro argument bypasses AST resolution,
  * so the backend gate (`explicitCTEArg` in pkg/plugin/macros_adhoc.go) has to
- * accept the quoted forms and re-quote them for DESCRIBE. (The unquoted form's
- * rejection is unit-tested in pkg/plugin/metadata_injection_test.go.)
+ * accept the quoted forms and re-quote them for DESCRIBE. Unquoted, the `#`
+ * starts a comment and the statement no longer parses; the panel must still
+ * show the gate's own error rather than a parser failure (HDX-12634).
  *
  * Fixture: the view `e2e.adhoc_topk#view` over `e2e.adhoc_topk` from
  * `testdata/containers/initdb.sql` — 106 rows, exactly one with
@@ -161,3 +162,19 @@ for (const macroArg of [VIEW, `"e2e"."adhoc_topk#view"`]) {
     ).toBe(1);
   });
 }
+
+test("$__adHocFilter(e2e.adhoc_topk#view) rejects the unquoted view name", async ({
+  gotoDashboardPage,
+  page,
+  context,
+}) => {
+  const result = await runPanel("e2e.adhoc_topk#view", {
+    gotoDashboardPage,
+    page,
+    context,
+  });
+
+  expect(result.error).toContain(
+    'invalid $__adHocFilter argument: "e2e.adhoc_topk#view"'
+  );
+});
