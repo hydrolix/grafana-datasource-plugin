@@ -39,7 +39,7 @@ The plugin SHALL define an `AdHocFilter` type in `pkg/plugin/models` carrying th
 
 ### Requirement: Datasource settings shape `PluginSettings`
 
-The plugin SHALL define a `PluginSettings` type in `pkg/plugin/models` that carries the configuration JSON Grafana sends in `DataSourceInstanceSettings.JSONData`, plus the secret fields (`Password`, `Token`) pulled from `DecryptedSecureJSONData`.
+The plugin SHALL define a `PluginSettings` type in `pkg/plugin/models` that carries the configuration JSON Grafana sends in `DataSourceInstanceSettings.JSONData`, plus the secret fields (`Password`, `Token`) pulled from `DecryptedSecureJSONData`. `DefaultRound` SHALL be read from `jsonData.defaultRound` only when it is a JSON string; any other type SHALL be ignored without an error.
 
 #### Scenario: `PluginSettings` round-trips the expected JSON fields
 
@@ -64,6 +64,18 @@ The plugin SHALL define a `PluginSettings` type in `pkg/plugin/models` that carr
 - **WHEN** `SetDefaults` is invoked
 - **THEN** `DialTimeout` SHALL be set to `"10"`
 - **AND** `QueryTimeout` SHALL be set to `"60"`
+
+#### Scenario: A string `defaultRound` is read
+
+- **GIVEN** `jsonData.defaultRound` is the JSON string `"5m"`
+- **WHEN** the data source settings are parsed
+- **THEN** parsing SHALL succeed and `DefaultRound` SHALL be `"5m"`
+
+#### Scenario: A non-string `defaultRound` is ignored
+
+- **GIVEN** `jsonData.defaultRound` is the JSON number `60`
+- **WHEN** the data source settings are parsed
+- **THEN** parsing SHALL succeed and `DefaultRound` SHALL be empty
 
 ### Requirement: Datasource settings constructor `NewPluginSettings`
 
