@@ -340,3 +340,24 @@ test("renders a stored query setting the plugin does not know", async ({
     .click();
   await expect(unknownInput).toHaveCount(0);
 });
+
+test("an API-created data source without exposeErrors shows error exposure on with its defaults", async ({
+  createDataSource,
+  gotoDataSourceConfigPage,
+  page,
+}) => {
+  const configPage = ConfigPageSteps.getLocator(page);
+  const ds = await createDataSource({
+    type: "hydrolix-hydrolix-datasource",
+    name: "no exposeErrors",
+    jsonData: { host: "localhost", port: 9000, protocol: "native" },
+  });
+  await gotoDataSourceConfigPage(ds.uid);
+  await closeWhatsNewDialog(page);
+
+  await configPage.additionalSettingsExpandable().click({ force: true });
+  await expect(configPage.exposeErrorsEnabledSwitch()).toBeChecked();
+  await expect(configPage.exposeErrorsVariableName()).toHaveValue("hdx_query_errors");
+  await expect(configPage.exposeErrorsMaxCount()).toHaveValue("5");
+  await expect(configPage.exposeErrorsTtl()).toHaveValue("300");
+});

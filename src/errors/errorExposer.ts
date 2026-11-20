@@ -1,4 +1,4 @@
-import { locationService, TemplateSrv } from "@grafana/runtime";
+import { locationService, logError, TemplateSrv } from "@grafana/runtime";
 import { ErrorMessageBeautifier } from "./errorBeautifier";
 import { ErrorFixSuggestion, ExposeErrorsOptions } from "../types";
 import { matchSolutionTemplate } from "./errorSolution";
@@ -8,7 +8,7 @@ export class ErrorExposer {
   constructor(
     private beautifier: ErrorMessageBeautifier,
     private templateSrv: TemplateSrv,
-    private settings: ExposeErrorsOptions
+    private settings: Required<ExposeErrorsOptions>
   ) {}
 
   public async addErrorToVariable(message: string) {
@@ -21,6 +21,17 @@ export class ErrorExposer {
     ) {
       return;
     }
+    const variable = this.templateSrv
+      .getVariables()
+      .find(
+        (v) => v.name === this.settings.variableName
+      ) as VariableWithOptions | undefined;
+    // Nothing on the dashboard reads the parameter without the variable;
+    // writing it would only put error text into the URL.
+    if (!variable) {
+      return;
+    }
+
     const json = this.beautifier.parseJson(message);
     if (json) {
       message = json.error;
@@ -28,21 +39,17 @@ export class ErrorExposer {
 
     const beautifiedMessage = this.beautifier.beautify(message);
 
-    const variable = this.templateSrv
-      .getVariables()
-      .find(
-        (v) => v.name === this.settings.variableName
-      ) as VariableWithOptions;
     let errors: ErrorFixSuggestion[] = [];
-    if (variable) {
-      try {
-        errors = JSON.parse(variable?.current?.value.toString());
-        if (!errors.length) {
-          errors = [];
-        }
-      } catch (e) {
-        console.error(e);
+    try {
+      errors = JSON.parse(variable.current?.value.toString());
+      if (!errors.length) {
+        errors = [];
       }
+    } catch (e) {
+      logError(e instanceof Error ? e : new Error(String(e)), {
+        source: "error-exposure",
+        variableName: this.settings.variableName,
+      });
     }
     let error: ErrorFixSuggestion = {
       time: new Date().toISOString(),
@@ -65,7 +72,7 @@ export class ErrorExposer {
     errors = errors.filter(
       (e: { time: string }) =>
         new Date().getTime() - new Date(e.time).getTime() <
-        this.settings.ttl! * 1000
+        this.settings.ttl * 1000
     );
     errors = errors.slice(0, this.settings.maxCount);
     this.setVariable(errors);

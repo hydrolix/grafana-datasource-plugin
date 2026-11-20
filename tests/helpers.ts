@@ -601,6 +601,14 @@ interface ConfigPageLocator {
 
     adHocTimeRangeLookback(): Locator;
 
+    exposeErrorsEnabledSwitch(): Locator;
+
+    exposeErrorsVariableName(): Locator;
+
+    exposeErrorsMaxCount(): Locator;
+
+    exposeErrorsTtl(): Locator;
+
     dialTimeout(): Locator;
 
     queryTimeout(): Locator;

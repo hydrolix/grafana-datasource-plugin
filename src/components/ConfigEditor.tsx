@@ -29,7 +29,7 @@ import {
   QuerySetting,
 } from "../types";
 import allLabels from "labels";
-import defaultConfigs from "defaultConfigs";
+import defaultConfigs, { resolveExposeErrors } from "defaultConfigs";
 import {
   parseLookbackSeconds,
   QUERY_DURATION_REGEX,
@@ -56,6 +56,7 @@ const isQuerySetting = (entry: unknown): entry is QuerySetting =>
 export function ConfigEditor(props: Props) {
   const { onOptionsChange, options } = props;
   const { jsonData, secureJsonFields } = options;
+  const exposeErrors = resolveExposeErrors(jsonData?.exposeErrors);
 
   // Apply defaults via effect (not inline) — Grafana 13 / React 18 drops
   // setState during render. Detect a fresh datasource by checking the domain
@@ -813,14 +814,14 @@ export function ConfigEditor(props: Props) {
               <Switch
                 id="exposeErrorsEnabled"
                 className="gf-form"
-                value={jsonData.exposeErrors?.enabled ?? false}
+                value={exposeErrors.enabled}
                 onChange={(e) => {
                   onOptionsChange({
                     ...options,
                     jsonData: {
                       ...jsonData,
                       exposeErrors: {
-                        ...jsonData.exposeErrors,
+                        ...exposeErrors,
                         enabled: e.currentTarget.checked,
                       },
                     },
@@ -828,7 +829,7 @@ export function ConfigEditor(props: Props) {
                 }}
               />
             </Field>
-            {jsonData.exposeErrors?.enabled && (
+            {exposeErrors.enabled && (
               <>
                 <Field
                   data-testid={labels.exposeErrorsVariableName.testId}
@@ -838,14 +839,14 @@ export function ConfigEditor(props: Props) {
                   <Input
                     name={"exposeErrorsVariableName"}
                     width={40}
-                    value={jsonData.exposeErrors?.variableName || ""}
+                    value={exposeErrors.variableName || ""}
                     onChange={(e) => {
                       onOptionsChange({
                         ...options,
                         jsonData: {
                           ...jsonData,
                           exposeErrors: {
-                            ...jsonData.exposeErrors,
+                            ...exposeErrors,
                             variableName: e.currentTarget.value,
                           },
                         },
@@ -864,14 +865,14 @@ export function ConfigEditor(props: Props) {
                   <Input
                     name={"exposeErrorsMaxCount"}
                     width={40}
-                    value={jsonData.exposeErrors?.maxCount || ""}
+                    value={exposeErrors.maxCount || ""}
                     onChange={(e) => {
                       onOptionsChange({
                         ...options,
                         jsonData: {
                           ...jsonData,
                           exposeErrors: {
-                            ...jsonData.exposeErrors,
+                            ...exposeErrors,
                             maxCount: +e.currentTarget.value,
                           },
                         },
@@ -891,14 +892,14 @@ export function ConfigEditor(props: Props) {
                   <Input
                     name={"exposeErrorsTtl"}
                     width={40}
-                    value={jsonData.exposeErrors?.ttl || ""}
+                    value={exposeErrors.ttl || ""}
                     onChange={(e) => {
                       onOptionsChange({
                         ...options,
                         jsonData: {
                           ...jsonData,
                           exposeErrors: {
-                            ...jsonData.exposeErrors,
+                            ...exposeErrors,
                             ttl: +e.currentTarget.value,
                           },
                         },
