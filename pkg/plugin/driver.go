@@ -792,21 +792,15 @@ func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
 	// chain that sqlds's retry of an exchange-mode 401 reads.
 	var answer *clickhouse.HTTPError
 	if errors.As(err, &answer) {
-		if message, ok := queryAnswer(answer); ok {
-			return backend.NewErrorWithSource(
-				backend.DownstreamError(&httpAnswerError{message: message, cause: err}),
-				backend.ErrorSourceDownstream,
-			)
+		if message, ok := answerMessage(answer); ok {
+			return shown(message, err)
 		}
 		message, ok := transportMessage(err)
 		if !ok {
 			message = msgCannotConnect
 		}
 		log.DefaultLogger.Error("query answer could not be read", "error", err)
-		return backend.NewErrorWithSource(
-			backend.DownstreamError(&connectionError{message: message, cause: err}),
-			backend.ErrorSourceDownstream,
-		)
+		return shown(message, err)
 	}
 
 	if uw, ok := err.(interface{ Unwrap() []error }); ok {
@@ -835,14 +829,19 @@ func (h *Hydrolix) MutateQueryError(err error) backend.ErrorWithSource {
 	// through.
 	if message, ok := transportMessage(err); ok {
 		log.DefaultLogger.Error("query did not reach the cluster", "error", err)
-		return backend.NewErrorWithSource(
-			backend.DownstreamError(&connectionError{message: message, cause: err}),
-			backend.ErrorSourceDownstream,
-		)
+		return shown(message, err)
 	}
 
 	return backend.NewErrorWithSource(
 		backend.DownstreamError(err),
+		backend.ErrorSourceDownstream,
+	)
+}
+
+// shown is a downstream error that reads message and keeps cause underneath.
+func shown(message string, cause error) backend.ErrorWithSource {
+	return backend.NewErrorWithSource(
+		backend.DownstreamError(&shownError{message: message, cause: cause}),
 		backend.ErrorSourceDownstream,
 	)
 }

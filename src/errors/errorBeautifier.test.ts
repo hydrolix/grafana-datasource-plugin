@@ -241,14 +241,44 @@ describe("ErrorMessageBeautifier", () => {
     expect(beautifier.beautify(input)).toEqual(expected);
   });
 
-  // An exception the fork parsed from a Turbine JSON body announced by
-  // X-ClickHouse-Exception-Code keeps the body's tail after its "(NAME)".
+  // The tail of a Turbine JSON body after the "(NAME)", for an exception cut
+  // out of one that the backend could not put back whole.
   test("should drop the period before the error name when text follows it", () => {
     const input =
       '[HTTP 400] Code: 47. DB::Exception: Missing columns: \'nope\' while processing query: \'SELECT nope FROM hydro.logs\', required columns: \'nope\'. (UNKNOWN_IDENTIFIER)",\n    "query": "SELECT nope FROM hydro.logs"\n}';
     expect(beautifier.beautify(input)).toEqual(
       "Missing columns: 'nope' while processing query: 'SELECT nope FROM hydro.logs', required columns: 'nope'"
     );
+  });
+
+  // The backend's text for a Turbine JSON body, with or without
+  // X-ClickHouse-Exception-Code: what the query repeats is not left escaped.
+  test("should unescape the query a Turbine body repeats", () => {
+    const input =
+      '[HTTP 400] response body: {"error": "Code: 47. DB::Exception: Missing columns: \'a\' while processing query: \'SELECT \\"a\\"\\nFROM t\', required columns: \'a\'. (UNKNOWN_IDENTIFIER)",\n    "query": "SELECT \\"a\\"\\nFROM t"\n}';
+    expect(beautifier.beautify(input)).toEqual(
+      "Missing columns: 'a' while processing query: 'SELECT \"a\" FROM t', required columns: 'a'"
+    );
+  });
+
+  // Exception classes other than DB::Exception, over either protocol.
+  test.each([
+    [
+      "Code: 210. DB::NetException: Connection reset by peer, while reading from socket",
+      "Connection reset by peer, while reading from socket",
+    ],
+    [
+      "[HTTP 500] Code: 210. DB::NetException: Connection reset by peer, while reading from socket. (NETWORK_ERROR) (version 24.8.1.1 (official build))",
+      "Connection reset by peer, while reading from socket",
+    ],
+  ])("should extract CH message from another exception class: %s", (input, expected) => {
+    expect(beautifier.beautify(input)).toEqual(expected);
+  });
+
+  test("should extract ChTurbineDatabaseError inside a native exception", () => {
+    const input =
+      "Code: 1001. DB::Exception: h::db::ChTurbineDatabaseError: <ChTurbineDatabaseError table unknown not found>";
+    expect(beautifier.beautify(input)).toEqual("table unknown not found");
   });
 
   test("should format HTTP auth error from an HTTP answer", () => {

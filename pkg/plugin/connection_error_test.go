@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -368,6 +369,24 @@ func TestMutateQueryErrorHidesWhereAQueryFailedToReach(t *testing.T) {
 		assertNoNetworkDetails(t, got.Error())
 	})
 
+	// The fork's other error for a body it could not read, which keeps the read
+	// error's type: its kind is named where it has one.
+	for name, c := range map[string]struct {
+		read error
+		want string
+	}{
+		"reset":     {&net.OpError{Op: "read", Net: "tcp", Addr: &net.TCPAddr{IP: net.ParseIP("10.0.0.5"), Port: 9440}, Err: syscall.ECONNRESET}, msgCannotConnect},
+		"timed out": {&net.OpError{Op: "read", Net: "tcp", Addr: &net.TCPAddr{IP: net.ParseIP("10.0.0.5"), Port: 9440}, Err: timeoutError{}}, msgRequestTimeout},
+		"cut short": {io.ErrUnexpectedEOF, msgCannotConnect},
+	} {
+		t.Run("a typed answer whose body "+name+" is the network's", func(t *testing.T) {
+			got := h.MutateQueryError(httpQueryAnswer(http.StatusInternalServerError, fmt.Errorf("failed to read response: %w", c.read)))
+			assert.Equal(t, c.want, got.Error())
+			assert.ErrorIs(t, got, sqlds.ErrorQuery)
+			assertNoNetworkDetails(t, got.Error())
+		})
+	}
+
 	t.Run("a typed answer that repeats a query about connections passes through", func(t *testing.T) {
 		got := h.MutateQueryError(httpQueryAnswer(http.StatusBadRequest, &clickhouse.Exception{
 			Code: 62, Name: "DB::Exception", Message: "Syntax error: failed at position 7: SELEC 1 WHERE message ILIKE '%connection refused%'",
@@ -401,6 +420,44 @@ func TestMutateQueryErrorShowsAnHTTPAnswerAsTheClusterWroteIt(t *testing.T) {
 		})
 	}
 
+	// Turbine sends X-ClickHouse-Exception-Code with some JSON answers. The
+	// fork then cuts the body at "Code: N." and parses the rest, so the
+	// exception's message ends in the JSON's tail, still escaped.
+	t.Run("a turbine body the fork cut into an exception is put back whole", func(t *testing.T) {
+		got := h.MutateQueryError(httpQueryAnswer(http.StatusBadRequest, &clickhouse.Exception{
+			Code: 47, Name: "DB::Exception", CodeName: "UNKNOWN_IDENTIFIER",
+			Message: `Missing columns: 'a' while processing query: 'SELECT \"a\"\nFROM t', required columns: 'a'. (UNKNOWN_IDENTIFIER)",` + "\n" + `    "query": "SELECT \"a\"\nFROM t"` + "\n}",
+		}))
+		assert.Equal(t,
+			`[HTTP 400] response body: {"error": "Code: 47. DB::Exception: Missing columns: 'a' while processing query: 'SELECT \"a\"\nFROM t', required columns: 'a'. (UNKNOWN_IDENTIFIER)",`+"\n"+`    "query": "SELECT \"a\"\nFROM t"`+"\n}",
+			got.Error())
+	})
+
+	t.Run("an exception that only ends like JSON is left as it is", func(t *testing.T) {
+		got := h.MutateQueryError(httpQueryAnswer(http.StatusBadRequest, &clickhouse.Exception{
+			Code: 62, Name: "DB::Exception", Message: `Syntax error: failed at position 8 ('"a"}'): "a"}`,
+		}))
+		assert.Equal(t, `[HTTP 400] Code: 62. DB::Exception: Syntax error: failed at position 8 ('"a"}'): "a"}`, got.Error())
+	})
+
+	// Turbine's answer to a wrong password: the header gives the code and the
+	// body has no "Code: N." to cut at, so the exception has no name.
+	t.Run("an exception with no name is printed without one", func(t *testing.T) {
+		body := `{"error": "internal authentication failure", "query": "SELECT 1"}`
+		got := h.MutateQueryError(httpQueryAnswer(http.StatusBadRequest, &clickhouse.Exception{Code: 1001, Message: body}))
+		assert.Equal(t, "[HTTP 400] Code: 1001. "+body, got.Error())
+	})
+
+	t.Run("a native exception with no name is printed without one", func(t *testing.T) {
+		got := h.MutateQueryError(fmt.Errorf("%w: %w", sqlds.ErrorQuery, &clickhouse.Exception{Code: 1001, Message: "std::exception"}))
+		assert.Equal(t, "Code: 1001. std::exception", got.Error())
+	})
+
+	t.Run("a body the fork did not quote is shown as it came", func(t *testing.T) {
+		got := h.MutateQueryError(httpQueryAnswer(http.StatusBadGateway, errors.New("response body: upstream gave up")))
+		assert.Equal(t, "[HTTP 502] response body: upstream gave up", got.Error())
+	})
+
 	// sqlds retries a query once when its mutated error is a query error whose
 	// text holds the marker; exchange mode relies on that to replace a token
 	// the cluster stopped accepting.
@@ -413,6 +470,80 @@ func TestMutateQueryErrorShowsAnHTTPAnswerAsTheClusterWroteIt(t *testing.T) {
 			assert.Contains(t, got.Error(), exchange.UnauthorizedMarker)
 			assert.ErrorIs(t, got, sqlds.ErrorQuery)
 			assert.Equal(t, backend.ErrorSourceDownstream, got.ErrorSource())
+		})
+	}
+}
+
+// The cases above build the fork's errors by hand. These get them from the
+// fork, so that a release which words or shapes an answer differently fails
+// here and not in a panel: the unreadable answers are known only by the
+// fork's text, and a miss there prints a read error, address included.
+func TestMutateQueryErrorOnTheForksOwnErrors(t *testing.T) {
+	turbineBody := `{"error": "Code: 47. DB::Exception: Missing columns: 'a' while processing query: 'SELECT \"a\"\nFROM numbers(1)', required columns: 'a'. (UNKNOWN_IDENTIFIER)",` + "\n" + `    "query": "SELECT \"a\"\nFROM numbers(1)"` + "\n}"
+	answerWith := func(status int, code, body string) func(http.ResponseWriter) {
+		return func(w http.ResponseWriter) {
+			if code != "" {
+				w.Header().Set("X-ClickHouse-Exception-Code", code)
+			}
+			w.WriteHeader(status)
+			_, _ = fmt.Fprint(w, body)
+		}
+	}
+	// More is promised than is sent, so reading the body fails.
+	cutShort := func(code string) func(http.ResponseWriter) {
+		return func(w http.ResponseWriter) {
+			if code != "" {
+				w.Header().Set("X-ClickHouse-Exception-Code", code)
+			}
+			w.Header().Set("Content-Length", "1000")
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = fmt.Fprint(w, "Code: 516.")
+		}
+	}
+
+	cases := map[string]struct {
+		answer func(http.ResponseWriter)
+		want   string
+	}{
+		"a clickhouse exception": {
+			answerWith(http.StatusNotFound, "60", "Code: 60. DB::Exception: Unknown table expression identifier 'nope'. (UNKNOWN_TABLE) (version 24.8.1.1 (official build))\n"),
+			"[HTTP 404] Code: 60. DB::Exception: Unknown table expression identifier 'nope'. (UNKNOWN_TABLE) (version 24.8.1.1 (official build))",
+		},
+		"a turbine body": {
+			answerWith(http.StatusBadRequest, "", turbineBody),
+			"[HTTP 400] response body: " + turbineBody,
+		},
+		"a turbine body announced by the header": {
+			answerWith(http.StatusBadRequest, "47", turbineBody),
+			"[HTTP 400] response body: " + turbineBody,
+		},
+		"a turbine body with a code only in the header": {
+			answerWith(http.StatusBadRequest, "1001", `{"error": "internal authentication failure", "query": "SELECT 1"}`),
+			`[HTTP 400] Code: 1001. {"error": "internal authentication failure", "query": "SELECT 1"}`,
+		},
+		"a body cut short":                          {cutShort(""), msgCannotConnect},
+		"a body cut short, announced by the header": {cutShort("516"), msgCannotConnect},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			cluster := clusterAnswering(t, c.answer)
+			h := NewHydrolix()
+			db, err := h.Connect(context.Background(), instanceSettingsFor(t, cluster.Listener.Addr().String(), false, "http"), nil)
+			require.NoError(t, err)
+			defer func() { _ = db.Close() }()
+
+			rows, err := db.QueryContext(context.Background(), "SELECT number FROM numbers(1)")
+			if err == nil {
+				for rows.Next() {
+				}
+				err = rows.Err()
+				_ = rows.Close()
+			}
+			require.Error(t, err)
+
+			got := h.MutateQueryError(fmt.Errorf("%w: %w", sqlds.ErrorQuery, err))
+			assert.Equal(t, c.want, got.Error())
+			assert.ErrorIs(t, got, sqlds.ErrorQuery)
 		})
 	}
 }

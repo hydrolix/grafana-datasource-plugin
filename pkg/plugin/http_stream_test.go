@@ -60,26 +60,37 @@ var helloBlock = nativeBlock(1,
 // The answer to the fork's ping, `SELECT 1`: it checks the column's name.
 var pingBlock = nativeBlock(1, nativeColumn{name: "1", typ: "UInt8", values: []byte{1}})
 
-// streamingCluster answers the handshake and the ping, then streams body to a
-// query on numbers() in one chunk and ends the response with end.
-func streamingCluster(t *testing.T, body []byte, end func(http.ResponseWriter)) *httptest.Server {
+// clusterAnswering answers the handshake and the ping, and hands a query on
+// numbers() to answer.
+func clusterAnswering(t *testing.T, answer func(http.ResponseWriter)) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		query := string(raw) + r.URL.RawQuery
-		w.Header().Set("Content-Type", "application/octet-stream")
-		switch {
-		case strings.Contains(query, "displayName()"):
-			_, _ = w.Write(helloBlock)
-		case strings.Contains(query, "numbers("):
-			_, _ = w.Write(body)
-			end(w)
-		default:
-			_, _ = w.Write(pingBlock)
+		if strings.Contains(query, "numbers(") {
+			answer(w)
+			return
 		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		if strings.Contains(query, "displayName()") {
+			_, _ = w.Write(helloBlock)
+			return
+		}
+		_, _ = w.Write(pingBlock)
 	}))
 	t.Cleanup(server.Close)
 	return server
+}
+
+// streamingCluster streams body to the query in one chunk and ends the
+// response with end.
+func streamingCluster(t *testing.T, body []byte, end func(http.ResponseWriter)) *httptest.Server {
+	t.Helper()
+	return clusterAnswering(t, func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(body)
+		end(w)
+	})
 }
 
 // What a proxy or a query head that gives up mid-answer does: the chunks

@@ -24,11 +24,16 @@ export class ErrorMessageBeautifier {
   private static readonly CONNECTION_NATIVE_REFUSED =
     /^dial\stcp.* \d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5}:\s(.*)$/;
   private static readonly CH_CODE_REGEX = /Code:\s+(\d+)[.|,]/i;
-  // ClickHouse ends an HTTP exception's message with ". (NAME)"; a native
-  // exception ends at its message. Only the period tells the name from a
-  // token Turbine writes in parentheses: "failed at position 1 (SELEC)".
+  // ClickHouse ends an HTTP exception's message with ". (NAME)". Only the
+  // period tells the name from a token Turbine writes in parentheses: "failed
+  // at position 1 (SELEC)".
   private static readonly CH_MESSAGE_HTTP_REGEX =
-    /DB::Exception:\s+(?<message>.*?)(?:\.\s+\(\w+\)|$)/m;
+    /DB::\w*Exception:\s+(?<message>.*?)\.\s+\(\w+\)/;
+  // A native exception has no "(NAME)" and ends at its message. Tried last:
+  // it matches whatever follows the class, a Turbine error in angle brackets
+  // included.
+  private static readonly CH_MESSAGE_UNNAMED_REGEX =
+    /DB::\w*Exception:\s+(?<message>.*)$/;
   private static readonly CH_MESSAGE_NATIVE_REGEX =
     /code:\s(?<code>\d+),\smessage:(?<message>.+)$/;
   private static readonly CH_DATABASE_ERROR_REGEX =
@@ -75,6 +80,11 @@ export class ErrorMessageBeautifier {
     if (!message) {
       message = error.message.match(
         ErrorMessageBeautifier.CH_DATABASE_ERROR_REGEX
+      )?.groups?.message;
+    }
+    if (!message) {
+      message = error.message.match(
+        ErrorMessageBeautifier.CH_MESSAGE_UNNAMED_REGEX
       )?.groups?.message;
     }
     if (!error.code) {

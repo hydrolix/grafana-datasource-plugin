@@ -70,6 +70,8 @@ test("reports an unknown column as an error", async () => {
     timeout: 30000,
   });
   await expect(validationBar()).not.toContainText("Query is valid");
+  // The data source is native: the exception's message alone, as over HTTP.
+  await expect(validationBar()).not.toContainText("DB::Exception");
 });
 
 test("warns when the primary key is not filtered, without blocking Run", async () => {

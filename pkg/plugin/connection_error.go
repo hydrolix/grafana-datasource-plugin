@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -29,26 +30,27 @@ const (
 	msgCannotConnect  = "Could not connect to the server"
 )
 
-// connectionError replaces a transport or handshake error with a fixed
-// message.
+// shownError is an error a person reads in place of the driver's own: the
+// message is what the plugin chose to say, and the original stays underneath
+// for errors.Is, which sqlds uses to tell a deadline from an error worth
+// retrying and to find the query error under an exchange-mode 401.
 //
-// The host is the operator's to set, and on a shared Grafana an org admin is
-// not the one who owns the network the plugin runs in. A raw error names the
-// address it dialled, the resolver it asked, the request URL, and for an HTTP
-// answer the body: "dial tcp 10.0.0.5:9440: connect: connection refused"
-// tells whoever pressed Save & test that something listens, or does not, at an
-// address they could not otherwise reach. So the message says which kind of
-// failure it was and no more; the original goes to the log.
-//
-// The cause stays underneath for errors.Is, which sqlds uses to tell a
-// deadline from an error worth retrying.
-type connectionError struct {
+// For a transport or handshake failure the message is one of the fixed
+// sentences above. The host is the operator's to set, and on a shared Grafana
+// an org admin is not the one who owns the network the plugin runs in. A raw
+// error names the address it dialled, the resolver it asked, the request URL,
+// and for an HTTP answer the body: "dial tcp 10.0.0.5:9440: connect:
+// connection refused" tells whoever pressed Save & test that something
+// listens, or does not, at an address they could not otherwise reach. So the
+// message says which kind of failure it was and no more; the original goes to
+// the log.
+type shownError struct {
 	message string
 	cause   error
 }
 
-func (e *connectionError) Error() string { return e.message }
-func (e *connectionError) Unwrap() error { return e.cause }
+func (e *shownError) Error() string { return e.message }
+func (e *shownError) Unwrap() error { return e.cause }
 
 // ClickHouse's codes for a credential it did not accept: UNKNOWN_USER,
 // WRONG_PASSWORD, REQUIRED_PASSWORD, AUTHENTICATION_FAILED.
@@ -139,7 +141,7 @@ func connectFailure(err error) error {
 		return redirect
 	}
 
-	fixed := func(message string) error { return &connectionError{message: message, cause: err} }
+	fixed := func(message string) error { return &shownError{message: message, cause: err} }
 
 	// Before the exception it may carry: the fork parses any body that starts
 	// with "Code: NNN." into one, whoever wrote it.
@@ -205,28 +207,25 @@ const answerBodyPrefix = "response body: "
 // it by.
 const undeliveredExceptionPrefix = "failed to read response body: "
 
-// httpAnswerError is a cluster's HTTP answer to a query, shown as the cluster
-// wrote it. The original stays underneath: sqlds retries an exchange-mode 401
-// by the status in this text and by ErrorQuery in the chain.
-type httpAnswerError struct {
-	message string
-	cause   error
-}
+// How Turbine's JSON answer to a failed query opens:
+// {"error": "Code: 47. DB::Exception: …", "query": "…"}.
+const jsonErrorOpening = `{"error": "`
 
-func (e *httpAnswerError) Error() string { return e.message }
-func (e *httpAnswerError) Unwrap() error { return e.cause }
-
-// queryAnswer is what a panel shows for a cluster's HTTP answer: the status,
-// then the exception or the body. It reports false for an answer that never
-// arrived whole, which is the network's to name.
-func queryAnswer(answer *clickhouse.HTTPError) (string, bool) {
-	status := fmt.Sprintf("[HTTP %d] ", answer.StatusCode)
+// answerMessage is what a panel shows for a cluster's HTTP answer to a query:
+// the status, then the exception or the body as the cluster wrote it. It
+// reports false for an answer that never arrived whole, which is the network's
+// to name.
+func answerMessage(answer *clickhouse.HTTPError) (string, bool) {
 	var ex *clickhouse.Exception
 	if errors.As(answer.Err, &ex) {
 		if strings.HasPrefix(ex.Message, undeliveredExceptionPrefix) {
 			return "", false
 		}
-		return status + formatException(ex), true
+		text := formatException(ex)
+		if body, ok := restoredJSONBody(text); ok {
+			return withStatus(answer.StatusCode, answerBodyPrefix+body), true
+		}
+		return withStatus(answer.StatusCode, text), true
 	}
 	text := answer.Err.Error()
 	quoted, ok := strings.CutPrefix(text, answerBodyPrefix)
@@ -236,9 +235,34 @@ func queryAnswer(answer *clickhouse.HTTPError) (string, bool) {
 	// The frontend finds JSON in the message and parses it; escaped quotes
 	// defeat that.
 	if body, err := strconv.Unquote(quoted); err == nil {
-		return status + answerBodyPrefix + body, true
+		return withStatus(answer.StatusCode, answerBodyPrefix+body), true
 	}
-	return status + text, true
+	return withStatus(answer.StatusCode, text), true
+}
+
+// withStatus puts the status in front of text through the fork's own type, so
+// the form that httpStatusText and exchange.UnauthorizedMarker read has one
+// author.
+func withStatus(status int, text string) string {
+	return (&clickhouse.HTTPError{StatusCode: status, Err: errors.New(text)}).Error()
+}
+
+// restoredJSONBody puts the opening back on a Turbine JSON answer. Where the
+// answer carries X-ClickHouse-Exception-Code the fork cuts the body at
+// "Code: N." and parses the rest as an exception, so the exception's text
+// ends in the JSON's tail and is still escaped as a JSON string:
+// `… FROM \"t\"", "query": "…"}`. With the opening back it is the body the
+// cluster wrote, and the frontend reads it like one that came without the
+// header. It reports false for text that is not such a remainder.
+func restoredJSONBody(exceptionText string) (string, bool) {
+	body := jsonErrorOpening + exceptionText
+	var answer struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(body), &answer); err != nil || answer.Error == "" {
+		return "", false
+	}
+	return body, true
 }
 
 // formatException prints an exception the way ClickHouse does. One the fork
