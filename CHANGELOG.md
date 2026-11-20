@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.13.5
+
+- **Security**: A data source that cannot connect now reports one fixed sentence per kind of failure ("Host name could
+  not be resolved", "Connection refused", "Connection timed out", "TLS handshake failed", "Authentication failed", "The
+  server answered HTTP n", ...) in "Save & test", in the health check and in the panel error of a query that never
+  reached the cluster. The driver's raw error, which named the dialled address, the resolver and the body another HTTP
+  service answered with, goes to the Grafana server log only. A refused redirect is reported by status alone; its
+  redacted target is logged, not shown. Answers from the cluster to a query, SQL errors included, are unchanged. Flagged
+  by Grafana's plugin review of 0.13.4
+- **Fix**: A number or boolean in a string setting (`dialTimeout: 10`, an unquoted query setting `value` in
+  provisioning YAML, Pulumi or the HTTP API) panicked the backend, and the data source failed every health check and
+  query with a generic error (HDX-12842). Numbers and booleans are now read as their text. An object or array fails with
+  an error naming the field; this includes a `querySettings` value that is not a list, which was silently ignored before
+- **Fix**: The data source config page crashed and could not be opened when `querySettings` held a setting name this
+  plugin version does not know (HDX-12858). Such a setting is now shown as a plain text row with a warning, is sent to
+  Hydrolix as-is, and can be edited or removed. Entries that are not objects no longer break the page or the query, rows
+  that share a name are edited one at a time, and a boolean setting stored as `1`, `true` or `"true"` shows "Yes"
+- **Fix**: A query setting with an empty value was sent to Hydrolix as an empty value; it is now left out of the query,
+  as is an entry with no setting name. In the config editor, a row left empty is removed
+
+## 0.13.4
+
+- **Security**: Removed the unused `token` field from the data source's clear-text `jsonData` type. The service account
+  token was, and is, stored only in `secureJsonData`; with the field gone, code that tried to save it unencrypted no
+  longer compiles
+- **Fix**: The token exchange client no longer falls back to a plain HTTP client without Grafana's tracing, metrics and
+  error-source middlewares when the SDK client cannot be built. The error is reported instead, and a data source set to
+  "Forward OAuth with a console token exchange" then reads as misconfigured in queries and in the connection test
+
+## 0.13.3
+
+- **Feature**: New datasource option "Ad hoc filter keys prefer aliases" (additional settings, off by default). When on,
+  the ad hoc filter key picker hides a physical column that has a same-type identity alias (`client_ip String ALIAS
+  cliIP`) and offers the alias alone, so dashboards can present canonical names (CFB-4004). Computed, type-changing and
+  chained aliases stay visible, Map columns keep their key enumeration, and an existing filter on a hidden column still
+  loads values. See `docs/adhoc-keys-prefer-aliases.md`
+- **Fix**: An identity alias whose DESCRIBE expression is a bare column name (not backtick-quoted) was dropped from the
+  ad hoc filter keys; it is now listed like a backtick-quoted one
+- **Fix**: The query editor's validation bar warned about an unfiltered primary key on Hydrolix summary tables when the
+  key column (`toStartOfDay(reqTimeSec)`) was filtered through its identity alias, e.g. `$__timeFilter(reqTimeSec)`. A
+  filter on an alias whose expression is exactly the key column now counts; computed aliases still warn
+
 ## 0.13.2
 
 - **Fix**: `$__timeFilter()`, `$__timeFilter_ms()`, `$__timeInterval()` and `$__timeInterval_ms()` without a column
@@ -18,6 +60,8 @@
   a cluster, or whatever answers at its address, sends was logged and shown in the panel error verbatim, so userinfo,
   a query string and a fragment, any of which can carry a credential or a token, are now dropped before the value
   reaches Grafana's log or a dashboard. Flagged by Grafana's plugin review of 0.13.1
+- **Security**: Bump the transitive Go dependency `klauspost/compress` to 1.20.2 (GO-2026-6865, CVE-2026-116591, panic
+  on two-block frames)
 - **Docs**: Drop the installation section from the README. The plugin catalog shows its own installation
   instructions next to the README, so the section was a duplicate; Grafana's plugin review of 0.13.1 asked for its
   removal. Configuration and usage stay

@@ -1,6 +1,6 @@
 import { test, expect } from "@grafana/plugin-e2e";
 // @ts-ignore
-import { ConfigPageSteps } from "./helpers";
+import { ConfigPageSteps, closeWhatsNewDialog } from "./helpers";
 // @ts-ignore
 import allLabels from "../src/labels";
 
@@ -57,6 +57,7 @@ test("smoke: should render config editor", async ({
   await expect(configPage.defaultDatabase()).not.toBeVisible();
   await expect(configPage.defaultRound()).not.toBeVisible();
   await expect(configPage.adHocTableVariable()).not.toBeVisible();
+  await expect(configPage.adHocKeysPreferAliasesSwitch()).not.toBeVisible();
   await expect(configPage.adHocTimeRangeLookback()).not.toBeVisible();
   await expect(configPage.dialTimeout()).not.toBeVisible();
   await expect(configPage.queryTimeout()).not.toBeVisible();
@@ -67,6 +68,8 @@ test("smoke: should render config editor", async ({
   await expect(configPage.defaultDatabase()).toBeVisible();
   await expect(configPage.defaultRound()).toBeVisible();
   await expect(configPage.adHocTableVariable()).toBeVisible();
+  await expect(configPage.adHocKeysPreferAliasesSwitch()).toBeVisible();
+  await expect(configPage.adHocKeysPreferAliasesSwitch()).not.toBeChecked();
   await expect(configPage.adHocTimeRangeLookback()).toBeVisible();
   await expect(configPage.dialTimeout()).toBeVisible();
   await expect(configPage.queryTimeout()).toBeVisible();
@@ -290,4 +293,71 @@ test("an invalid ad hoc lookback clears on blur and a valid one survives", async
   await page.reload();
   await configPage.additionalSettingsExpandable().click({ force: true });
   await expect(configPage.adHocTimeRangeLookback()).toHaveValue("7d");
+});
+
+test("renders a stored query setting the plugin does not know", async ({
+  createDataSource,
+  gotoDataSourceConfigPage,
+  page,
+}) => {
+  const configPage = ConfigPageSteps.getLocator(page);
+  const unknown = "hdx_query_unknown";
+  const querySettingsLabels = allLabels.components.querySettings;
+  // createDataSource, not createDatasourceConfigPage: the unknown setting has
+  // to be in jsonData before the page first renders, and the UI cannot add one.
+  const ds = await createDataSource({
+    type: "hydrolix-hydrolix-datasource",
+    name: "unknown query setting",
+    jsonData: {
+      host: "localhost",
+      port: 9000,
+      protocol: "native",
+      querySettings: [
+        { setting: "hdx_query_max_rows", value: "5" },
+        { setting: unknown, value: "10" },
+      ],
+    },
+  });
+  await gotoDataSourceConfigPage(ds.uid);
+  await closeWhatsNewDialog(page);
+
+  await configPage.additionalSettingsExpandable().click({ force: true });
+  const editor = page.getByTestId("data-testid hydrolix_config_page");
+  const unknownInput = editor.getByRole("textbox", {
+    name: unknown,
+    exact: true,
+  });
+  await expect(unknownInput).toHaveValue("10");
+  await expect(
+    editor.getByText(querySettingsLabels.unknownSettingWarning)
+  ).toBeVisible();
+  await expect(
+    editor.getByRole("textbox", { name: "hdx_query_max_rows", exact: true })
+  ).toHaveValue("5");
+
+  await editor
+    .getByRole("button", { name: querySettingsLabels.removeLabel(unknown) })
+    .click();
+  await expect(unknownInput).toHaveCount(0);
+});
+
+test("an API-created data source without exposeErrors shows error exposure on with its defaults", async ({
+  createDataSource,
+  gotoDataSourceConfigPage,
+  page,
+}) => {
+  const configPage = ConfigPageSteps.getLocator(page);
+  const ds = await createDataSource({
+    type: "hydrolix-hydrolix-datasource",
+    name: "no exposeErrors",
+    jsonData: { host: "localhost", port: 9000, protocol: "native" },
+  });
+  await gotoDataSourceConfigPage(ds.uid);
+  await closeWhatsNewDialog(page);
+
+  await configPage.additionalSettingsExpandable().click({ force: true });
+  await expect(configPage.exposeErrorsEnabledSwitch()).toBeChecked();
+  await expect(configPage.exposeErrorsVariableName()).toHaveValue("hdx_query_errors");
+  await expect(configPage.exposeErrorsMaxCount()).toHaveValue("5");
+  await expect(configPage.exposeErrorsTtl()).toHaveValue("300");
 });

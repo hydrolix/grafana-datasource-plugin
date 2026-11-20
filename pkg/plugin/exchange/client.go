@@ -3,6 +3,7 @@ package exchange
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -38,7 +39,12 @@ const exchangeTimeout = 10 * time.Second
 // one outbound call this mode depends on carries Grafana's tracing, metrics and
 // error-source middleware like every other call a plugin makes, and honours the
 // standard proxy environment.
-func NewHTTPExchanger(cfg Config) *HTTPExchanger {
+//
+// It answers an error rather than a client without those middlewares. Nothing
+// passed here can make the SDK fail today, so the error is one a later SDK
+// would introduce, and the mode should then read as misconfigured rather than
+// run unobserved.
+func NewHTTPExchanger(cfg Config) (*HTTPExchanger, error) {
 	timeouts := httpclient.DefaultTimeoutOptions
 	timeouts.Timeout = exchangeTimeout
 	client, err := httpclient.New(httpclient.Options{
@@ -46,12 +52,10 @@ func NewHTTPExchanger(cfg Config) *HTTPExchanger {
 		Middlewares: httpclient.DefaultMiddlewares(),
 	})
 	if err != nil {
-		// Only proxy configuration can fail here, and none is passed; a bare
-		// client keeps the mode working rather than unavailable.
-		client = &http.Client{Timeout: exchangeTimeout}
+		return nil, fmt.Errorf("building the exchange HTTP client: %w", err)
 	}
 	client.CheckRedirect = answerRedirects
-	return &HTTPExchanger{Config: cfg, Client: client}
+	return &HTTPExchanger{Config: cfg, Client: client}, nil
 }
 
 // answerRedirects makes a redirect the exchange's answer rather than a hop.

@@ -595,9 +595,19 @@ interface ConfigPageLocator {
 
     adHocTableVariable(): Locator;
 
+    adHocKeysPreferAliasesSwitch(): Locator;
+
     adHocConditionVariable(): Locator;
 
     adHocTimeRangeLookback(): Locator;
+
+    exposeErrorsEnabledSwitch(): Locator;
+
+    exposeErrorsVariableName(): Locator;
+
+    exposeErrorsMaxCount(): Locator;
+
+    exposeErrorsTtl(): Locator;
 
     dialTimeout(): Locator;
 

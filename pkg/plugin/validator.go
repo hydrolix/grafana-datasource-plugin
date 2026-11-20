@@ -76,7 +76,7 @@ func (v *QueryValidator) Validate(ctx context.Context, q models.HdxQuery) (model
 	if selectQuery == nil {
 		return models.ValidationResult{}, nil
 	}
-	if tables := unconstrainedPKTables(validateCtx, selectQuery, q.Headers, v.metadataProvider.GetPK); len(tables) > 0 {
+	if tables := unconstrainedPKTables(validateCtx, selectQuery, q.Headers, v.metadataProvider.GetPK, v.metadataProvider.QueryAliases); len(tables) > 0 {
 		return models.ValidationResult{Warning: pkWarning(tables)}, nil
 	}
 	return models.ValidationResult{}, nil
@@ -175,9 +175,12 @@ func pkWarning(tables []string) string {
 // pkResolver matches MetadataProvider.GetPK, injectable for tests.
 type pkResolver func(ctx context.Context, headers http.Header, database, table string) (string, error)
 
+// aliasResolver matches MetadataProvider.QueryAliases, injectable for tests.
+type aliasResolver func(ctx context.Context, headers http.Header, database, table string) (map[string]string, error)
+
 // unconstrainedPKTables lists tables whose leading primary-key column no
-// filter references.
-func unconstrainedPKTables(ctx context.Context, stmt *parser.SelectQuery, headers http.Header, resolve pkResolver) []string {
+// filter references, directly or through an alias of it.
+func unconstrainedPKTables(ctx context.Context, stmt *parser.SelectQuery, headers http.Header, resolve pkResolver, resolveAliases aliasResolver) []string {
 	graph := newSelectGraph(stmt)
 	var found []string
 	for _, sq := range graph.selects {
@@ -192,6 +195,13 @@ func unconstrainedPKTables(ctx context.Context, stmt *parser.SelectQuery, header
 		if !ok || graph.filters(sq, column) {
 			continue
 		}
+		// Looked up only when the column itself is unfiltered. Hydrolix
+		// summary tables name the key column after its expression and expose
+		// it under an alias, e.g. reqTimeSec ALIAS `toStartOfDay(reqTimeSec)`.
+		aliases, ok := pkAliases(ctx, headers, resolveAliases, table, column)
+		if !ok || graph.filters(sq, aliases...) {
+			continue
+		}
 		description := fmt.Sprintf("Primary key `%s` of `%s`", column, parser.Format(table))
 		if !slices.Contains(found, description) {
 			found = append(found, description)
@@ -203,10 +213,7 @@ func unconstrainedPKTables(ctx context.Context, stmt *parser.SelectQuery, header
 // primaryKeyColumn returns table's leading primary-key column. Lookup failures
 // are skipped: a metadata problem must not become a query warning.
 func primaryKeyColumn(ctx context.Context, headers http.Header, resolve pkResolver, table *parser.TableIdentifier) (string, bool) {
-	database := ""
-	if table.Database != nil {
-		database = table.Database.Name
-	}
+	database := databaseOf(table)
 	primaryKey, err := resolve(ctx, headers, database, table.Table.Name)
 	if err != nil {
 		if !errors.Is(err, ErrPrimaryKeyNotFound) && ctx.Err() == nil {
@@ -214,7 +221,36 @@ func primaryKeyColumn(ctx context.Context, headers http.Header, resolve pkResolv
 		}
 		return "", false
 	}
-	return leadingPKColumn(primaryKey)
+	return namedColumn(primaryKey)
+}
+
+// pkAliases returns table's ALIAS columns whose expression is column itself,
+// whatever their declared type: ClickHouse substitutes an alias before index
+// analysis, so filtering on one filters on column. Lookup failures skip the
+// check, as in primaryKeyColumn.
+func pkAliases(ctx context.Context, headers http.Header, resolve aliasResolver, table *parser.TableIdentifier, column string) ([]string, bool) {
+	database := databaseOf(table)
+	aliases, err := resolve(ctx, headers, database, table.Table.Name)
+	if err != nil {
+		if ctx.Err() == nil {
+			log.DefaultLogger.Warn("query validation: skipping PK check", "database", database, "table", table.Table.Name, "err", err)
+		}
+		return nil, false
+	}
+	var names []string
+	for name, expression := range aliases {
+		if target, ok := namedColumn(expression); ok && target == column {
+			names = append(names, name)
+		}
+	}
+	return names, true
+}
+
+func databaseOf(table *parser.TableIdentifier) string {
+	if table.Database == nil {
+		return ""
+	}
+	return table.Database.Name
 }
 
 // selectGraph holds every SELECT in a statement and, for each FROM subquery or
@@ -278,12 +314,12 @@ func (g selectGraph) baseTable(sq *parser.SelectQuery) *parser.TableIdentifier {
 	return ti
 }
 
-// filters reports whether sq, or every reader of sq, filters on col.
-func (g selectGraph) filters(sq *parser.SelectQuery, col string) bool {
+// filters reports whether sq, or every reader of sq, filters on any of cols.
+func (g selectGraph) filters(sq *parser.SelectQuery, cols ...string) bool {
 	visiting := map[*parser.SelectQuery]bool{} // CTEs can read each other
 	var check func(*parser.SelectQuery) bool
 	check = func(s *parser.SelectQuery) bool {
-		if whereReferences(s, col) {
+		if whereReferences(s, cols...) {
 			return true
 		}
 		if len(g.readers[s]) == 0 || visiting[s] {
@@ -301,9 +337,9 @@ func (g selectGraph) filters(sq *parser.SelectQuery, col string) bool {
 	return check(sq)
 }
 
-func whereReferences(sq *parser.SelectQuery, col string) bool {
-	return (sq.Prewhere != nil && referencesColumn(sq.Prewhere.Expr, col)) ||
-		(sq.Where != nil && referencesColumn(sq.Where.Expr, col))
+func whereReferences(sq *parser.SelectQuery, cols ...string) bool {
+	return (sq.Prewhere != nil && referencesColumn(sq.Prewhere.Expr, cols...)) ||
+		(sq.Where != nil && referencesColumn(sq.Where.Expr, cols...))
 }
 
 // setBranches returns sq and its UNION / EXCEPT / INTERSECT branches.
@@ -323,13 +359,15 @@ func setBranches(sq *parser.SelectQuery) []*parser.SelectQuery {
 	return branches
 }
 
-// leadingPKColumn returns the first column of a primary_key value: the one
-// the sparse index mainly skips data on. Expression keys report false.
-func leadingPKColumn(primaryKey string) (string, bool) {
-	if strings.TrimSpace(primaryKey) == "" {
+// namedColumn returns the column the first expression of exprs names, bare or
+// backtick-quoted; any other expression reports false. For a primary_key value
+// that is the leading column, the one the sparse index mainly skips data on;
+// for an ALIAS expression, the column the alias stands for.
+func namedColumn(exprs string) (string, bool) {
+	if strings.TrimSpace(exprs) == "" {
 		return "", false
 	}
-	stmts, err := parser.NewParser("SELECT " + primaryKey).ParseStmts()
+	stmts, err := parser.NewParser("SELECT " + exprs).ParseStmts()
 	if err != nil || len(stmts) != 1 {
 		return "", false
 	}
@@ -340,12 +378,13 @@ func leadingPKColumn(primaryKey string) (string, bool) {
 	return cte.IdentName(sel.SelectItems[0].Expr)
 }
 
-// referencesColumn matches col exactly (ClickHouse is case-sensitive), bare or
-// qualified. Mentions in nested subqueries count; that can only hide a warning.
-func referencesColumn(expr parser.Expr, col string) bool {
+// referencesColumn matches any of cols exactly (ClickHouse is case-sensitive),
+// bare or qualified. Mentions in nested subqueries count; that can only hide a
+// warning.
+func referencesColumn(expr parser.Expr, cols ...string) bool {
 	found := false
 	parser.Walk(expr, func(node parser.Expr) bool {
-		if id, ok := node.(*parser.Ident); ok && id.Name == col {
+		if id, ok := node.(*parser.Ident); ok && slices.Contains(cols, id.Name) {
 			found = true
 		}
 		return !found

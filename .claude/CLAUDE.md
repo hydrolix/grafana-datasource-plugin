@@ -157,7 +157,11 @@ Host Go picks up the wrong toolchain. See `build-plugin`.
   (the sqlds path; `withoutInterpolation(ctx)` stops `HdxInterpolator` from
   expanding the already-expanded SQL again), then warns when no filter —
   its own, or every reader's for a CTE body or FROM subquery — references a
-  table's leading primary-key column. Query problems go in the response
+  table's leading primary-key column or an ALIAS whose expression is that
+  column (Hydrolix summary tables:
+  ``reqTimeSec ALIAS `toStartOfDay(reqTimeSec)` ``). Aliases come from an uncached `DESCRIBE`
+  (`QueryAliases`; Hydrolix's `system.columns` omits ALIAS columns), issued
+  only when the column itself is unfiltered. Query problems go in the response
   `data`; the envelope `error` is only for failing to validate. The frontend
   expands template variables, including the panel's `scopedVars`, first.
 - The HTTP transport chain (`transportFor`, `pkg/plugin/transport.go`) wraps

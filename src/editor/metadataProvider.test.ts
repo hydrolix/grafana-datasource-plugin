@@ -212,7 +212,7 @@ describe("MetadataProvider", () => {
       { text: "column1", type: "String", value: "column1" },
       { text: "column2", type: "Nullable(String)", value: "column2" },
       { text: "column3", type: "Array(String)", value: "column3" },
-      { text: "column5", type: "String", value: "column5" },
+      { text: "column5", type: "String", value: "column5", aliasFor: "column1" },
       { text: "column6", type: "Array(Nullable(String))", value: "column6" },
     ]);
   });
@@ -388,6 +388,7 @@ describe("getKeyMap", () => {
           text: "timestamp_min",
           type: "DateTime",
           value: "timestamp_min",
+          aliasFor: "toStartOfMinute(reqTimeSec)",
         },
       ],
     },
@@ -399,12 +400,67 @@ describe("getKeyMap", () => {
           text: "hour_ts",
           type: "DateTime",
           value: "hour_ts",
+          aliasFor: "toStartOfHour(datetime)",
         },
         {
           text: "sampled_request_path",
           type: "Nullable(String)",
           value: "sampled_request_path",
+          aliasFor:
+            "if(less(modulo(cityHash64(request_path, client_ip, datetime, request_query_params), 100), 1), request_path, '~~~SAMPLED_OUT~~~')",
         },
+      ],
+    },
+    {
+      name: "bare identity alias is listed with its target's type",
+      describe: [
+        { name: "cliIP", type: "String", default_type: "", default_expression: "" },
+        { name: "client_ip", type: "String", default_type: "ALIAS", default_expression: "cliIP" },
+      ],
+      keys: [
+        { text: "cliIP", type: "String", value: "cliIP" },
+        { text: "client_ip", type: "String", value: "client_ip", aliasFor: "cliIP" },
+      ],
+    },
+    {
+      name: "backtick-wrapped identity alias is listed with its target's type",
+      describe: [
+        { name: "cliIP", type: "String", default_type: "", default_expression: "" },
+        { name: "client_ip", type: "String", default_type: "ALIAS", default_expression: "`cliIP`" },
+      ],
+      keys: [
+        { text: "cliIP", type: "String", value: "cliIP" },
+        { text: "client_ip", type: "String", value: "client_ip", aliasFor: "cliIP" },
+      ],
+    },
+    {
+      name: "computed aliases are excluded in either spelling",
+      describe: [
+        { name: "cliIP", type: "String", default_type: "", default_expression: "" },
+        { name: "datetime", type: "DateTime", default_type: "", default_expression: "" },
+        { name: "lowered", type: "String", default_type: "ALIAS", default_expression: "lower(cliIP)" },
+        { name: "lowered_quoted", type: "String", default_type: "ALIAS", default_expression: "lower(`cliIP`)" },
+        { name: "hour", type: "DateTime", default_type: "ALIAS", default_expression: "`toStartOfHour(datetime)`" },
+      ],
+      keys: [
+        { text: "cliIP", type: "String", value: "cliIP" },
+        { text: "datetime", type: "DateTime", value: "datetime" },
+      ],
+    },
+    {
+      name: "type-changing, missing-target and chained aliases carry no aliasFor",
+      describe: [
+        { name: "cliIP", type: "String", default_type: "", default_expression: "" },
+        { name: "cast", type: "IPv4", default_type: "ALIAS", default_expression: "cliIP" },
+        { name: "missing", type: "String", default_type: "ALIAS", default_expression: "unknown" },
+        { name: "a", type: "String", default_type: "ALIAS", default_expression: "b" },
+        { name: "b", type: "String", default_type: "ALIAS", default_expression: "a" },
+      ],
+      keys: [
+        { text: "cliIP", type: "String", value: "cliIP" },
+        { text: "cast", type: "String", value: "cast" },
+        { text: "a", type: "String", value: "a" },
+        { text: "b", type: "String", value: "b" },
       ],
     },
     {

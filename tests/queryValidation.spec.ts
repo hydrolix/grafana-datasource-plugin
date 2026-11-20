@@ -92,6 +92,33 @@ test("warns when the primary key is not filtered, without blocking Run", async (
   ]);
 });
 
+// `e2e.validation_summary` is keyed on `toStartOfDay(reqTimeSec)`, which the
+// identity alias `reqTimeSec` exposes, as on a Hydrolix summary table.
+test("accepts the primary key filtered through its identity alias", async () => {
+  await queryTextSet(
+    "A",
+    "SELECT count() FROM e2e.validation_summary WHERE $__timeFilter(reqTimeSec)",
+    panelEditPage
+  );
+
+  await expect(validationBar()).toContainText("Query is valid", {
+    timeout: 30000,
+  });
+});
+
+test("still warns when neither the key column nor its alias is filtered", async () => {
+  await queryTextSet(
+    "A",
+    "SELECT count() FROM e2e.validation_summary WHERE hits > 0",
+    panelEditPage
+  );
+
+  await expect(validationBar()).toContainText(
+    "Primary key `toStartOfDay(reqTimeSec)` of `e2e.validation_summary` not filtered in WHERE",
+    { timeout: 30000 }
+  );
+});
+
 test("does not dry-run non-SELECT statements", async ({ page }) => {
   const skipped = page.waitForResponse(
     async (response) =>

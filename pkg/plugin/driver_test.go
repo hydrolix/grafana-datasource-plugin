@@ -753,3 +753,61 @@ func TestMutateQueryData_CacheKeyShape(t *testing.T) {
 	assert.NotEqual(t, keyBoot, keyOrg3, "userAccount + orgId must NOT collapse to the bootstrap pool")
 	assert.NotSame(t, dbA1.DB(), dbOrg3.DB(), "userAccount-org3 pool must be distinct from forwardOAuth-tokenA-org1 pool")
 }
+
+// A setting stored with an empty value is left out of the query context, so
+// Hydrolix never receives `setting=` with nothing after it.
+func TestMutateQuerySkipsEmptyQuerySettings(t *testing.T) {
+	plugin := &Hydrolix{querySettingsContextHandler: testContextHandler}
+	query := backend.DataQuery{JSON: []byte(`{"querySettings":[
+		{"setting":"hdx_query_max_rows","value":"100"},
+		{"setting":"hdx_query_unknown","value":""}
+	]}`)}
+
+	ctx, _ := plugin.MutateQuery(context.Background(), query)
+
+	assert.Equal(t,
+		map[string]any{"hdx_query_max_rows": clickhouse.CustomSetting{Value: "100"}},
+		ctx.Value("querySettings"))
+}
+
+// A per-query value written by hand as a JSON number, the way an alert rule or
+// the query API can carry it, overrides the data source's value as text.
+func TestMutateQueryData_NumericQuerySettingValue(t *testing.T) {
+	h := &Hydrolix{querySettingsContextHandler: testContextHandler}
+	req := makeQueryDataReq(t, "", nil, `{"rawSql":"select 1","querySettings":[
+		{"setting":"hdx_query_max_execution_time","value":30},
+		{"setting":"hdx_query_streaming_result","value":true}
+	]}`)
+	req.PluginContext.DataSourceInstanceSettings.JSONData = []byte(`{"host":"localhost","port":80,"protocol":"http",
+		"querySettings":[{"setting":"hdx_query_max_execution_time","value":"60"}]}`)
+
+	_, out := h.MutateQueryData(context.Background(), req)
+	ctx, _ := h.MutateQuery(context.Background(), out.Queries[0])
+
+	assert.Equal(t,
+		map[string]any{
+			"hdx_query_max_execution_time": clickhouse.CustomSetting{Value: "30"},
+			"hdx_query_streaming_result":   clickhouse.CustomSetting{Value: "true"},
+		},
+		ctx.Value("querySettings"))
+}
+
+// A per-query entry with no name is dropped in the merge, the way a stored one
+// is, so Hydrolix never receives a setting with an empty name.
+func TestMutateQueryData_NamelessQuerySettingDropped(t *testing.T) {
+	h := &Hydrolix{querySettingsContextHandler: testContextHandler}
+	req := makeQueryDataReq(t, "", nil, `{"rawSql":"select 1","querySettings":[
+		{"value":"5"},
+		{"setting":"hdx_query_max_rows","value":"100"}
+	]}`)
+
+	_, out := h.MutateQueryData(context.Background(), req)
+	ctx, _ := h.MutateQuery(context.Background(), out.Queries[0])
+
+	assert.JSONEq(t,
+		`{"rawSql":"select 1","querySettings":[{"setting":"hdx_query_max_rows","value":"100"}]}`,
+		string(out.Queries[0].JSON))
+	assert.Equal(t,
+		map[string]any{"hdx_query_max_rows": clickhouse.CustomSetting{Value: "100"}},
+		ctx.Value("querySettings"))
+}

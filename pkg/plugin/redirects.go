@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 )
 
 // RedirectError is the answer to the cluster, or whatever answers at its
@@ -15,22 +17,39 @@ import (
 // other header, X-ClickHouse-Key among them, to any host at all. So a proxy
 // in front of the cluster, or a mis-pointed datasource, could send the
 // credential of any mode somewhere nobody configured. ClickHouse itself never
-// redirects; a 3xx is the operator's problem and is reported as one, naming
-// where it pointed.
+// redirects; a 3xx is the operator's problem and is reported as one.
 //
-// Location is already redacted (redactLocation): whoever answered chose it,
-// and it is logged and shown in the panel, so it carries no userinfo, query
-// or fragment, only where the hop would have gone.
+// The message names the status alone. Where the hop pointed is written by
+// whoever answered at the configured address, and on a shared Grafana that
+// can be a service the person pressing Save & test has no other way to see;
+// its Location goes to the log, not to them. It is redacted there too
+// (redactLocation): no userinfo, query or fragment, only where the hop would
+// have gone.
 type RedirectError struct {
 	Status   int
 	Location string
 }
 
 func (e *RedirectError) Error() string {
-	if e.Location == "" {
-		return fmt.Sprintf("the cluster answered HTTP %d, a redirect, which the plugin does not follow", e.Status)
+	return fmt.Sprintf("the cluster answered HTTP %d, a redirect, which the plugin does not follow: a redirect would carry the credential off the configured host", e.Status)
+}
+
+// The opening of RedirectError's message, for an error that arrives as a
+// string: sqlds hands the health check a message, not an error.
+var redirectText = regexp.MustCompile(`the cluster answered HTTP (\d{3}), a redirect`)
+
+// redirectFromText recovers a RedirectError from its own message. The
+// Location is not in the message and stays empty.
+func redirectFromText(text string) (*RedirectError, bool) {
+	m := redirectText.FindStringSubmatch(text)
+	if m == nil {
+		return nil, false
 	}
-	return fmt.Sprintf("the cluster answered HTTP %d redirecting to %q, which the plugin does not follow: a redirect would carry the credential off the configured host", e.Status, e.Location)
+	status, err := strconv.Atoi(m[1])
+	if err != nil {
+		return nil, false
+	}
+	return &RedirectError{Status: status}, true
 }
 
 // refuseRedirects wraps a transport so that a response http.Client would
@@ -84,11 +103,10 @@ func (n *noRedirects) RoundTrip(req *http.Request) (*http.Response, error) {
 
 // redactLocation keeps of a redirect target only what says where it pointed:
 // scheme, host and path. A Location is written by whatever answered at the
-// cluster's address, and the plugin logs it and puts it in the panel's error,
-// so userinfo, the query string and the fragment are dropped unread: a
-// credential or a token in any of them must not travel into Grafana's log or
-// a dashboard. A value that does not parse as a URL is not quoted either; the
-// error then names the status alone.
+// cluster's address, and the plugin logs it, so userinfo, the query string and
+// the fragment are dropped unread: a credential or a token in any of them must
+// not travel into Grafana's log. A value that does not parse as a URL is not
+// logged either.
 func redactLocation(location string) string {
 	if location == "" {
 		return ""

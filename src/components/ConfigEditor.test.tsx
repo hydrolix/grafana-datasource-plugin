@@ -271,6 +271,372 @@ describe("ConfigEditor", () => {
     );
   });
 
+  it("writes adHocKeysPreferAliases to jsonData on toggle, defaulting off", () => {
+    const onOptionsChange = jest.fn();
+    render(
+      <ConfigEditor {...getDefaultProps({})} onOptionsChange={onOptionsChange} />
+    );
+    expandAdditionalSettings();
+    const toggle = screen.getByLabelText(
+      labels.adHocKeysPreferAliases.label
+    ) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    fireEvent.click(toggle);
+    expect(onOptionsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        jsonData: expect.objectContaining({ adHocKeysPreferAliases: true }),
+      })
+    );
+  });
+
+  describe("query settings", () => {
+    const querySettingsLabels = allLabels.components.querySettings;
+    const maxRows = querySettingsLabels.values.find(
+      (v) => v.setting === "hdx_query_max_rows"
+    )!;
+    const unknown = { setting: "hdx_query_unknown", value: "10" };
+    const known = { setting: maxRows.setting, value: "5" };
+
+    it("renders an unknown setting with its value and the warning, without a validation error", () => {
+      render(
+        <ConfigEditor {...getDefaultProps({ querySettings: [unknown] })} />
+      );
+      expandAdditionalSettings();
+      expect(screen.getByLabelText(unknown.setting)).toHaveValue("10");
+      expect(
+        screen.getByText(querySettingsLabels.unknownSettingWarning)
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("renders known and unknown settings together", () => {
+      render(
+        <ConfigEditor
+          {...getDefaultProps({ querySettings: [known, unknown] })}
+        />
+      );
+      expandAdditionalSettings();
+      expect(screen.getByLabelText(known.setting)).toHaveValue("5");
+      expect(screen.getByLabelText(unknown.setting)).toHaveValue("10");
+      expect(
+        screen.getByText(
+          (_, el) => el?.textContent === maxRows.description && el.tagName !== "BODY"
+        )
+      ).toBeInTheDocument();
+      expect(
+        screen.getAllByText(querySettingsLabels.unknownSettingWarning)
+      ).toHaveLength(1);
+    });
+
+    it("writes an edited unknown setting to jsonData", () => {
+      const onOptionsChange = jest.fn();
+      render(
+        <ConfigEditor
+          {...getDefaultProps({ querySettings: [known, unknown] })}
+          onOptionsChange={onOptionsChange}
+        />
+      );
+      expandAdditionalSettings();
+      fireEvent.change(screen.getByLabelText(unknown.setting), {
+        target: { value: "20" },
+      });
+      expect(onOptionsChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          jsonData: expect.objectContaining({
+            querySettings: [known, { setting: unknown.setting, value: "20" }],
+          }),
+        })
+      );
+    });
+
+    it("removes an unknown setting and keeps the others", () => {
+      const onOptionsChange = jest.fn();
+      render(
+        <ConfigEditor
+          {...getDefaultProps({ querySettings: [known, unknown] })}
+          onOptionsChange={onOptionsChange}
+        />
+      );
+      expandAdditionalSettings();
+      fireEvent.click(
+        screen.getByLabelText(querySettingsLabels.removeLabel(unknown.setting))
+      );
+      expect(onOptionsChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          jsonData: expect.objectContaining({ querySettings: [known] }),
+        })
+      );
+    });
+
+    it("shows a validation error for a bad value of a known setting", () => {
+      render(
+        <ConfigEditor
+          {...getDefaultProps({
+            querySettings: [{ setting: known.setting, value: "abc" }],
+          })}
+        />
+      );
+      expandAdditionalSettings();
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "value is not a valid number"
+      );
+    });
+
+    it("does not mark an unknown setting named like an Object.prototype member invalid", () => {
+      render(
+        <ConfigEditor
+          {...getDefaultProps({
+            querySettings: [{ setting: "constructor", value: "1" }],
+          })}
+        />
+      );
+      expandAdditionalSettings();
+      expect(screen.getByLabelText("constructor", { selector: "input" })).toHaveValue(
+        "1"
+      );
+      expect(
+        screen.getByText(querySettingsLabels.unknownSettingWarning)
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ["1", "Yes"],
+      [1, "Yes"],
+      [true, "Yes"],
+      ["true", "Yes"],
+      ["0", "No"],
+      [0, "No"],
+      [false, "No"],
+    ])("shows a boolean setting stored as %p as %s", (value, shown) => {
+      render(
+        <ConfigEditor
+          {...getDefaultProps({
+            querySettings: [
+              { setting: "hdx_query_timerange_required", value },
+            ] as any,
+          })}
+        />
+      );
+      expandAdditionalSettings();
+      expect(screen.getByText(shown)).toBeInTheDocument();
+    });
+
+    it.each([
+      ["a non-array", { hdx_query_unknown: "10" }],
+      ["entries that are not objects", [null, "junk", unknown]],
+      ["an entry whose name is an object", [{ setting: { name: "x" } }]],
+    ])("renders when querySettings holds %s", (_, stored) => {
+      render(
+        <ConfigEditor
+          {...getDefaultProps({ querySettings: stored as any })}
+        />
+      );
+      expandAdditionalSettings();
+      expect(
+        screen.getByText(querySettingsLabels.label)
+      ).toBeInTheDocument();
+    });
+
+    it("drops the entries that are not objects on the first edit", () => {
+      const onOptionsChange = jest.fn();
+      render(
+        <ConfigEditor
+          {...getDefaultProps({ querySettings: [null, unknown] as any })}
+          onOptionsChange={onOptionsChange}
+        />
+      );
+      expandAdditionalSettings();
+      fireEvent.change(screen.getByLabelText(unknown.setting), {
+        target: { value: "20" },
+      });
+      expect(onOptionsChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          jsonData: expect.objectContaining({
+            querySettings: [{ setting: unknown.setting, value: "20" }],
+          }),
+        })
+      );
+    });
+
+    it.each([
+      ["an unknown", unknown.setting],
+      ["a known", known.setting],
+    ])("removes %s setting left empty on blur", (_, setting) => {
+      const onOptionsChange = jest.fn();
+      const other = { setting: "hdx_query_other", value: "1" };
+      render(
+        <ConfigEditor
+          {...getDefaultProps({
+            querySettings: [{ setting, value: "" }, other],
+          })}
+          onOptionsChange={onOptionsChange}
+        />
+      );
+      expandAdditionalSettings();
+      fireEvent.blur(screen.getByLabelText(setting));
+      expect(onOptionsChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          jsonData: expect.objectContaining({ querySettings: [other] }),
+        })
+      );
+    });
+
+    it("keeps a setting with a value on blur", () => {
+      const onOptionsChange = jest.fn();
+      render(
+        <ConfigEditor
+          {...getDefaultProps({ querySettings: [unknown] })}
+          onOptionsChange={onOptionsChange}
+        />
+      );
+      expandAdditionalSettings();
+      fireEvent.blur(screen.getByLabelText(unknown.setting));
+      expect(onOptionsChange).not.toHaveBeenCalled();
+    });
+
+    it("removes only the clicked row when two entries share a name", () => {
+      const onOptionsChange = jest.fn();
+      const first = { setting: unknown.setting, value: "1" };
+      const second = { setting: unknown.setting, value: "2" };
+      render(
+        <ConfigEditor
+          {...getDefaultProps({ querySettings: [first, second] })}
+          onOptionsChange={onOptionsChange}
+        />
+      );
+      expandAdditionalSettings();
+      fireEvent.click(
+        screen.getAllByLabelText(
+          querySettingsLabels.removeLabel(unknown.setting)
+        )[1]
+      );
+      expect(onOptionsChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          jsonData: expect.objectContaining({ querySettings: [first] }),
+        })
+      );
+    });
+
+    it("edits only the changed row when two entries share a name", () => {
+      const onOptionsChange = jest.fn();
+      const first = { setting: unknown.setting, value: "1" };
+      const second = { setting: unknown.setting, value: "2" };
+      render(
+        <ConfigEditor
+          {...getDefaultProps({ querySettings: [first, second] })}
+          onOptionsChange={onOptionsChange}
+        />
+      );
+      expandAdditionalSettings();
+      fireEvent.change(screen.getAllByLabelText(unknown.setting)[1], {
+        target: { value: "3" },
+      });
+      expect(onOptionsChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          jsonData: expect.objectContaining({
+            querySettings: [first, { setting: unknown.setting, value: "3" }],
+          }),
+        })
+      );
+    });
+  });
+
+  describe("error exposure", () => {
+    const enabledSwitch = () =>
+      screen
+        .getByTestId(labels.exposeErrorsEnabled.testId)
+        .querySelector("input")!;
+
+    it("shows the runtime defaults when exposeErrors is not stored, without writing", () => {
+      const onOptionsChange = jest.fn();
+      render(
+        <ConfigEditor {...getDefaultProps({})} onOptionsChange={onOptionsChange} />
+      );
+      expandAdditionalSettings();
+      expect(enabledSwitch()).toBeChecked();
+      expect(
+        screen.getByLabelText(labels.exposeErrorsVariableName.label)
+      ).toHaveValue("hdx_query_errors");
+      expect(screen.getByLabelText(labels.exposeErrorsMaxCount.label)).toHaveValue(5);
+      expect(screen.getByLabelText(labels.exposeErrorsTtl.label)).toHaveValue(300);
+      expect(onOptionsChange).not.toHaveBeenCalled();
+    });
+
+    it("writes the complete block when turned off", () => {
+      const onOptionsChange = jest.fn();
+      render(
+        <ConfigEditor {...getDefaultProps({})} onOptionsChange={onOptionsChange} />
+      );
+      expandAdditionalSettings();
+      fireEvent.click(enabledSwitch());
+      expect(onOptionsChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          jsonData: expect.objectContaining({
+            exposeErrors: {
+              enabled: false,
+              variableName: "hdx_query_errors",
+              maxCount: 5,
+              ttl: 300,
+            },
+          }),
+        })
+      );
+    });
+
+    it("fills the missing keys of a partial block when a field is edited", () => {
+      const onOptionsChange = jest.fn();
+      render(
+        <ConfigEditor
+          {...getDefaultProps({ exposeErrors: { enabled: true } })}
+          onOptionsChange={onOptionsChange}
+        />
+      );
+      expandAdditionalSettings();
+      fireEvent.change(screen.getByLabelText(labels.exposeErrorsTtl.label), {
+        target: { value: "60" },
+      });
+      expect(onOptionsChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          jsonData: expect.objectContaining({
+            exposeErrors: {
+              enabled: true,
+              variableName: "hdx_query_errors",
+              maxCount: 5,
+              ttl: 60,
+            },
+          }),
+        })
+      );
+    });
+
+    it("keeps a stored off block off with its fields hidden", () => {
+      render(
+        <ConfigEditor
+          {...getDefaultProps({
+            exposeErrors: {
+              enabled: false,
+              variableName: "hdx_query_errors",
+              maxCount: 5,
+              ttl: 300,
+            },
+          })}
+        />
+      );
+      expandAdditionalSettings();
+      expect(enabledSwitch()).not.toBeChecked();
+      expect(
+        screen.queryByLabelText(labels.exposeErrorsVariableName.label)
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByLabelText(labels.exposeErrorsMaxCount.label)
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByLabelText(labels.exposeErrorsTtl.label)
+      ).not.toBeInTheDocument();
+    });
+  });
+
   // it('port input is enabled', () => {
   //     let component = render(<ConfigEditor {...getDefaultProps({})} />);
   //     expect(component.container.querySelector('#config-editor-port')?.getAttribute("disabled")).toBeNull();

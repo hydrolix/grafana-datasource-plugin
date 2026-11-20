@@ -187,7 +187,8 @@ func TestConnectRefusesARedirectInThePasswordMode(t *testing.T) {
 	assert.Equal(t, http.StatusPermanentRedirect, redirect.Status)
 	assert.Empty(t, elsewhereSaw.requests(), "a request reached the redirect target")
 	assert.True(t, backend.IsDownstreamError(err))
-	assert.True(t, strings.HasPrefix(err.Error(), "the cluster answered HTTP 308 redirecting to"), err.Error())
+	assert.True(t, strings.HasPrefix(err.Error(), "the cluster answered HTTP 308, a redirect"), err.Error())
+	assert.NotContains(t, err.Error(), "127.0.0.1", "the message names where the redirect pointed")
 }
 
 // socketCloses is a server that counts the connections its clients closed.
@@ -308,8 +309,9 @@ func TestRefuseRedirectsRedactsTheLocationItReports(t *testing.T) {
 	require.True(t, errors.As(err, &redirect), "got %v", err)
 	assert.Equal(t, http.StatusFound, redirect.Status)
 	assert.Equal(t, "https://elsewhere.example.com/callback", redirect.Location)
-	for _, secret := range []string{"alice", "s3cret", "token=abc", "frag"} {
-		assert.NotContains(t, err.Error(), secret)
+	// The Location is kept for the log, redacted; the message carries none of it.
+	for _, hidden := range []string{"alice", "s3cret", "token=abc", "frag", "elsewhere.example.com", "callback"} {
+		assert.NotContains(t, err.Error(), hidden)
 	}
-	assert.Contains(t, err.Error(), `redirecting to "https://elsewhere.example.com/callback"`)
+	assert.Contains(t, err.Error(), "HTTP 302")
 }
