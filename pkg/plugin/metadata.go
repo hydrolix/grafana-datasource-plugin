@@ -59,8 +59,10 @@ type metadataDS interface {
 }
 
 // MetadataProvider caches primary-key lookups and column-type maps, per
-// (forwarded identity, database, table) and (forwarded identity, CTE). Both caches use ttlcache with a 1-hour TTL —
-// matches the connection cache (C3) and the fork's hardcoded choice.
+// (forwarded identity, database, table) and (forwarded identity, CTE). The
+// primary-key cache uses ttlcache with a 1-hour TTL — matches the connection
+// cache (C3) and the fork's hardcoded choice. The column-type map expires
+// sooner, and on a fixed schedule: see adHocKeysTTL.
 //
 // Schema queries are issued through ds.QueryData(...), so they participate
 // in OAuth-keyed pooling (C4) and the TTL connection cache (C3) identically
@@ -71,14 +73,31 @@ type MetadataProvider struct {
 	keyCache *ttlcache.Cache[string, map[string]string]
 }
 
+// adHocKeysTTL bounds how long a column-type map is reused, counted from the
+// DESCRIBE that produced it. A Hydrolix table gains names while dashboards are
+// open (a naming profile publishes `userAgent` as an alias of `UA`), and
+// $__adHocFilter drops a filter whose column the map does not list, so a stale
+// map returns unfiltered rows for a filter on the new name. Reads do not
+// extend an entry: a dashboard that queries more often than the TTL would
+// otherwise keep the first map for the life of the datasource instance. The
+// frontend's key list expires on the same schedule (AD_HOC_KEYS_TTL_MS).
+const adHocKeysTTL = time.Minute
+
 // NewMetadataProvider builds a MetadataProvider with both caches initialised
 // and their sweep goroutines started.
 func NewMetadataProvider(ds metadataDS) *MetadataProvider {
+	return newMetadataProvider(ds, adHocKeysTTL)
+}
+
+// newMetadataProvider takes the column-type map's TTL, so tests can watch an
+// entry expire.
+func newMetadataProvider(ds metadataDS, keysTTL time.Duration) *MetadataProvider {
 	pkCache := ttlcache.New[string, string](
 		ttlcache.WithTTL[string, string](time.Hour),
 	)
 	keyCache := ttlcache.New[string, map[string]string](
-		ttlcache.WithTTL[string, map[string]string](time.Hour),
+		ttlcache.WithTTL[string, map[string]string](keysTTL),
+		ttlcache.WithDisableTouchOnHit[string, map[string]string](),
 	)
 	go pkCache.Start()
 	go keyCache.Start()

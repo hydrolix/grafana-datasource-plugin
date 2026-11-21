@@ -24,6 +24,14 @@ export const AD_HOC_VALUE_TOP_K = 100;
 // `adHocTimeRangeLookback` is unset or invalid.
 export const AD_HOC_PRELOAD_LOOKBACK_SECONDS = 86400;
 export const AD_HOC_PRELOAD_ROUND_INTERVAL = "5m";
+
+// How long a table's ad-hoc filter key names are reused before the next key
+// or value dropdown runs DESCRIBE again. A Hydrolix table gains names while
+// dashboards are open (a naming profile publishes `userAgent` as an alias of
+// `UA`), and Grafana keeps the DataSource instance that holds the list until
+// the page reloads or the datasource is saved. The backend's column-type map
+// for `$__adHocFilter` expires on the same schedule (`adHocKeysTTL`).
+export const AD_HOC_KEYS_TTL_MS = 60_000;
 export const AD_HOC_PRELOAD_ROUND_INTERVAL_SECONDS = 300;
 
 // The timerange guardrail follows the datasource's lookback, padded by one
