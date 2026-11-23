@@ -1,0 +1,9 @@
+# Actions are pinned by .github/workflows/actions.lock (GitHub Actions workflow
+# lockfile), which records the exact commit for every tag-referenced action and
+# fails the run if one moves. zizmor's unpinned-uses audit doesn't read the
+# lockfile yet, so accept version-tag references here instead of SHA pins.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "*": ref-pin
